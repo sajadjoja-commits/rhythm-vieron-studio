@@ -1,0 +1,11 @@
+{
+  "name": "Vireon AI",
+  "description": "An AI-powered smart video editor that automatically cuts, captions, and adds music to your clips.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
