@@ -1,4 +1,5 @@
 import { pipeline, env } from "@xenova/transformers";
+import { Capacitor } from "@capacitor/core";
 
 // Optimized Faster-Whisper configuration for Transformers.js in Web Worker
 env.allowLocalModels = false;
@@ -24,6 +25,42 @@ function normalizeArabicText(text: string): string {
 }
 
 const loadModelWithRetry = async (modelName: string, progress_callback: any, maxRetries = 2) => {
+  const isAndroidNative = Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
+
+  if (isAndroidNative) {
+    env.allowLocalModels = true;
+    env.allowRemoteModels = false;
+
+    // In Capacitor Android webview context, assets bundled in android/app/src/main/assets/models/
+    // are served directly by WebViewAssetLoader relative to origin (e.g. https://localhost/models/)
+    const origin = typeof self !== "undefined" && self.location?.origin ? self.location.origin : "https://localhost";
+    env.localModelPath = `${origin}/models/`;
+
+    const localModelName = modelName.replace(/^Xenova\//i, "");
+    console.log(`[Faster-Whisper ONNX Native Android] Loading local model "${localModelName}" from ${env.localModelPath} (No remote network requests)`);
+
+    try {
+      const model = await pipeline("automatic-speech-recognition", localModelName, {
+        quantized: true,
+        progress_callback,
+      });
+      currentModelName = modelName;
+      return model;
+    } catch (localErr: any) {
+      console.error("[Faster-Whisper ONNX Native Android] Local model load error:", localErr);
+      // Fallback attempt using modelName as-is if stripped name fails
+      const model = await pipeline("automatic-speech-recognition", modelName, {
+        quantized: true,
+        progress_callback,
+      });
+      currentModelName = modelName;
+      return model;
+    }
+  }
+
+  // Web / PWA mode: Keep current remote fetch logic with mirror fallbacks
+  env.allowLocalModels = false;
+  env.allowRemoteModels = true;
   const hosts = ["https://huggingface.co", "https://hf-mirror.com"];
   let lastError = null;
 
@@ -31,7 +68,7 @@ const loadModelWithRetry = async (modelName: string, progress_callback: any, max
     for (const host of hosts) {
       try {
         env.remoteHost = host;
-        console.log(`[Faster-Whisper ONNX] Loading ${modelName} from ${host} (Attempt ${attempt}/${maxRetries})`);
+        console.log(`[Faster-Whisper ONNX Web] Loading ${modelName} from ${host} (Attempt ${attempt}/${maxRetries})`);
         
         const model = await pipeline("automatic-speech-recognition", modelName, {
           quantized: true,

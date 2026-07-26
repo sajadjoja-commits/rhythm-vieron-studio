@@ -1,4 +1,5 @@
 import { pipeline, env } from "@xenova/transformers";
+import { Capacitor } from "@capacitor/core";
 
 env.allowLocalModels = false;
 env.allowRemoteModels = true;
@@ -8,6 +9,25 @@ let transcriber: any = null;
 let isProcessing = false;
 
 const loadModelWithRetry = async (progress_callback: any, maxRetries = 3) => {
+  const isAndroidNative = Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
+
+  if (isAndroidNative) {
+    env.allowLocalModels = true;
+    env.allowRemoteModels = false;
+    const origin = typeof self !== "undefined" && self.location?.origin ? self.location.origin : "https://localhost";
+    env.localModelPath = `${origin}/models/`;
+
+    console.log(`[Faster-Whisper Native Android] Loading local whisper-tiny from ${env.localModelPath}`);
+    const model = await pipeline("automatic-speech-recognition", "whisper-tiny", {
+      device: "wasm",
+      quantized: true,
+      progress_callback,
+    });
+    return model;
+  }
+
+  env.allowLocalModels = false;
+  env.allowRemoteModels = true;
   const hosts = ["https://huggingface.co", "https://hf-mirror.com"];
   let lastError = null;
 
