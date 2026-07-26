@@ -1394,37 +1394,43 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
                 />
               </div>
 
-              {/* Caption track — collapsed when not focused */}
+              {/* Caption track — Text track (Always shown by default) */}
               <div onClick={() => setFocusedTrack("caption")}>
                 <CaptionTimeline currentTime={currentTime} pxPerSec={pxPerSec} containerW={tlWidth} isPlaying={isPlaying} focused={focusedTrack === "caption"} onSeek={seek} />
               </div>
 
-              {/* Audio track */}
+              {/* Audio track — Music track (Always shown by default) */}
               <div onClick={() => setFocusedTrack("audio")}>
                 <AudioTimeline currentTime={currentTime} pxPerSec={pxPerSec} containerW={tlWidth} isPlaying={isPlaying} focused={focusedTrack === "audio"} onSeek={seek} />
               </div>
 
-              {/* Filter track */}
-              <div onClick={() => setFocusedTrack("filter")}>
-                <FilterTimeline currentTime={currentTime} pxPerSec={pxPerSec} containerW={tlWidth} isPlaying={isPlaying} focused={focusedTrack === "filter"} onSeek={seek} />
-              </div>
+              {/* Filter track — Appears when filters exist or focused */}
+              {(filters.length > 0 || focusedTrack === "filter") && (
+                <div onClick={() => setFocusedTrack("filter")}>
+                  <FilterTimeline currentTime={currentTime} pxPerSec={pxPerSec} containerW={tlWidth} isPlaying={isPlaying} focused={focusedTrack === "filter"} onSeek={seek} />
+                </div>
+              )}
 
-              {/* VFX track */}
-              <div onClick={() => setFocusedTrack("vfx")}>
-                <VfxTimeline currentTime={currentTime} pxPerSec={pxPerSec} containerW={tlWidth} isPlaying={isPlaying} focused={focusedTrack === "vfx"} onSeek={seek} />
-              </div>
+              {/* VFX track — Appears when VFX exist or focused */}
+              {(vfx.length > 0 || focusedTrack === "vfx") && (
+                <div onClick={() => setFocusedTrack("vfx")}>
+                  <VfxTimeline currentTime={currentTime} pxPerSec={pxPerSec} containerW={tlWidth} isPlaying={isPlaying} focused={focusedTrack === "vfx"} onSeek={seek} />
+                </div>
+              )}
 
-              {/* Overlay track */}
-              <div onClick={() => setFocusedTrack("overlay")}>
-                <OverlayTimeline currentTime={currentTime} pxPerSec={pxPerSec} containerW={tlWidth} isPlaying={isPlaying} focused={focusedTrack === "overlay"} onSeek={seek} />
-              </div>
+              {/* Overlay track — Appears when overlays exist or focused */}
+              {(overlays.length > 0 || focusedTrack === "overlay") && (
+                <div onClick={() => setFocusedTrack("overlay")}>
+                  <OverlayTimeline currentTime={currentTime} pxPerSec={pxPerSec} containerW={tlWidth} isPlaying={isPlaying} focused={focusedTrack === "overlay"} onSeek={seek} />
+                </div>
+              )}
 
-              <div className="px-3 py-1 flex items-center gap-2 border-t border-border">
-                <MediaPicker accept="both" className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-secondary text-foreground text-[10px] font-bold">
-                  <Plus className="w-3 h-3 text-primary" /> {t("editor.media")}
-                </MediaPicker>
-                <span className="text-[9px] text-muted-foreground">
+              <div className="px-3 py-1 flex items-center justify-between border-t border-border/40 text-[9px] text-muted-foreground">
+                <span>
                   {clips.length} {getLang() === "ar" ? "مقاطع" : clips.length === 1 ? "clip" : "clips"} · {totalDuration.toFixed(1)}s
+                </span>
+                <span>
+                  {getLang() === "ar" ? "اسحب للتصفح والتحكم" : "Drag to scrub timeline"}
                 </span>
               </div>
             </div>

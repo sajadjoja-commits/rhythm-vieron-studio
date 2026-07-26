@@ -167,19 +167,28 @@ const OverlayTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused
   };
 
   return (
-    <div className="bg-card/40 border-t border-border" dir="ltr">
-      <div className="px-3 py-1 text-[10px] text-muted-foreground flex items-center gap-1">
-        <Layers className="w-3 h-3" /> {t("track.overlay")} ({overlays.length}{lanes > 1 ? ` · ${lanes} ${isEn ? "tracks" : "مسارات"}` : ""})
-      </div>
+    <div className="bg-card/30 border-t border-border/50" dir="ltr">
       <div 
         className="relative overflow-hidden touch-none" 
-        style={{ height: trackH }}
+        style={{ height: Math.max(32, trackH) }}
         onPointerDown={handleTrackPointerDown}
       >
         <div className="absolute top-0 left-0 h-full" style={{
           width: totalPx, transform: `translate3d(${translateX}px, 0, 0)`,
           transition: isPlaying ? "none" : "transform 80ms linear", willChange: "transform",
         }}>
+          {/* Left Track Icon Header: Overlay Track */}
+          <div 
+            data-no-scrub
+            className="absolute left-0 top-0 bottom-0 w-9 -ml-12 flex items-center justify-center z-30"
+          >
+            <div 
+              className="w-[28px] h-[28px] rounded-md bg-emerald-500/20 border border-emerald-400/60 flex items-center justify-center shadow-md text-emerald-400 transition-all duration-150 active:scale-95"
+              title={getLang() === "ar" ? "مسار الطبقات والملصقات" : "Overlay Track"}
+            >
+              <Layers className="w-3.5 h-3.5 text-emerald-400" />
+            </div>
+          </div>
           {packed.map(({ item: o, lane }) => {
             const left = o.start * pxPerSec;
             const w = Math.max(20, (o.end - o.start) * pxPerSec);

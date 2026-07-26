@@ -167,19 +167,28 @@ const VfxTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused, on
   };
 
   return (
-    <div className="bg-card/40 border-t border-border" dir="ltr">
-      <div className="px-3 py-1 text-[10px] text-muted-foreground flex items-center gap-1">
-        <Sparkles className="w-3 h-3" /> {t("track.effects")} ({vfx.length}{lanes > 1 ? ` · ${lanes} ${isEn ? "tracks" : "مسارات"}` : ""})
-      </div>
+    <div className="bg-card/30 border-t border-border/50" dir="ltr">
       <div 
         className="relative overflow-hidden touch-none" 
-        style={{ height: trackH }}
+        style={{ height: Math.max(32, trackH) }}
         onPointerDown={handleTrackPointerDown}
       >
         <div className="absolute top-0 left-0 h-full" style={{
           width: totalPx, transform: `translate3d(${translateX}px, 0, 0)`,
           transition: isPlaying ? "none" : "transform 80ms linear", willChange: "transform",
         }}>
+          {/* Left Track Icon Header: VFX Track */}
+          <div 
+            data-no-scrub
+            className="absolute left-0 top-0 bottom-0 w-9 -ml-12 flex items-center justify-center z-30"
+          >
+            <div 
+              className="w-[28px] h-[28px] rounded-md bg-amber-500/20 border border-amber-400/60 flex items-center justify-center shadow-md text-amber-400 transition-all duration-150 active:scale-95"
+              title={getLang() === "ar" ? "مسار التأثيرات البصرية" : "VFX Track"}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            </div>
+          </div>
           {packed.map(({ item: v, lane }) => {
             const left = v.start * pxPerSec;
             const w = Math.max(20, (v.end - v.start) * pxPerSec);

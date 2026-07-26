@@ -167,19 +167,28 @@ const FilterTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused,
   };
 
   return (
-    <div className="bg-card/40 border-t border-border" dir="ltr">
-      <div className="px-3 py-1 text-[10px] text-muted-foreground flex items-center gap-1">
-        <Palette className="w-3 h-3" /> {t("track.filters")} ({filters.length}{lanes > 1 ? ` · ${lanes} ${isEn ? "tracks" : "مسارات"}` : ""})
-      </div>
+    <div className="bg-card/30 border-t border-border/50" dir="ltr">
       <div 
         className="relative overflow-hidden touch-none" 
-        style={{ height: trackH }}
+        style={{ height: Math.max(32, trackH) }}
         onPointerDown={handleTrackPointerDown}
       >
         <div className="absolute top-0 left-0 h-full" style={{
           width: totalPx, transform: `translate3d(${translateX}px, 0, 0)`,
           transition: isPlaying ? "none" : "transform 80ms linear", willChange: "transform",
         }}>
+          {/* Left Track Icon Header: Filter Track */}
+          <div 
+            data-no-scrub
+            className="absolute left-0 top-0 bottom-0 w-9 -ml-12 flex items-center justify-center z-30"
+          >
+            <div 
+              className="w-[28px] h-[28px] rounded-md bg-cyan-500/20 border border-cyan-400/60 flex items-center justify-center shadow-md text-cyan-400 transition-all duration-150 active:scale-95"
+              title={getLang() === "ar" ? "مسار الفلاتر" : "Filter Track"}
+            >
+              <Palette className="w-3.5 h-3.5 text-cyan-400" />
+            </div>
+          </div>
           {packed.map(({ item: f, lane }) => {
             const left = f.start * pxPerSec;
             const w = Math.max(20, (f.end - f.start) * pxPerSec);

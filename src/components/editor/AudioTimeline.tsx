@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useMedia } from "@/context/MediaContext";
 import { packLanes } from "@/lib/lanes";
-import { Volume2, VolumeX, Trash2 } from "lucide-react";
+import { Volume2, VolumeX, Trash2, Music2 } from "lucide-react";
 import { getWaveformPeaks } from "@/lib/waveform";
 import TimelineTrimHandle from "./TimelineTrimHandle";
 import { snapTimelineTime } from "@/lib/timelineSnap";
+import { getLang } from "@/lib/i18n";
 
 interface Props {
   currentTime: number;
@@ -28,12 +29,10 @@ const AudioTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused, 
   const currentTimeRef = useRef(currentTime);
   currentTimeRef.current = currentTime;
 
-  if (!audioTracks.length) return null;
-
   const packed = packLanes(audioTracks.map((a) => ({ ...a, start: a.start, end: a.start + a.duration })));
-  const lanes = Math.max(1, ...packed.map((p) => p.lane + 1));
+  const lanes = audioTracks.length ? Math.max(1, ...packed.map((p) => p.lane + 1)) : 1;
   const ROW = 56;
-  const trackH = (focused ? lanes : 1) * ROW + 4;
+  const trackH = audioTracks.length ? Math.max(36, (focused ? lanes : 1) * ROW + 4) : 36;
   const laneOf = new Map(packed.map((p) => [p.item.id, p.lane]));
 
   const handleTrackPointerDown = (e: React.PointerEvent) => {
@@ -62,11 +61,7 @@ const AudioTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused, 
   };
 
   return (
-    <div className="bg-card/40 border-t border-border" dir="ltr">
-      <div className="px-3 py-1 text-[10px] text-muted-foreground flex items-center justify-between">
-        <span>مسار الصوت ({audioTracks.length}{lanes > 1 ? ` · ${lanes} مسارات` : ""})</span>
-        {audioBeats.length > 0 && <span className="text-primary">⏱ {audioBeats.length} إيقاع</span>}
-      </div>
+    <div className="bg-card/30 border-t border-border/50" dir="ltr">
       <div 
         className="relative overflow-hidden touch-none" 
         style={{ height: trackH }}
@@ -81,6 +76,18 @@ const AudioTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused, 
             willChange: "transform",
           }}
         >
+          {/* Left Track Icon Header: Music Track */}
+          <div 
+            data-no-scrub
+            className="absolute left-0 top-0 bottom-0 w-9 -ml-12 flex items-center justify-center z-30"
+          >
+            <div 
+              className="w-[28px] h-[28px] rounded-md bg-indigo-500/20 border border-indigo-400/60 flex items-center justify-center shadow-md text-indigo-400 transition-all duration-150 active:scale-95"
+              title={getLang() === "ar" ? "مسار الصوت والموسيقى" : "Audio Track"}
+            >
+              <Music2 className="w-3.5 h-3.5 text-indigo-400" />
+            </div>
+          </div>
           {/* Beat markers (separate from cutting) */}
           {audioBeats.map((b, i) => (
             <div

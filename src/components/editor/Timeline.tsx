@@ -67,6 +67,17 @@ KeyframeMarkers.displayName = "KeyframeMarkers";
 
 const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUserScrub, onWidthChange, onPxPerSecChange, hidePlayhead, focused, pxPerSec: propPxPerSec, onOpenCover }: Props) => {
   const { clips, getMediaById, totalDuration, removeClip, trimClip, moveClip, videoMuted, setVideoMuted, coverImage } = useMedia();
+
+  const autoCover = useMemo(() => {
+    if (coverImage) return coverImage;
+    if (clips.length > 0) {
+      const firstMedia = getMediaById(clips[0].mediaId);
+      if (firstMedia) {
+        return firstMedia.thumbnail || firstMedia.url;
+      }
+    }
+    return null;
+  }, [coverImage, clips, getMediaById]);
   const containerRef = useRef<HTMLDivElement>(null);
   
   const [localPxPerSec, setLocalPxPerSec] = useState(60);
@@ -643,12 +654,12 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
                   onOpenCover?.();
                 }}
                 className={`w-[28px] h-[28px] rounded-md overflow-hidden border ${
-                  coverImage ? "border-primary" : "border-dashed border-muted-foreground/50"
+                  autoCover ? "border-primary" : "border-dashed border-muted-foreground/50"
                 } bg-black/60 flex items-center justify-center transition-all duration-150 active:scale-90 shadow-md`}
                 title={getLang() === "ar" ? "غلاف الفيديو" : "Video Cover"}
               >
-                {coverImage ? (
-                  <img src={coverImage} alt="cover" className="w-full h-full object-cover" />
+                {autoCover ? (
+                  <img src={autoCover} alt="cover" className="w-full h-full object-cover" />
                 ) : (
                   <ImageIcon className="w-3.5 h-3.5 text-muted-foreground" />
                 )}

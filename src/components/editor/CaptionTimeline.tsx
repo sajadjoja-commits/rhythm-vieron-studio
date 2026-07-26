@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useMedia, Caption } from "@/context/MediaContext";
-import { Type, Plus, Trash2 } from "lucide-react";
+import { Type, Trash2 } from "lucide-react";
 import TimelineTrimHandle from "./TimelineTrimHandle";
 import { snapTimelineTime } from "@/lib/timelineSnap";
+import { getLang } from "@/lib/i18n";
 
 interface Props {
   currentTime: number;
@@ -177,18 +178,10 @@ const CaptionTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused
   };
 
   return (
-    <div className="bg-card/40 border-t border-border" dir="ltr">
-      <div className="flex items-center justify-between px-3 py-1">
-        <span className="text-[10px] font-bold text-amber-400 flex items-center gap-1">
-          <Type className="w-3 h-3 text-amber-400" /> نصوص ({captions.length})
-        </span>
-        <button onClick={addAtPlayhead} className="flex items-center gap-1 px-2 py-0.5 rounded bg-secondary text-foreground text-[10px] font-bold">
-          <Plus className="w-3 h-3 text-primary" /> +
-        </button>
-      </div>
+    <div className="bg-card/30 border-t border-border/50" dir="ltr">
       <div 
         className="relative overflow-hidden touch-none" 
-        style={{ height: totalHeight }}
+        style={{ height: Math.max(34, totalHeight) }}
         onPointerDown={handleTrackPointerDown}
       >
         <div
@@ -200,6 +193,19 @@ const CaptionTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused
             willChange: "transform",
           }}
         >
+          {/* Track Header Icon: Text / Captions */}
+          <div 
+            data-no-scrub
+            className="absolute left-0 top-0 bottom-0 w-9 -ml-12 flex items-center justify-center z-30"
+          >
+            <div 
+              className="w-[28px] h-[28px] rounded-md bg-amber-500/20 border border-amber-400/60 flex items-center justify-center shadow-md text-amber-400 transition-all duration-150 active:scale-95"
+              title={getLang() === "ar" ? "مسار النص والتسميات" : "Text Track"}
+            >
+              <Type className="w-3.5 h-3.5 text-amber-400" />
+            </div>
+          </div>
+
           {captions.map((c) => {
             const row = focused ? getRow(rows, c.id) : 0;
             const left = c.start * pxPerSec;
