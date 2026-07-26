@@ -101,10 +101,107 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
   const [estimatedTimeLeft, setEstimatedTimeLeft] = useState<string | null>(null);
   const [exportedVideoUrl, setExportedVideoUrl] = useState<string | null>(null);
   const [activeMode, setActiveMode] = useState<"export" | "publish">("export");
+  const [autoCoverUrl, setAutoCoverUrl] = useState<string | null>(null);
   const abortControllerRef = useRef<boolean>(false);
   const ffmpegRef = useRef<any>(null);
   const writtenFilesRef = useRef<Set<string>>(new Set());
   const cleanupRef = useRef<(() => void) | null>(null);
+
+  // Auto-capture or pick cover image from video / media if user didn't set one explicitly
+  useEffect(() => {
+    if (!open) return;
+
+    if (coverImage) {
+      setAutoCoverUrl(coverImage);
+      return;
+    }
+
+    let captured = false;
+    if (videoRef?.current && videoRef.current.videoWidth > 0) {
+      try {
+        const v = videoRef.current;
+        const canvas = document.createElement("canvas");
+        canvas.width = v.videoWidth;
+        canvas.height = v.videoHeight;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+          if (dataUrl && dataUrl.length > 100) {
+            setAutoCoverUrl(dataUrl);
+            captured = true;
+          }
+        }
+      } catch (e) {
+        console.warn("videoRef cover capture notice:", e);
+      }
+    }
+
+    if (captured) return;
+
+    const firstMedia = media.length > 0 ? media[0] : null;
+    if (firstMedia) {
+      if (firstMedia.type === "image") {
+        setAutoCoverUrl(firstMedia.url);
+      } else if (firstMedia.type === "video") {
+        const vid = document.createElement("video");
+        vid.crossOrigin = "anonymous";
+        vid.muted = true;
+        vid.src = firstMedia.url;
+        vid.currentTime = 0.5;
+        vid.onloadeddata = () => {
+          try {
+            const canvas = document.createElement("canvas");
+            canvas.width = vid.videoWidth || 640;
+            canvas.height = vid.videoHeight || 360;
+            const ctx = canvas.getContext("2d");
+            if (ctx) {
+              ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
+              setAutoCoverUrl(canvas.toDataURL("image/jpeg", 0.85));
+            }
+          } catch {
+            setAutoCoverUrl(firstMedia.thumbnail || firstMedia.url);
+          }
+        };
+        vid.onerror = () => {
+          setAutoCoverUrl(firstMedia.thumbnail || firstMedia.url);
+        };
+      }
+    }
+  }, [open, coverImage, videoRef, media, clips]);
+
+  const displayCover = coverImage || autoCoverUrl;
+
+  // Detect true video dimensions and orientation
+  const trueVideoDimensions = useMemo(() => {
+    if (videoRef?.current && videoRef.current.videoWidth > 0 && videoRef.current.videoHeight > 0) {
+      return { w: videoRef.current.videoWidth, h: videoRef.current.videoHeight };
+    }
+    if (media.length > 0) {
+      const m = media[0];
+      if (m.width && m.height) {
+        return { w: m.width, h: m.height };
+      }
+    }
+    return null;
+  }, [videoRef, media]);
+
+  const effectiveRatioObj = useMemo(() => {
+    if (trueVideoDimensions && (activeRatio === 0 || activeRatio === 1 || !aspectRatios[activeRatio])) {
+      const trueAspect = trueVideoDimensions.w / trueVideoDimensions.h;
+      let closestIdx = 0;
+      let minDiff = Infinity;
+      aspectRatios.forEach((r, idx) => {
+        const diff = Math.abs((r.w / r.h) - trueAspect);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closestIdx = idx;
+        }
+      });
+      return aspectRatios[closestIdx];
+    }
+    return aspectRatios[activeRatio] || aspectRatios[0];
+  }, [activeRatio, trueVideoDimensions]);
 
   // Perimeter draw offset
   const PERIM = 1000;
@@ -320,11 +417,22 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
       }
     } catch {}
 
-    // 2. Calculate resolution based on selected options
-    const ratioObj = aspectRatios[activeRatio] || { w: 16, h: 9 };
+    // 2. Calculate resolution based on selected options and true video aspect ratio
+    const ratioObj = effectiveRatioObj;
     const chosenQuality = QUALITY_OPTIONS[quality] || QUALITY_OPTIONS[2];
-    const canvasH = chosenQuality.value;
-    const canvasW = Math.round(canvasH * (ratioObj.w / ratioObj.h));
+
+    let canvasW: number;
+    let canvasH: number;
+
+    if (ratioObj.w >= ratioObj.h) {
+      // Landscape / Square: height is quality value, width scales proportionally
+      canvasH = chosenQuality.value;
+      canvasW = Math.round(canvasH * (ratioObj.w / ratioObj.h));
+    } else {
+      // Portrait (e.g. 9:16, 4:5): width is quality value, height scales proportionally (e.g. 1080x1920)
+      canvasW = chosenQuality.value;
+      canvasH = Math.round(canvasW * (ratioObj.h / ratioObj.w));
+    }
     
     // Ensure width and height are even numbers
     const exportWidth = canvasW % 2 === 0 ? canvasW : canvasW + 1;
@@ -1343,39 +1451,27 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
             <button
               type="button"
               onClick={() => setActiveMode("export")}
-              className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-0.5 ${
+              className={`flex-1 py-3 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
                 activeMode === "export"
                   ? "gradient-primary text-primary-foreground shadow-md"
                   : "bg-transparent text-muted-foreground hover:text-foreground"
               }`}
             >
-              <div className="flex items-center gap-1.5">
-                <Download className="w-3.5 h-3.5" />
-                <span>{isRTL() ? "تصدير فيديو MP4" : "Export Video MP4"}</span>
-              </div>
-              <span className="text-[9px] opacity-90 flex items-center gap-1 font-medium">
-                <WifiOff className="w-2.5 h-2.5" />
-                {isRTL() ? "يعمل أوفلاين وأونلاين" : "Works Offline & Online"}
-              </span>
+              <Download className="w-3.5 h-3.5" />
+              <span>{isRTL() ? "تصدير فيديو MP4" : "Export Video MP4"}</span>
             </button>
 
             <button
               type="button"
               onClick={() => setActiveMode("publish")}
-              className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-0.5 ${
+              className={`flex-1 py-3 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
                 activeMode === "publish"
                   ? "gradient-primary text-primary-foreground shadow-md"
                   : "bg-transparent text-muted-foreground hover:text-foreground"
               }`}
             >
-              <div className="flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                <span>{isRTL() ? "نشر كقالب للمجتمع" : "Publish as Template"}</span>
-              </div>
-              <span className="text-[9px] opacity-90 flex items-center gap-1 font-medium">
-                <Globe className="w-2.5 h-2.5" />
-                {isRTL() ? "يتطلب أونلاين" : "Requires Online"}
-              </span>
+              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+              <span>{isRTL() ? "نشر كقالب للمجتمع" : "Publish as Template"}</span>
             </button>
           </div>
 
@@ -1414,9 +1510,12 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
           ) : (
             <>
               {/* Cover Preview Aspect Box */}
-              <div className="relative w-full max-w-[270px] aspect-[9/16] max-h-[42vh] rounded-2xl overflow-hidden bg-black/95 border border-border flex items-center justify-center shadow-2xl">
-                {coverImage ? (
-                  <img src={coverImage} alt="cover" className="w-full h-full object-cover" />
+              <div 
+                className="relative w-full max-w-[270px] max-h-[42vh] rounded-2xl overflow-hidden bg-black/95 border border-border flex items-center justify-center shadow-2xl transition-all"
+                style={{ aspectRatio: `${effectiveRatioObj.w} / ${effectiveRatioObj.h}` }}
+              >
+                {displayCover ? (
+                  <img src={displayCover} alt="cover" className="w-full h-full object-cover" />
                 ) : (
                   <div className="flex flex-col items-center gap-2 text-muted-foreground p-4">
                     <Film className="w-8 h-8 opacity-40 animate-pulse" />
