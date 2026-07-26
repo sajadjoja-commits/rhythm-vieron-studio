@@ -261,6 +261,26 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
       <div className="p-3 max-h-[40vh] overflow-y-auto">
         {tab === "music" && (
           <div className="space-y-2">
+            {audioTracks.length > 0 && (
+              <button
+                disabled={busy}
+                onClick={() => { playSfx("click"); setTab("beat"); }}
+                className="w-full flex items-center gap-2.5 p-3 rounded-xl bg-gradient-to-r from-indigo-500/15 via-primary/15 to-purple-500/15 border border-primary/40 hover:border-primary transition-all active:scale-[0.98] group"
+              >
+                <div className="w-8 h-8 rounded-lg gradient-primary flex items-center justify-center shrink-0 shadow-md">
+                  <Activity className="w-4 h-4 text-white animate-pulse" />
+                </div>
+                <div className="flex-1 text-right">
+                  <p className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                    <span>{en ? "Detect Music Beats & Auto Cut" : "كشف الإيقاعات والقص التلقائي"}</span>
+                    <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-primary/20 text-primary font-extrabold">{audioTracks.length} {en ? "active" : "نشط"}</span>
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">{en ? "Analyze audio BPM & match video cuts automatically" : "تحليل إيقاع الموسيقى وقص الفيديو تلقائياً على الضربة"}</p>
+                </div>
+                <Scissors className="w-4 h-4 text-primary shrink-0 transition-transform group-hover:scale-110" />
+              </button>
+            )}
+
             <button
               disabled={busy}
               onClick={onUploadClick}

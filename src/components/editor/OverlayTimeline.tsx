@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import { useMedia, OverlayItem } from "@/context/MediaContext";
 import { packLanes } from "@/lib/lanes";
-import { Layers, Trash2 } from "lucide-react";
+import { Layers, Trash2, Plus } from "lucide-react";
 import { t, getLang } from "@/lib/i18n";
 import TimelineTrimHandle from "./TimelineTrimHandle";
 import { snapTimelineTime } from "@/lib/timelineSnap";
@@ -13,9 +13,10 @@ interface Props {
   isPlaying?: boolean;
   focused?: boolean;
   onSeek?: (t: number) => void;
+  onAddClick?: () => void;
 }
 
-const OverlayTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused, onSeek }: Props) => {
+const OverlayTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused, onSeek, onAddClick }: Props) => {
   const { overlays, updateOverlay, removeOverlay, totalDuration } = useMedia();
   const dragRef = useRef<any>(null);
 
@@ -182,11 +183,21 @@ const OverlayTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused
             data-no-scrub
             className="absolute left-0 top-0 bottom-0 w-9 -ml-12 flex items-center justify-center z-30"
           >
-            <div 
-              className="w-[28px] h-[28px] rounded-md bg-emerald-500/20 border border-emerald-400/60 flex items-center justify-center shadow-md text-emerald-400 transition-all duration-150 active:scale-95"
-              title={getLang() === "ar" ? "مسار الطبقات والملصقات" : "Overlay Track"}
-            >
-              <Layers className="w-3.5 h-3.5 text-emerald-400" />
+            <div className="relative">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onAddClick) onAddClick();
+                }}
+                className="w-[28px] h-[28px] rounded-md bg-emerald-500/20 border border-emerald-400/60 flex items-center justify-center shadow-md text-emerald-400 transition-all duration-150 active:scale-95 group hover:bg-emerald-500/30"
+                title={getLang() === "ar" ? "مسار الطبقات والملصقات - اضغط للإضافة" : "Overlay Track - Add Overlay"}
+              >
+                <Layers className="w-3.5 h-3.5 text-emerald-400" />
+                <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-400 text-slate-950 flex items-center justify-center shadow-md border border-slate-900 transition-transform group-hover:scale-110">
+                  <Plus className="w-2.5 h-2.5 stroke-[3.5]" />
+                </div>
+              </button>
             </div>
           </div>
           {packed.map(({ item: o, lane }) => {

@@ -1345,27 +1345,6 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
           >
             <Redo2 className="w-4 h-4 text-foreground" />
           </button>
-
-          {/* Beats Button (if has audio) */}
-          {hasMedia && audioTracks.length > 0 && (
-            <button
-              onClick={onDetectBeats}
-              disabled={detectingBeats}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-secondary text-foreground text-[10px] font-bold disabled:opacity-40 shadow-sm"
-            >
-              {detectingBeats ? (
-                <>
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  <span>{beatProgress}%</span>
-                </>
-              ) : (
-                <>
-                  <Activity className="w-3 h-3 text-primary" />
-                  <span>{getLang() === "ar" ? "إيقاع" : "Beats"}</span>
-                </>
-              )}
-            </button>
-          )}
         </div>
 
         {/* All tracks in a scrollable area with unified playhead */}
@@ -1396,32 +1375,32 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
 
               {/* Caption track — Text track (Always shown by default) */}
               <div onClick={() => setFocusedTrack("caption")}>
-                <CaptionTimeline currentTime={currentTime} pxPerSec={pxPerSec} containerW={tlWidth} isPlaying={isPlaying} focused={focusedTrack === "caption"} onSeek={seek} />
+                <CaptionTimeline currentTime={currentTime} pxPerSec={pxPerSec} containerW={tlWidth} isPlaying={isPlaying} focused={focusedTrack === "caption"} onSeek={seek} onAddClick={() => setTool("caption")} />
               </div>
 
               {/* Audio track — Music track (Always shown by default) */}
               <div onClick={() => setFocusedTrack("audio")}>
-                <AudioTimeline currentTime={currentTime} pxPerSec={pxPerSec} containerW={tlWidth} isPlaying={isPlaying} focused={focusedTrack === "audio"} onSeek={seek} />
+                <AudioTimeline currentTime={currentTime} pxPerSec={pxPerSec} containerW={tlWidth} isPlaying={isPlaying} focused={focusedTrack === "audio"} onSeek={seek} onAddClick={() => setTool("music")} />
               </div>
 
               {/* Filter track — Appears when filters exist or focused */}
               {(filters.length > 0 || focusedTrack === "filter") && (
                 <div onClick={() => setFocusedTrack("filter")}>
-                  <FilterTimeline currentTime={currentTime} pxPerSec={pxPerSec} containerW={tlWidth} isPlaying={isPlaying} focused={focusedTrack === "filter"} onSeek={seek} />
+                  <FilterTimeline currentTime={currentTime} pxPerSec={pxPerSec} containerW={tlWidth} isPlaying={isPlaying} focused={focusedTrack === "filter"} onSeek={seek} onAddClick={() => setTool("filter")} />
                 </div>
               )}
 
               {/* VFX track — Appears when VFX exist or focused */}
               {(vfx.length > 0 || focusedTrack === "vfx") && (
                 <div onClick={() => setFocusedTrack("vfx")}>
-                  <VfxTimeline currentTime={currentTime} pxPerSec={pxPerSec} containerW={tlWidth} isPlaying={isPlaying} focused={focusedTrack === "vfx"} onSeek={seek} />
+                  <VfxTimeline currentTime={currentTime} pxPerSec={pxPerSec} containerW={tlWidth} isPlaying={isPlaying} focused={focusedTrack === "vfx"} onSeek={seek} onAddClick={() => setTool("vfx")} />
                 </div>
               )}
 
               {/* Overlay track — Appears when overlays exist or focused */}
               {(overlays.length > 0 || focusedTrack === "overlay") && (
                 <div onClick={() => setFocusedTrack("overlay")}>
-                  <OverlayTimeline currentTime={currentTime} pxPerSec={pxPerSec} containerW={tlWidth} isPlaying={isPlaying} focused={focusedTrack === "overlay"} onSeek={seek} />
+                  <OverlayTimeline currentTime={currentTime} pxPerSec={pxPerSec} containerW={tlWidth} isPlaying={isPlaying} focused={focusedTrack === "overlay"} onSeek={seek} onAddClick={() => setTool("overlay")} />
                 </div>
               )}
 

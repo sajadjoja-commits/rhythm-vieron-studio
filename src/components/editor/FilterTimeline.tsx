@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import { useMedia, FilterItem } from "@/context/MediaContext";
 import { packLanes } from "@/lib/lanes";
-import { Palette, Trash2 } from "lucide-react";
+import { Palette, Trash2, Plus } from "lucide-react";
 import { t, getLang } from "@/lib/i18n";
 import TimelineTrimHandle from "./TimelineTrimHandle";
 import { snapTimelineTime } from "@/lib/timelineSnap";
@@ -13,9 +13,10 @@ interface Props {
   isPlaying?: boolean;
   focused?: boolean;
   onSeek?: (t: number) => void;
+  onAddClick?: () => void;
 }
 
-const FilterTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused, onSeek }: Props) => {
+const FilterTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused, onSeek, onAddClick }: Props) => {
   const { filters, updateFilter, removeFilter, totalDuration } = useMedia();
   const dragRef = useRef<any>(null);
 
@@ -182,11 +183,21 @@ const FilterTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused,
             data-no-scrub
             className="absolute left-0 top-0 bottom-0 w-9 -ml-12 flex items-center justify-center z-30"
           >
-            <div 
-              className="w-[28px] h-[28px] rounded-md bg-cyan-500/20 border border-cyan-400/60 flex items-center justify-center shadow-md text-cyan-400 transition-all duration-150 active:scale-95"
-              title={getLang() === "ar" ? "مسار الفلاتر" : "Filter Track"}
-            >
-              <Palette className="w-3.5 h-3.5 text-cyan-400" />
+            <div className="relative">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onAddClick) onAddClick();
+                }}
+                className="w-[28px] h-[28px] rounded-md bg-cyan-500/20 border border-cyan-400/60 flex items-center justify-center shadow-md text-cyan-400 transition-all duration-150 active:scale-95 group hover:bg-cyan-500/30"
+                title={getLang() === "ar" ? "مسار الفلاتر - اضغط للإضافة" : "Filter Track - Add Filter"}
+              >
+                <Palette className="w-3.5 h-3.5 text-cyan-400" />
+                <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center shadow-md border border-slate-900 transition-transform group-hover:scale-110">
+                  <Plus className="w-2.5 h-2.5 stroke-[3.5]" />
+                </div>
+              </button>
             </div>
           </div>
           {packed.map(({ item: f, lane }) => {

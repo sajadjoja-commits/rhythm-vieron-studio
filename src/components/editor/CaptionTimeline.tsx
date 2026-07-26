@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMedia, Caption } from "@/context/MediaContext";
-import { Type, Trash2 } from "lucide-react";
+import { Type, Trash2, Plus } from "lucide-react";
 import TimelineTrimHandle from "./TimelineTrimHandle";
 import { snapTimelineTime } from "@/lib/timelineSnap";
 import { getLang } from "@/lib/i18n";
@@ -12,11 +12,12 @@ interface Props {
   isPlaying?: boolean;
   focused?: boolean;
   onSeek?: (t: number) => void;
+  onAddClick?: () => void;
 }
 
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
-const CaptionTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused, onSeek }: Props) => {
+const CaptionTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused, onSeek, onAddClick }: Props) => {
   const { captions, updateCaption, removeCaption, totalDuration, setCaptions, captionStyle } = useMedia();
   const dragRef = useRef<{
     id: string; mode: "move" | "left" | "right"; startX: number; origStart: number; origEnd: number;
@@ -198,11 +199,22 @@ const CaptionTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused
             data-no-scrub
             className="absolute left-0 top-0 bottom-0 w-9 -ml-12 flex items-center justify-center z-30"
           >
-            <div 
-              className="w-[28px] h-[28px] rounded-md bg-amber-500/20 border border-amber-400/60 flex items-center justify-center shadow-md text-amber-400 transition-all duration-150 active:scale-95"
-              title={getLang() === "ar" ? "مسار النص والتسميات" : "Text Track"}
-            >
-              <Type className="w-3.5 h-3.5 text-amber-400" />
+            <div className="relative">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onAddClick) onAddClick();
+                  else addAtPlayhead();
+                }}
+                className="w-[28px] h-[28px] rounded-md bg-amber-500/20 border border-amber-400/60 flex items-center justify-center shadow-md text-amber-400 transition-all duration-150 active:scale-95 group hover:bg-amber-500/30"
+                title={getLang() === "ar" ? "مسار النص والتسميات - اضغط للإضافة" : "Text Track - Add Text"}
+              >
+                <Type className="w-3.5 h-3.5 text-amber-400" />
+                <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-amber-400 text-slate-950 flex items-center justify-center shadow-md border border-slate-900 transition-transform group-hover:scale-110">
+                  <Plus className="w-2.5 h-2.5 stroke-[3.5]" />
+                </div>
+              </button>
             </div>
           </div>
 

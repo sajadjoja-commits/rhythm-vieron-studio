@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useMedia } from "@/context/MediaContext";
 import { packLanes } from "@/lib/lanes";
-import { Volume2, VolumeX, Trash2, Music2 } from "lucide-react";
+import { Volume2, VolumeX, Trash2, Music2, Plus } from "lucide-react";
 import { getWaveformPeaks } from "@/lib/waveform";
 import TimelineTrimHandle from "./TimelineTrimHandle";
 import { snapTimelineTime } from "@/lib/timelineSnap";
@@ -14,13 +14,14 @@ interface Props {
   isPlaying?: boolean;
   focused?: boolean;
   onSeek?: (t: number) => void;
+  onAddClick?: () => void;
 }
 
 /**
  * Music / SFX track that scrolls in lockstep with the video timeline. Renders a
  * real waveform, smart beat markers and blue/red fade-in / fade-out heads.
  */
-const AudioTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused, onSeek }: Props) => {
+const AudioTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused, onSeek, onAddClick }: Props) => {
   const { audioTracks, totalDuration, updateAudioTrack, removeAudioTrack, audioBeats } = useMedia();
   const halfW = containerW / 2;
   const totalPx = Math.max(totalDuration, 0.001) * pxPerSec;
@@ -81,11 +82,21 @@ const AudioTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused, 
             data-no-scrub
             className="absolute left-0 top-0 bottom-0 w-9 -ml-12 flex items-center justify-center z-30"
           >
-            <div 
-              className="w-[28px] h-[28px] rounded-md bg-indigo-500/20 border border-indigo-400/60 flex items-center justify-center shadow-md text-indigo-400 transition-all duration-150 active:scale-95"
-              title={getLang() === "ar" ? "مسار الصوت والموسيقى" : "Audio Track"}
-            >
-              <Music2 className="w-3.5 h-3.5 text-indigo-400" />
+            <div className="relative">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onAddClick) onAddClick();
+                }}
+                className="w-[28px] h-[28px] rounded-md bg-indigo-500/20 border border-indigo-400/60 flex items-center justify-center shadow-md text-indigo-400 transition-all duration-150 active:scale-95 group hover:bg-indigo-500/30"
+                title={getLang() === "ar" ? "مسار الصوت والموسيقى - اضغط للإضافة" : "Audio Track - Add Audio"}
+              >
+                <Music2 className="w-3.5 h-3.5 text-indigo-400" />
+                <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-indigo-400 text-slate-950 flex items-center justify-center shadow-md border border-slate-900 transition-transform group-hover:scale-110">
+                  <Plus className="w-2.5 h-2.5 stroke-[3.5]" />
+                </div>
+              </button>
             </div>
           </div>
           {/* Beat markers (separate from cutting) */}
