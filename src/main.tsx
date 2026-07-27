@@ -6,6 +6,7 @@ import { applyLangToDOM } from "./lib/i18n";
 import { preloadSfx } from "./lib/soundFx";
 import { initCapgo } from "./services/capgo";
 import { initializePerformanceOptimizations, logPerformanceMetrics, enableGarbageCollectionHints } from "./lib/performanceOptimizations";
+import { Capacitor } from "@capacitor/core";
 
 // Set document direction/language before first paint.
 applyLangToDOM();
@@ -34,8 +35,8 @@ const isPreviewHost =
   window.location.hostname.includes("id-preview--") ||
   window.location.hostname.includes("lovableproject.com");
 
-if (isPreviewHost || isInIframe) {
-  // Never register a SW inside the editor preview / iframes
+if (isPreviewHost || isInIframe || Capacitor.isNativePlatform()) {
+  // Never register a SW inside the editor preview / iframes or on native mobile apps
   navigator.serviceWorker?.getRegistrations().then((regs) => {
     regs.forEach((r) => r.unregister());
   });
