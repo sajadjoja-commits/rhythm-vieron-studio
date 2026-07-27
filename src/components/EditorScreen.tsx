@@ -30,7 +30,8 @@ import PublishTemplateDialog from "@/components/editor/PublishTemplateDialog";
 import RatioPanel from "@/components/editor/RatioPanel";
 import CropOverlay from "@/components/editor/CropOverlay";
 import { toast } from "sonner";
-import { analyzeBeats } from "@/lib/audioAnalysis";
+import { attachFxChain } from "@/lib/audioFx";
+import { analyzeBeats, getAudioContext } from "@/lib/audioAnalysis";
 import { t, getLang, isRTL } from "@/lib/i18n";
 import { VireonLogo } from "@/components/VireonLogo";
 
@@ -61,7 +62,7 @@ type FocusedTrack = "video" | "caption" | "audio" | "filter" | "vfx" | "overlay"
 const EditorScreen = ({ onBack }: EditorScreenProps) => {
   const {
     media = [], clips = [], totalDuration, getMediaById, resolveTimelineTime,
-    audioTracks = [], videoMuted, videoVolume, projectName, setProjectName,
+    audioTracks = [], videoMuted, videoVolume, videoAudioFx, projectName, setProjectName,
     splitClipsAtBeats, filters = [], vfx = [], overlays = [], setAudioBeats, updateOverlay, setOverlays,
     splitTrackAt, coverImage, undo, redo, canUndo, canRedo, setClips,
     captions = [], captionStyle, setCaptions, setFilters, setVfx, updateAudioTrack,
@@ -641,6 +642,26 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolved?.clip.id, activeMedia?.id]);
+
+  const videoFxChainRef = useRef<ReturnType<typeof attachFxChain> | null>(null);
+
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || activeMedia?.type !== "video") return;
+    try {
+      const ctx = getAudioContext();
+      if (ctx.state === "suspended") ctx.resume().catch(() => {});
+      if (videoFxChainRef.current) {
+        videoFxChainRef.current.cleanup();
+        videoFxChainRef.current = null;
+      }
+      if (videoAudioFx && videoAudioFx !== "none") {
+        videoFxChainRef.current = attachFxChain(ctx, v, videoAudioFx, videoVolume * activeVolume, videoMuted);
+      }
+    } catch (e) {
+      console.warn("videoFxChain error", e);
+    }
+  }, [videoAudioFx, videoMuted, videoVolume, activeVolume, activeMedia?.id, activeMedia?.type]);
 
   useEffect(() => {
     const v = videoRef.current;

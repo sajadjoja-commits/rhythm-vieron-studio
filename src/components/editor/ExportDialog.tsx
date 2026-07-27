@@ -3,6 +3,7 @@ import { X, Download, Share2, Check, Sparkles, Film, Music, Languages, Sliders, 
 import { useMedia, interpolateKeyframes } from "@/context/MediaContext";
 import { toast } from "sonner";
 import { t, isRTL, getLang } from "@/lib/i18n";
+import { applyOfflineFxChain } from "@/lib/audioFx";
 import { registerPlugin, Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import PublishTemplateDialog from "@/components/editor/PublishTemplateDialog";
@@ -92,6 +93,7 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
     overlays = [],
     videoMuted,
     videoVolume,
+    videoAudioFx,
     resolveTimelineTime,
   } = useMedia();
   const [quality, setQuality] = useState(2); // default to 1080p
@@ -654,7 +656,8 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
             const gainNode = offlineCtx.createGain();
             gainNode.gain.value = track.volume * (track.muted ? 0 : 1);
             source.connect(gainNode);
-            gainNode.connect(offlineCtx.destination);
+            const fxOut = applyOfflineFxChain(offlineCtx, gainNode, track.fx || "none");
+            fxOut.connect(offlineCtx.destination);
 
             const startOffset = Math.min(track.offset || 0, buffer.duration);
             const playDuration = Math.max(0, Math.min(track.duration, buffer.duration - startOffset));
@@ -708,7 +711,8 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
                 }
 
                 source.connect(gainNode);
-                gainNode.connect(offlineCtx.destination);
+                const fxOut = applyOfflineFxChain(offlineCtx, gainNode, videoAudioFx || "none");
+                fxOut.connect(offlineCtx.destination);
 
                 const startOffset = Math.min(clip.in, buffer.duration);
                 const srcDuration = Math.max(0, Math.min(clip.out, buffer.duration) - startOffset);

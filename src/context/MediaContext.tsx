@@ -152,7 +152,21 @@ export interface CaptionStyle {
   animation: CaptionAnimation;
 }
 
-export type AudioFxType = "none" | "echo" | "studio" | "telephone" | "lowpass" | "reverb";
+export type AudioFxType =
+  | "none"
+  | "robot"
+  | "chipmunk"
+  | "deep"
+  | "female"
+  | "male"
+  | "megaphone"
+  | "alien"
+  | "underwater"
+  | "echo"
+  | "studio"
+  | "reverb"
+  | "telephone"
+  | "lowpass";
 
 export interface AudioTrackItem {
   id: string;
@@ -218,7 +232,7 @@ interface MediaContextType {
   updateOverlay: (id: string, patch: Partial<OverlayItem>) => void;
   removeOverlay: (id: string) => void;
   media: MediaItem[]; clips: Clip[]; captions: Caption[]; captionStyle: CaptionStyle;
-  audioTracks: AudioTrackItem[]; videoMuted: boolean; videoVolume: number;
+  audioTracks: AudioTrackItem[]; videoMuted: boolean; videoVolume: number; videoAudioFx: AudioFxType;
   exportPreset: ExportPreset; projectName: string; projectId: string;
   addFiles: (files: FileList | File[]) => Promise<MediaItem[]>;
   removeMedia: (id: string) => void; clearMedia: () => void;
@@ -242,7 +256,7 @@ interface MediaContextType {
   addAudioTrack: (t: Omit<AudioTrackItem, "id">) => string;
   updateAudioTrack: (id: string, patch: Partial<AudioTrackItem>) => void;
   removeAudioTrack: (id: string) => void;
-  setVideoMuted: (m: boolean) => void; setVideoVolume: (v: number) => void;
+  setVideoMuted: (m: boolean) => void; setVideoVolume: (v: number) => void; setVideoAudioFx: (fx: AudioFxType) => void;
   setExportPreset: (p: ExportPreset) => void; setProjectName: (n: string) => void;
   newProject: () => void; loadProject: (id: string) => Promise<boolean>;
   listProjects: () => Promise<ProjectMeta[]>; deleteProject: (id: string) => Promise<void>;
@@ -335,6 +349,7 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
   const [coverImage, setCoverImage] = useState<string | null>(null);
   const [videoMuted, setVideoMuted] = useState(false);
   const [videoVolume, setVideoVolume] = useState(1);
+  const [videoAudioFx, setVideoAudioFx] = useState<AudioFxType>("none");
   const [exportPreset, setExportPreset] = useState<ExportPreset>("full");
   const [captionStyle, setCaptionStyle] = useState<CaptionStyle>({
     font: "Cairo", size: 22, color: "#ffffff", bg: "rgba(0,0,0,0.55)",
@@ -415,6 +430,7 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
           setExportPreset(proj.exportPreset || "full");
           setVideoMuted(!!proj.videoMuted);
           setVideoVolume(proj.videoVolume ?? 1);
+          setVideoAudioFx(proj.videoAudioFx || "none");
           setCaptions(proj.captions || []);
           setCaptionStyle(proj.captionStyle || captionStyle);
           setCoverImage(proj.coverImage || null);
@@ -481,7 +497,7 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
 
         const payload = {
           id: projectId, name: projectName, updatedAt: Date.now(),
-          exportPreset, videoMuted, videoVolume, captions, captionStyle, coverImage: effectiveCover, clips,
+          exportPreset, videoMuted, videoVolume, videoAudioFx, captions, captionStyle, coverImage: effectiveCover, clips,
           filters, vfx,
           overlays: overlays.map((o) => ({ id: o.id, start: o.start, end: o.end, x: o.x, y: o.y, scale: o.scale, opacity: o.opacity, rotation: o.rotation, blend: o.blend, brightness: o.brightness, name: o.name, type: o.type, fileKey: o.file ? `overlay:${o.id}` : null, url: o.file ? null : o.url })),
           media: media.map((m) => ({ id: m.id, name: m.name, type: m.type, size: m.size, duration: m.duration, mime: m.file.type, fileKey: `media:${m.id}` })),
@@ -503,7 +519,7 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
       } catch (e) { console.warn("autosave failed", e); }
     }, 600);
     return () => clearTimeout(t);
-  }, [projectId, projectName, exportPreset, videoMuted, videoVolume, captions, captionStyle, coverImage, clips, media, audioTracks, filters, vfx, totalDuration, overlays]);
+  }, [projectId, projectName, exportPreset, videoMuted, videoVolume, videoAudioFx, captions, captionStyle, coverImage, clips, media, audioTracks, filters, vfx, totalDuration, overlays]);
 
   useEffect(() => {
     const snap: Snapshot = { clips, captions, filters, vfx, overlays, audioTracks, captionStyle };
@@ -763,7 +779,7 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
     setProjectId(id); setProjectName(t("editor.projectName"));
     setMedia([]); setClips([]); setCaptions([]); setAudioTracks([]);
     setFilters([]); setVfx([]); setOverlays([]); setCoverImage(null);
-    setVideoMuted(false); setVideoVolume(1); setExportPreset("full");
+    setVideoMuted(false); setVideoVolume(1); setVideoAudioFx("none"); setExportPreset("full");
     localStorage.setItem(ACTIVE_KEY, id);
     resetHistory();
   }, [media, audioTracks, resetHistory]);
@@ -915,7 +931,7 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
   return (
     <MediaContext.Provider
       value={{
-        media, clips, captions, captionStyle, audioTracks, videoMuted, videoVolume,
+        media, clips, captions, captionStyle, audioTracks, videoMuted, videoVolume, videoAudioFx,
         exportPreset, projectName, projectId,
         filters, vfx, overlays,
         addFiles, removeMedia, clearMedia,
@@ -924,7 +940,7 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
         coverImage, setCoverImage,
         audioBeats, setAudioBeats,
         setCaptions, updateCaption, removeCaption, setCaptionStyle,
-        addAudioTrack, updateAudioTrack, removeAudioTrack, setVideoMuted, setVideoVolume,
+        addAudioTrack, updateAudioTrack, removeAudioTrack, setVideoMuted, setVideoVolume, setVideoAudioFx,
         addFilter, updateFilter, removeFilter,
         addVfx, updateVfx, removeVfx,
         addOverlay, updateOverlay, removeOverlay,

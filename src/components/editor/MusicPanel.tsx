@@ -15,17 +15,24 @@ interface Props {
   currentTime: number;
 }
 
-const FX_OPTIONS: { id: AudioFxType; label: string; labelEn: string }[] = [
-  { id: "none", label: "بدون", labelEn: "None" },
-  { id: "echo", label: "صدى", labelEn: "Echo" },
-  { id: "studio", label: "استديو", labelEn: "Studio" },
-  { id: "reverb", label: "ريفرب", labelEn: "Reverb" },
-  { id: "telephone", label: "هاتف", labelEn: "Telephone" },
-  { id: "lowpass", label: "تومب", labelEn: "Lowpass" },
+const ALL_FX_OPTIONS: { id: AudioFxType; label: string; labelEn: string; icon: string; descAr: string; descEn: string }[] = [
+  { id: "none", label: "طبيعي", labelEn: "Normal", icon: "🎙️", descAr: "الصوت الأصلي بدون تغيير", descEn: "Original voice" },
+  { id: "robot", label: "روبوت آلي", labelEn: "Robot", icon: "🤖", descAr: "صوت معدني مستقبلِي", descEn: "Futuristic robot" },
+  { id: "chipmunk", label: "سنجاب حاد", labelEn: "Chipmunk", icon: "🐿️", descAr: "صوت كرتوني نبرة عالية", descEn: "High-pitched cartoon" },
+  { id: "deep", label: "وحش عميق", labelEn: "Monster Deep", icon: "👹", descAr: "صوت ضخم وعميق جداً", descEn: "Heavy monster bass" },
+  { id: "female", label: "أنثوي ناعم", labelEn: "Female Tone", icon: "👩", descAr: "نبرة ناعمة مرتفعة", descEn: "High-register soft tone" },
+  { id: "male", label: "رجالي فخم", labelEn: "Male Tone", icon: "👨", descAr: "تضخيم النبرة والجهارة", descEn: "Warm male-register" },
+  { id: "megaphone", label: "مكبر صوت", labelEn: "Megaphone", icon: "📢", descAr: "تأثير الميكروفون الميداني", descEn: "Loudspeaker horn" },
+  { id: "alien", label: "فضائي غريب", labelEn: "Alien", icon: "👽", descAr: "ذبذبات فضائية غريبة", descEn: "Cosmic modulated" },
+  { id: "underwater", label: "تحت الماء", labelEn: "Underwater", icon: "🌊", descAr: "صوت مكتوم مغمور", descEn: "Submerged audio" },
+  { id: "echo", label: "صدى صوت", labelEn: "Echo Delay", icon: "🔊", descAr: "ترديد وتكرار بالصوت", descEn: "Rhythmic echo delay" },
+  { id: "studio", label: "استديو نقاء", labelEn: "Studio Clarity", icon: "🎛️", descAr: "معالجة هادئة ونقاء", descEn: "Acoustic room clarity" },
+  { id: "reverb", label: "قاعة صدى", labelEn: "Concert Hall", icon: "🏛️", descAr: "صوت قاعة واسعة", descEn: "Large hall echo" },
+  { id: "telephone", label: "هاتف قديم", labelEn: "Telephone", icon: "📞", descAr: "تصفية صوت المكالمات", descEn: "Vintage phone call" },
 ];
 
 const MusicPanel = ({ open, onClose, currentTime }: Props) => {
-  const { media, audioTracks, addAudioTrack, updateAudioTrack, splitClipsAtBeats, videoMuted, setVideoMuted, videoVolume, setVideoVolume, totalDuration } = useMedia();
+  const { media, audioTracks, addAudioTrack, updateAudioTrack, splitClipsAtBeats, videoMuted, setVideoMuted, videoVolume, setVideoVolume, videoAudioFx, setVideoAudioFx, totalDuration } = useMedia();
   const [tab, setTab] = useState<"music" | "sfx" | "fx" | "beat">("music");
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -242,7 +249,7 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
         {[
           { id: "music", label: en ? "Music" : "موسيقى", Icon: Music2 },
           { id: "sfx", label: en ? "SFX" : "مؤثرات", Icon: Sparkles },
-          { id: "fx", label: en ? "Audio FX" : "تأثير صوتي", Icon: Wand2 },
+          { id: "fx", label: en ? "Voice Changer" : "تغيير الصوت", Icon: Wand2 },
           { id: "beat", label: en ? "Beat" : "إيقاع", Icon: Activity },
         ].map((t) => (
           <button
@@ -372,34 +379,139 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
         )}
 
         {tab === "fx" && (
-          <div className="space-y-2">
-            {audioTracks.length === 0 && <p className="text-[11px] text-muted-foreground text-center py-4">{en ? "Add some audio track first" : "أضف صوتاً أولاً"}</p>}
-            {audioTracks.map((t) => (
-              <div key={t.id} className="p-3 rounded-xl bg-card border border-border space-y-2">
-                <p className="text-[11px] font-bold text-foreground truncate">{t.name}</p>
-                <div className="flex flex-wrap gap-1">
-                  {FX_OPTIONS.map((fx) => (
+          <div className="space-y-4">
+            {/* Main Video Voice Changer Section (Always Available) */}
+            <div className="p-3.5 rounded-2xl bg-card border border-primary/30 space-y-3 shadow-sm">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg gradient-primary flex items-center justify-center text-white shadow-sm">
+                    <Mic className="w-3.5 h-3.5" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                      <span>{en ? "Original Video Voice Changer" : "مؤثرات وتغيير صوت الفيديو الأصلي"}</span>
+                      {videoAudioFx !== "none" && (
+                        <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-primary/20 text-primary font-black animate-pulse">
+                          {en ? "Active" : "مُفعّل"}
+                        </span>
+                      )}
+                    </h4>
+                    <p className="text-[9px] text-muted-foreground">
+                      {en ? "Applies voice filter directly to the video track audio" : "يغير نبرة وصوت الفيديو الأصلي حتى بدون إضافة موسيقى"}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => { playSfx("click"); setVideoMuted(!videoMuted); }}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all active:scale-95 ${
+                    videoMuted ? "bg-destructive/20 text-destructive border border-destructive/30" : "bg-secondary text-foreground hover:bg-secondary/80"
+                  }`}
+                >
+                  {videoMuted ? (en ? "Unmute Video" : "إلغاء الكتم") : (en ? "Mute Video" : "كتم الفيديو")}
+                </button>
+              </div>
+
+              {/* Volume Slider for Video Audio */}
+              <div className="flex items-center gap-2 px-1">
+                <span className="text-[10px] font-bold text-muted-foreground w-14 shrink-0">{en ? "Volume:" : "مستوى الصوت:"}</span>
+                <input
+                  type="range" min={0} max={1} step={0.01} value={videoVolume}
+                  onChange={(e) => setVideoVolume(parseFloat(e.target.value))}
+                  className="flex-1 h-1.5 bg-secondary rounded-lg appearance-none cursor-pointer accent-primary"
+                />
+                <span className="text-[10px] font-extrabold text-primary w-8 text-end">{Math.round(videoVolume * 100)}%</span>
+              </div>
+
+              {/* Voice Effect Cards Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1">
+                {ALL_FX_OPTIONS.map((fx) => {
+                  const active = videoAudioFx === fx.id;
+                  return (
                     <button
                       key={fx.id}
-                      onClick={() => updateAudioTrack(t.id, { fx: fx.id })}
-                      className={`px-2 py-1 rounded-md text-[10px] font-bold ${
-                        t.fx === fx.id ? "gradient-primary text-primary-foreground" : "bg-secondary text-foreground"
+                      onClick={() => {
+                        playSfx("click");
+                        setVideoAudioFx(fx.id);
+                        toast.success(
+                          en 
+                            ? `Video voice set to: ${fx.labelEn}` 
+                            : `تم تغيير صوت الفيديو إلى: ${fx.label}`
+                        );
+                      }}
+                      className={`flex flex-col items-start p-2.5 rounded-xl border text-start transition-all active:scale-[0.97] relative group ${
+                        active
+                          ? "bg-primary/15 border-primary shadow-md ring-1 ring-primary/40"
+                          : "bg-secondary/40 border-border/60 hover:bg-secondary/80 hover:border-border"
                       }`}
                     >
-                      {en ? fx.labelEn : fx.label}
+                      <div className="flex items-center justify-between w-full mb-1">
+                        <span className="text-base">{fx.icon}</span>
+                        {active && (
+                          <div className="w-4 h-4 rounded-full bg-primary text-white flex items-center justify-center">
+                            <Check className="w-2.5 h-2.5 stroke-[3]" />
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-[11px] font-bold text-foreground leading-tight">
+                        {en ? fx.labelEn : fx.label}
+                      </p>
+                      <p className="text-[9px] text-muted-foreground mt-0.5 line-clamp-1">
+                        {en ? fx.descEn : fx.descAr}
+                      </p>
                     </button>
-                  ))}
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-muted-foreground w-12">{en ? "Volume" : "المستوى"}</span>
-                  <input
-                    type="range" min={0} max={1} step={0.01} value={t.volume}
-                    onChange={(e) => updateAudioTrack(t.id, { volume: parseFloat(e.target.value) })}
-                    className="flex-1"
-                  />
-                </div>
+                  );
+                })}
               </div>
-            ))}
+            </div>
+
+            {/* Additional Timeline Audio Tracks (If present) */}
+            {audioTracks.length > 0 && (
+              <div className="pt-2 border-t border-border space-y-2">
+                <p className="text-[11px] font-bold text-foreground px-1 flex items-center gap-1.5">
+                  <Music2 className="w-3.5 h-3.5 text-primary" />
+                  <span>{en ? "Added Audio & Music Tracks" : "مسارات الصوت والموسيقى المضافة"}</span>
+                </p>
+                {audioTracks.map((t) => (
+                  <div key={t.id} className="p-3 rounded-xl bg-card border border-border space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] font-bold text-foreground truncate">{t.name}</p>
+                      <span className="text-[9px] font-extrabold text-primary px-2 py-0.5 rounded-full bg-primary/10">
+                        {ALL_FX_OPTIONS.find((f) => f.id === t.fx)?.[en ? "labelEn" : "label"] || t.fx}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {ALL_FX_OPTIONS.map((fx) => (
+                        <button
+                          key={fx.id}
+                          onClick={() => {
+                            playSfx("click");
+                            updateAudioTrack(t.id, { fx: fx.id });
+                          }}
+                          className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-bold transition-all ${
+                            t.fx === fx.id ? "gradient-primary text-white shadow-sm" : "bg-secondary text-foreground hover:bg-secondary/80"
+                          }`}
+                        >
+                          <span className="text-xs">{fx.icon}</span>
+                          <span className="truncate">{en ? fx.labelEn : fx.label}</span>
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-1">
+                      <span className="text-[10px] text-muted-foreground w-12">{en ? "Volume" : "المستوى"}</span>
+                      <input
+                        type="range" min={0} max={1} step={0.01} value={t.volume}
+                        onChange={(e) => updateAudioTrack(t.id, { volume: parseFloat(e.target.value) })}
+                        className="flex-1 h-1.5 bg-secondary rounded-lg appearance-none cursor-pointer accent-primary"
+                      />
+                      <span className="text-[10px] font-extrabold text-primary w-8 text-end">{Math.round((t.volume ?? 1) * 100)}%</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
