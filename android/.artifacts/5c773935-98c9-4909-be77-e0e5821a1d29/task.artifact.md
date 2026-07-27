@@ -1,0 +1,3 @@
+- [x] Update Launcher icons to use vector foreground
+- [x] Update Splash Screen to use vector foreground
+- [x] Verify fix by deploying app
