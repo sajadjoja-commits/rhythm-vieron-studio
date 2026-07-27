@@ -150,14 +150,25 @@ const OverlayTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused
     const el = e.currentTarget;
     const rect = el.getBoundingClientRect();
     const startX = e.clientX;
+    const startY = e.clientY;
     const localXToTime = (clientX: number) => {
       const pointerX = clientX - rect.left;
       const delta = (pointerX - halfW) / pxPerSec;
       return Math.max(0, Math.min(totalDuration, currentTimeRef.current + delta));
     };
     if (onSeek) onSeek(localXToTime(startX));
+
+    let scrubbing = false;
     const move = (ev: PointerEvent) => {
-      if (onSeek) onSeek(localXToTime(ev.clientX));
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (!scrubbing && Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 5) {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        return;
+      }
+      if (Math.abs(dx) > 3) scrubbing = true;
+      if (onSeek && scrubbing) onSeek(localXToTime(ev.clientX));
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
@@ -170,8 +181,8 @@ const OverlayTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused
   return (
     <div className="bg-card/30 border-t border-border/50" dir="ltr">
       <div 
-        className="relative overflow-hidden touch-none" 
-        style={{ height: Math.max(32, trackH) }}
+        className="relative overflow-hidden touch-pan-y" 
+        style={{ height: Math.max(32, trackH), touchAction: "pan-y" }}
         onPointerDown={handleTrackPointerDown}
       >
         <div className="absolute top-0 left-0 h-full" style={{

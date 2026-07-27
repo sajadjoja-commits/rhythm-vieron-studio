@@ -158,14 +158,23 @@ const CaptionTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused
     const el = e.currentTarget;
     const rect = el.getBoundingClientRect();
     const startX = e.clientX;
+    const startY = e.clientY;
     const startCurrentTime = currentTimeRef.current;
     const clickedTime = Math.max(0, Math.min(totalDuration, startCurrentTime + (startX - rect.left - halfW) / pxPerSec));
 
     if (onSeek) onSeek(clickedTime);
 
+    let scrubbing = false;
     const move = (ev: PointerEvent) => {
-      if (onSeek) {
-        const dx = ev.clientX - startX;
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (!scrubbing && Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 5) {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        return;
+      }
+      if (Math.abs(dx) > 3) scrubbing = true;
+      if (onSeek && scrubbing) {
         const nextTime = Math.max(0, Math.min(totalDuration, clickedTime - dx / pxPerSec));
         onSeek(nextTime);
       }
@@ -181,8 +190,8 @@ const CaptionTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused
   return (
     <div className="bg-card/30 border-t border-border/50" dir="ltr">
       <div 
-        className="relative overflow-hidden touch-none" 
-        style={{ height: Math.max(34, totalHeight) }}
+        className="relative overflow-hidden touch-pan-y" 
+        style={{ height: Math.max(34, totalHeight), touchAction: "pan-y" }}
         onPointerDown={handleTrackPointerDown}
       >
         <div

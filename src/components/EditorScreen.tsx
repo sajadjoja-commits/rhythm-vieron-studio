@@ -1370,7 +1370,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
 
         {/* All tracks in a scrollable area with unified playhead */}
         {hasMedia && (
-          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden" ref={tracksContainerRef}>
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden touch-pan-y overscroll-y-contain" ref={tracksContainerRef}>
             <div className="relative min-h-full">
               {/* Unified playhead line — spans all tracks and dynamically stretches as new tracks are added */}
               <div className="pointer-events-none absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-0.5 bg-primary z-40">

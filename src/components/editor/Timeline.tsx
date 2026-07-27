@@ -318,16 +318,18 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     // Stop any currently running momentum/inertia scroll
     stopInertia();
 
-    const rect = e.currentTarget.getBoundingClientRect();
+    const targetEl = e.currentTarget as HTMLElement;
+    const rect = targetEl.getBoundingClientRect();
     const startX = e.clientX;
+    const startY = e.clientY;
     const startCurrentTime = currentTimeRef.current;
     const clickedTime = Math.max(0, Math.min(totalDuration, startCurrentTime + (startX - rect.left - halfW) / pxPerSec));
 
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     isScrubbingRef.current = true;
     onUserScrub?.(true);
     
     let hasMoved = false;
+    let isCaptured = false;
     let lastX = startX;
     let lastTime = performance.now();
     let velocity = 0; // px per millisecond
@@ -335,13 +337,29 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     const move = (ev: PointerEvent) => {
       if (!isScrubbingRef.current || isPinchingRef.current) return;
       const currentX = ev.clientX;
+      const currentY = ev.clientY;
       const now = performance.now();
       const dt = now - lastTime;
       const dxTotal = currentX - startX;
+      const dyTotal = currentY - startY;
+
+      if (!isCaptured && Math.abs(dyTotal) > Math.abs(dxTotal) && Math.abs(dyTotal) > 5) {
+        // User is scrolling vertically — cancel scrub so container scrolls natively
+        isScrubbingRef.current = false;
+        onUserScrub?.(false);
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        return;
+      }
+
       const dxStep = currentX - lastX;
 
       if (Math.abs(dxTotal) > 3) {
         hasMoved = true;
+        if (!isCaptured) {
+          isCaptured = true;
+          try { targetEl.setPointerCapture(e.pointerId); } catch {}
+        }
       }
 
       if (dt > 0) {
@@ -618,8 +636,8 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     <div className="bg-card/60 border-t border-border" dir="ltr">
       <div
         ref={containerRef}
-        className="relative overflow-hidden select-none touch-none"
-        style={{ height: 110 }}
+        className="relative overflow-hidden select-none touch-pan-y"
+        style={{ height: 110, touchAction: "pan-y" }}
         onPointerDown={handlePointerDown}
       >
         <div
