@@ -45,29 +45,31 @@ public class VireonMediaPlugin extends Plugin {
             );
 
             if (collection != null) {
-                OutputStream out = getContext().getContentResolver().openOutputStream(collection);
-                FileInputStream in = new FileInputStream(tempFile);
+                try (OutputStream out = getContext().getContentResolver().openOutputStream(collection);
+                     FileInputStream in = new FileInputStream(tempFile)) {
+                    if (out != null) {
+                        byte[] buffer = new byte[8192];
+                        int length;
+                        while ((length = in.read(buffer)) > 0) {
+                            out.write(buffer, 0, length);
+                        }
+                        out.flush();
 
-                byte[] buffer = new byte[8192];
-                int length;
-                while ((length = in.read(buffer)) > 0) {
-                    out.write(buffer, 0, length);
-                }
-
-                in.close();
-                out.close();
-
-                MediaScannerConnection.scanFile(
-                    getContext(), 
-                    new String[]{tempFile.getAbsolutePath()}, 
-                    null, 
-                    (path, uri) -> {
-                        JSObject ret = new JSObject();
-                        ret.put("success", true);
-                        ret.put("message", "تم حفظ الفيديو بالاستوديو بنجاح!");
-                        call.resolve(ret);
+                        MediaScannerConnection.scanFile(
+                            getContext(), 
+                            new String[]{tempFile.getAbsolutePath()}, 
+                            null, 
+                            (path, uri) -> {
+                                JSObject ret = new JSObject();
+                                ret.put("success", true);
+                                ret.put("message", "تم حفظ الفيديو بالاستوديو بنجاح!");
+                                call.resolve(ret);
+                            }
+                        );
+                    } else {
+                        call.reject("فشل فتح مجرى الكتابة في معرض الصور.");
                     }
-                );
+                }
             } else {
                 call.reject("فشل إنشاء مسار في معرض الصور.");
             }
