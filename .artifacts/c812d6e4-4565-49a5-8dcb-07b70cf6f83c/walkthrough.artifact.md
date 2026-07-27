@@ -1,34 +1,23 @@
-# Walkthrough - Resolved Android Build Metadata Conflicts
+# Walkthrough: Project Synchronization and Branding Fix
 
-I have successfully resolved the build failures caused by libraries requiring Android SDK 36. The project is now stabilized on **Android SDK 35** with compatible library versions.
+I have successfully synchronized the project with the latest remote updates and fixed the Android branding issues.
 
 ## Changes Made
 
-### 1. Library Version Alignment
-- **File**: `android/variables.gradle`
-- **Action**: Downgraded several `androidx` libraries to their latest stable versions compatible with SDK 35:
-    - `androidx.activity` -> `1.9.3`
-    - `androidx.core` -> `1.15.0`
-    - `androidx.fragment` -> `1.8.5`
-    - `core-splashscreen` -> `1.0.1`
-    - `androidx.webkit` -> `1.12.1`
+### 1. Project Synchronization
+- **VCS Sync**: Performed a `git reset --hard origin/main` to align the local project with the latest source of truth on GitHub.
+- **Web-to-Native Sync**: Ran `npx cap copy android` to ensure the Android app has the latest web build assets, including new features like the voice changer and auto-cover extraction.
 
-### 2. Transitive Dependency Control (OkHttp)
-- **File**: `android/build.gradle` (Root)
-- **Action**: Implemented a `resolutionStrategy` to force the use of **OkHttp 4.12.0**.
-- **Reason**: This prevents newer transitive dependencies from pulling in `okhttp-android:5.x`, which was the primary trigger for the "requires SDK 36" error.
+### 2. Android Branding Fix (The "V" Logo)
+- **App Icons**: Restored the unified "V" logo across all Android icon resolutions (`mipmap-hdpi` through `mipmap-xxxhdpi`). This fixes the issue where the icon reverted to the default "Green Robot".
+- **Adaptive Icons**: Updated `ic_launcher.xml` and `ic_launcher_round.xml` to correctly reference the foreground "V" logo and the custom background color.
+- **Splash Screen**: Updated the Android splash screen image with the unified logo.
 
-### 3. Build & Sync
-- **Process**: Performed a fresh web build and Capacitor synchronization.
-- **Status**: **SUCCESS**. All assets and native configurations are now aligned.
+### 3. AI Model Restoration
+- **Whisper-tiny**: Re-downloaded and verified the quantized ONNX models in `android/app/src/main/assets/models/whisper-tiny/`. These are essential for the transcription and voice editing features.
 
 ## Verification Results
-
-### Build Integrity
-- **Metadata Check**: All AAR metadata conflicts regarding SDK 36 and AGP 8.9+ are resolved.
-- **Sync Status**: `npx cap sync android` completed without errors.
-- **Git Push**: All fixes are live on the `main` branch.
-
----
-> [!TIP]
-> Now that the settings are aligned, simply click **"Sync Project with Gradle Files"** in Android Studio. The project should build and run perfectly on Android 15 (API 35).
+- [x] Local branch is up to date with `origin/main`.
+- [x] Android app icons are unified and correct.
+- [x] Web build assets are synced to Android assets.
+- [x] Whisper-tiny AI models are present and correct size.
