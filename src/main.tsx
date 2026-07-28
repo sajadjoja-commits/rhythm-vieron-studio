@@ -58,30 +58,27 @@ if (typeof window !== "undefined") {
   });
 }
 
-// Never register a PWA service worker on Lovable/embedded preview hosts.
-// Those hosts do not guarantee /sw.js and a 404 here can break startup.
+// Register PWA service worker across environments with graceful error handling
 if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
-  const host = typeof window !== "undefined" ? window.location.hostname : "";
-  const isPreviewHost =
-    host.includes("lovable.app") ||
-    host.includes("lovableproject.com") ||
-    host.includes("localhost") ||
-    host.includes("127.0.0.1") ||
-    (typeof window !== "undefined" && window.self !== window.top);
+  const registerSW = () => {
+    try {
+      navigator.serviceWorker
+        .register("/sw.js", { scope: "/" })
+        .then((reg) => {
+          console.log("[Vireon PWA] Service worker active:", reg.scope);
+        })
+        .catch((err) => {
+          console.warn("[Vireon PWA] Service worker registration notice:", err);
+        });
+    } catch (err) {
+      console.warn("[Vireon PWA] Service worker skipped:", err);
+    }
+  };
 
-  if (!isPreviewHost) {
-    const registerSW = () => {
-      try {
-        navigator.serviceWorker.register("/sw.js", { scope: "/" })
-          .then((reg) => console.log("Vireon service worker active:", reg.scope))
-          .catch((err) => console.warn("Service Worker registration skipped:", err));
-      } catch (err) {
-        console.warn("Service Worker registration skipped:", err);
-      }
-    };
-
-    if (document.readyState === "complete") registerSW();
-    else window.addEventListener("load", registerSW, { once: true });
+  if (document.readyState === "complete") {
+    registerSW();
+  } else {
+    window.addEventListener("load", registerSW, { once: true });
   }
 }
 
