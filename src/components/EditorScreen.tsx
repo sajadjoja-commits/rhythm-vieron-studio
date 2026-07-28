@@ -1389,6 +1389,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
                   onWidthChange={setTlWidth}
                   onPxPerSecChange={setPxPerSec}
                   focused={focusedTrack === "video"}
+                  onFocus={onVideoTrackFocus}
                   hidePlayhead
                   onOpenCover={() => { setTool(tool === "cover" ? null : "cover"); }}
                 />

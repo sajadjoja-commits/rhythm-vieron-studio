@@ -98,9 +98,12 @@ const OverlayTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused
         const snapped = snapTimelineTime(rawStart, { pxPerSec, targets: snapTargets });
         s = Math.max(0, Math.min(d.origEnd - 0.2, snapped.time));
       } else {
-        const rawEnd = Math.max(d.origStart + 0.2, Math.min(totalDuration, d.origEnd + dx));
+        const overlayObj = overlays.find((x) => x.id === d.id);
+        const maxDuration = (overlayObj?.type === "video" && overlayObj.duration && overlayObj.duration > 0) ? overlayObj.duration : Infinity;
+        const maxEnd = d.origStart + maxDuration;
+        const rawEnd = Math.max(d.origStart + 0.2, Math.min(totalDuration, Math.min(maxEnd, d.origEnd + dx)));
         const snapped = snapTimelineTime(rawEnd, { pxPerSec, targets: snapTargets });
-        en = Math.max(d.origStart + 0.2, Math.min(totalDuration, snapped.time));
+        en = Math.max(d.origStart + 0.2, Math.min(totalDuration, Math.min(maxEnd, snapped.time)));
       }
       updateOverlay(d.id, { start: s, end: en });
     };
@@ -214,12 +217,14 @@ const OverlayTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused
           {packed.map(({ item: o, lane }) => {
             const left = o.start * pxPerSec;
             const w = Math.max(20, (o.end - o.start) * pxPerSec);
+            const isVideo = o.type === "video";
+            const isMaxReached = isVideo && o.duration && o.duration > 0 && (o.end - o.start) >= o.duration - 0.05;
             return (
-              <div key={o.id} className={`absolute rounded-lg flex items-center cursor-grab overflow-visible border shadow-md ${focused ? "border-emerald-400 ring-1 ring-emerald-400/50" : "border-emerald-500/40"}`}
-                style={{ left, width: w, height: 32, top: (focused ? lane : 0) * ROW + 2, background: `linear-gradient(135deg, rgba(16,185,129,0.5), rgba(16,185,129,0.25))` }}
+              <div key={o.id} className={`absolute rounded-xl flex items-center justify-between cursor-grab overflow-hidden border shadow-md transition-all ${focused ? "border-emerald-400 ring-2 ring-emerald-400/40" : "border-emerald-500/40 hover:border-emerald-400/70"}`}
+                style={{ left, width: w, height: 32, top: (focused ? lane : 0) * ROW + 2, background: `linear-gradient(135deg, rgba(16,185,129,0.55), rgba(5,150,105,0.3))` }}
                 onPointerDown={(e) => onDown(e, o, "move")}>
                 {focused && (
-                  <TimelineTrimHandle side="left" onPointerDown={(e) => onDown(e, o, "left")} />
+                  <TimelineTrimHandle side="left" variant="emerald" onPointerDown={(e) => onDown(e, o, "left")} />
                 )}
                 
                 {/* Keyframe diamonds overlay */}
@@ -252,15 +257,15 @@ const OverlayTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused
                 ) : (
                   <video src={o.url} className="w-6 h-6 object-cover rounded flex-shrink-0" muted />
                 )}
-                <span className="flex-1 text-[9px] text-white font-bold truncate px-1">{o.name}</span>
+                <span className="flex-1 text-[9px] text-white font-bold truncate px-1 z-10">{o.name}</span>
                 {focused && (
                   <button onPointerDown={(e) => e.stopPropagation()} onClick={() => removeOverlay(o.id)}
-                    className="w-5 h-5 flex items-center justify-center flex-shrink-0">
-                    <Trash2 className="w-2.5 h-2.5 text-white/60" />
+                    className="w-5 h-5 flex items-center justify-center flex-shrink-0 text-white/70 hover:text-white transition-colors z-10">
+                    <Trash2 className="w-2.5 h-2.5" />
                   </button>
                 )}
                 {focused && (
-                  <TimelineTrimHandle side="right" onPointerDown={(e) => onDown(e, o, "right")} />
+                  <TimelineTrimHandle side="right" variant="emerald" isMaxReached={isMaxReached} onPointerDown={(e) => onDown(e, o, "right")} />
                 )}
               </div>
             );

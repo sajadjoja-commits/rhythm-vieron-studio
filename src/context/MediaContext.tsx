@@ -720,10 +720,19 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
   const trimClip = useCallback((clipId: string, edge: "in" | "out", newValue: number) => {
     setClips((prev) => prev.map((c) => {
       if (c.id !== clipId) return c;
-      if (edge === "in") return { ...c, in: Math.max(0, Math.min(newValue, c.out - 0.1)) };
-      return { ...c, out: Math.max(c.in + 0.1, newValue) };
+      const mediaItem = media.find((m) => m.id === c.mediaId);
+      const isVideo = mediaItem && mediaItem.type === "video";
+      const maxSourceDuration = isVideo && mediaItem.duration > 0 ? mediaItem.duration : Infinity;
+
+      if (edge === "in") {
+        const clampedIn = Math.max(0, Math.min(newValue, c.out - 0.1));
+        return { ...c, in: clampedIn };
+      } else {
+        const clampedOut = Math.max(c.in + 0.1, Math.min(newValue, maxSourceDuration));
+        return { ...c, out: clampedOut };
+      }
     }));
-  }, []);
+  }, [media]);
 
   const removeClip = useCallback((clipId: string) => {
     setClips((prev) => prev.filter((c) => c.id !== clipId));

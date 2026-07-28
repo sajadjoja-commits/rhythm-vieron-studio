@@ -215,11 +215,11 @@ const VfxTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused, on
             const left = v.start * pxPerSec;
             const w = Math.max(20, (v.end - v.start) * pxPerSec);
             return (
-              <div key={v.id} className={`absolute rounded-lg flex items-center cursor-grab overflow-visible border shadow-md ${focused ? "border-amber-400 ring-1 ring-amber-400/50" : "border-amber-500/40"}`}
-                style={{ left, width: w, height: 24, top: (focused ? lane : 0) * ROW + 2, background: `linear-gradient(135deg, rgba(245,158,11,0.5), rgba(245,158,11,0.25))` }}
+              <div key={v.id} className={`absolute rounded-xl flex items-center justify-between cursor-grab overflow-hidden border shadow-md transition-all ${focused ? "border-amber-400 ring-2 ring-amber-400/40" : "border-amber-500/40 hover:border-amber-400/70"}`}
+                style={{ left, width: w, height: 28, top: (focused ? lane : 0) * ROW + 2, background: `linear-gradient(135deg, rgba(245,158,11,0.6), rgba(217,119,6,0.35))` }}
                 onPointerDown={(e) => onDown(e, v, "move")}>
                 {focused && (
-                  <TimelineTrimHandle side="left" onPointerDown={(e) => onDown(e, v, "left")} />
+                  <TimelineTrimHandle side="left" variant="amber" onPointerDown={(e) => onDown(e, v, "left")} />
                 )}
                 
                 {/* Keyframe diamonds overlay */}
@@ -247,15 +247,15 @@ const VfxTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused, on
                 </div>
 
                 <span className="flex-1 text-[9px] text-white font-bold truncate px-1 z-10">{v.type}</span>
-                <span className="text-[8px] text-white/60 px-0.5">{Math.round(v.intensity * 100)}%</span>
+                <span className="text-[8px] text-white/70 px-0.5">{Math.round(v.intensity * 100)}%</span>
                 {focused && (
                   <button onPointerDown={(e) => e.stopPropagation()} onClick={() => removeVfx(v.id)}
-                    className="w-5 h-5 flex items-center justify-center flex-shrink-0">
-                    <Trash2 className="w-2.5 h-2.5 text-white/60" />
+                    className="w-5 h-5 flex items-center justify-center flex-shrink-0 text-white/70 hover:text-white transition-colors">
+                    <Trash2 className="w-2.5 h-2.5" />
                   </button>
                 )}
                 {focused && (
-                  <TimelineTrimHandle side="right" onPointerDown={(e) => onDown(e, v, "right")} />
+                  <TimelineTrimHandle side="right" variant="amber" onPointerDown={(e) => onDown(e, v, "right")} />
                 )}
               </div>
             );

@@ -234,13 +234,13 @@ const CaptionTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused
             return (
               <div
                 key={c.id}
-                className={`absolute rounded-lg bg-gradient-to-r from-amber-500 via-amber-400 to-orange-500 text-slate-950 font-black shadow-md border border-amber-300/60 flex items-center cursor-grab overflow-visible ${focused ? "ring-2 ring-amber-300 ring-offset-1 ring-offset-black" : ""}`}
+                className={`absolute rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-orange-500 text-slate-950 font-black shadow-md border border-amber-300/80 flex items-center justify-between cursor-grab overflow-hidden transition-all ${focused ? "ring-2 ring-amber-300 ring-offset-1 ring-offset-black" : ""}`}
                 style={{ left, width: w, top: row * trackHeight + 2, height: trackHeight - 4 }}
                 onPointerDown={(e) => onDown(e, c, "move")}
                 title={c.text}
               >
                 {focused && (
-                  <TimelineTrimHandle side="left" onPointerDown={(e) => onDown(e, c, "left")} />
+                  <TimelineTrimHandle side="left" variant="amber" onPointerDown={(e) => onDown(e, c, "left")} />
                 )}
                 
                 {/* Keyframe diamonds overlay */}
@@ -272,13 +272,13 @@ const CaptionTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused
                   <button
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => { e.stopPropagation(); removeCaption(c.id); }}
-                    className="w-5 h-5 flex items-center justify-center flex-shrink-0 hover:bg-amber-600/40 rounded transition-colors"
+                    className="w-5 h-5 flex items-center justify-center flex-shrink-0 hover:bg-amber-600/40 rounded transition-colors z-10"
                   >
                     <Trash2 className="w-2.5 h-2.5 text-slate-950/80" />
                   </button>
                 )}
                 {focused && (
-                  <TimelineTrimHandle side="right" onPointerDown={(e) => onDown(e, c, "right")} />
+                  <TimelineTrimHandle side="right" variant="amber" onPointerDown={(e) => onDown(e, c, "right")} />
                 )}
               </div>
             );

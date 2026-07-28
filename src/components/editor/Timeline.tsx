@@ -19,6 +19,7 @@ interface Props {
   focused?: boolean;
   pxPerSec?: number;
   onOpenCover?: () => void;
+  onFocus?: () => void;
 }
 
 const TRANSITION_ICON: Record<TransitionType, string> = {
@@ -65,7 +66,7 @@ const KeyframeMarkers = memo(({ clip, clipGlobalStart, pxPerSec, currentTime }: 
 });
 KeyframeMarkers.displayName = "KeyframeMarkers";
 
-const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUserScrub, onWidthChange, onPxPerSecChange, hidePlayhead, focused, pxPerSec: propPxPerSec, onOpenCover }: Props) => {
+const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUserScrub, onWidthChange, onPxPerSecChange, hidePlayhead, focused, pxPerSec: propPxPerSec, onOpenCover, onFocus }: Props) => {
   const { clips, getMediaById, totalDuration, removeClip, trimClip, moveClip, videoMuted, setVideoMuted, coverImage } = useMedia();
 
   const autoCover = useMemo(() => {
@@ -426,16 +427,29 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     window.addEventListener("pointerup", up);
   }, [halfW, pxPerSec, totalDuration, onSeek, onUserScrub, applySnap, stopInertia]);
 
-  const startTrim = useCallback((e: React.PointerEvent, clipId: string, edge: "in" | "out", clip: { in: number; out: number }) => {
+  const startTrim = useCallback((e: React.PointerEvent, clipId: string, edge: "in" | "out", clip: { in: number; out: number; mediaId: string }) => {
     e.stopPropagation();
+    setSelectedClipId(clipId);
+    onFocus?.();
     let startXAdjusted = e.clientX;
     lastPointerXRef.current = e.clientX;
     const startIn = clip.in, startOut = clip.out;
 
+    const media = getMediaById(clip.mediaId);
+    const isVideo = media && media.type === "video";
+    const maxSourceDuration = isVideo && media.duration > 0 ? media.duration : Infinity;
+
     const updateTrim = (currentX: number) => {
       const dt = (currentX - startXAdjusted) / pxPerSec;
-      if (edge === "in") trimClip(clipId, "in", startIn + dt);
-      else trimClip(clipId, "out", startOut + dt);
+      if (edge === "in") {
+        trimClip(clipId, "in", startIn + dt);
+      } else {
+        const proposedOut = startOut + dt;
+        if (proposedOut >= maxSourceDuration) {
+          triggerHapticTick("medium");
+        }
+        trimClip(clipId, "out", proposedOut);
+      }
     };
 
     const move = (ev: PointerEvent) => {
@@ -457,11 +471,12 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
 
     window.addEventListener("pointermove", move, { passive: true });
     window.addEventListener("pointerup", up);
-  }, [pxPerSec, trimClip, startAutoScroll, stopAutoScroll]);
+  }, [pxPerSec, trimClip, startAutoScroll, stopAutoScroll, getMediaById, onFocus]);
 
   const startMove = useCallback((e: React.PointerEvent, clipId: string) => {
     e.stopPropagation();
     setSelectedClipId(clipId);
+    onFocus?.();
     let startXAdjusted = e.clientX;
     lastPointerXRef.current = e.clientX;
     const fromIdx = clips.findIndex((c) => c.id === clipId);
@@ -533,7 +548,7 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
 
     window.addEventListener("pointermove", move, { passive: true });
     window.addEventListener("pointerup", up);
-  }, [clips, pxPerSec, moveClip, startAutoScroll, stopAutoScroll, onSeek, currentTime]);
+  }, [clips, pxPerSec, moveClip, startAutoScroll, stopAutoScroll, onSeek, currentTime, onFocus]);
 
   const translateX = halfW - currentTime * pxPerSec;
 
@@ -576,7 +591,13 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
             </button>
           )}
           <div
-            className={`relative h-full rounded-md overflow-hidden bg-secondary cursor-grab active:cursor-grabbing ${dragging ? "border-2 border-primary ring-2 ring-primary/50" : "border border-primary/40"}`}
+            className={`relative h-full rounded-xl overflow-hidden bg-secondary cursor-grab active:cursor-grabbing shadow-md transition-all ${
+              dragging 
+                ? "border-2 border-primary ring-4 ring-primary/40 z-30" 
+                : selectedClipId === clip.id
+                ? "border-2 border-primary ring-2 ring-primary/40"
+                : "border border-primary/30 hover:border-primary/60"
+            }`}
             onPointerDown={(e) => startMove(e, clip.id)}
             onContextMenu={(e) => e.preventDefault()}
             draggable={false}
@@ -584,27 +605,30 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
           >
             <ClipThumbnails clip={clip} media={media} pxPerSec={pxPerSec} />
             
-            {focused && selectedClipId === clip.id && (
+            {selectedClipId === clip.id && (
               <TimelineTrimHandle
                 side="left"
+                variant="primary"
                 onPointerDown={(e) => startTrim(e, clip.id, "in", clip)}
                 className="absolute left-0 top-0 bottom-0"
               />
             )}
-            {focused && selectedClipId === clip.id && (
+            {selectedClipId === clip.id && (
               <TimelineTrimHandle
                 side="right"
+                variant="primary"
+                isMaxReached={media?.type === "video" && media.duration > 0 && clip.out >= media.duration - 0.05}
                 onPointerDown={(e) => startTrim(e, clip.id, "out", clip)}
                 className="absolute right-0 top-0 bottom-0"
               />
             )}
-            <div className="absolute inset-x-0 bottom-0 px-1 py-0.5 bg-black/50 flex items-center justify-between">
-              <span className="text-[9px] text-white/90 font-mono">{len.toFixed(1)}s</span>
+            <div className="absolute inset-x-0 bottom-0 px-1.5 py-0.5 bg-black/60 backdrop-blur-xs flex items-center justify-between z-10">
+              <span className="text-[9px] text-white/90 font-mono font-medium">{len.toFixed(1)}s</span>
               <button
                 data-no-scrub
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => { e.stopPropagation(); if (clips.length > 1) removeClip(clip.id); }}
-                className="text-white/80 hover:text-destructive"
+                className="text-white/80 hover:text-destructive transition-colors"
               >
                 <X className="w-3 h-3" />
               </button>
@@ -613,7 +637,7 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
         </div>
       );
     });
-  }, [clips, getMediaById, pxPerSec, onOpenTransition, startTrim, startMove, removeClip, focused, dragId, dragDx, selectedClipId]);
+  }, [clips, getMediaById, pxPerSec, onOpenTransition, startTrim, startMove, removeClip, dragId, dragDx, selectedClipId]);
 
   // Separate, extremely high-performance render layer for keyframe markers
   const keyframesOverlay = useMemo(() => {

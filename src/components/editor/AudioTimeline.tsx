@@ -331,7 +331,7 @@ const AudioBlock = ({ track, pxPerSec, containerW, currentTime, totalDuration, t
 
   return (
     <div
-      className="absolute h-[44px] rounded-md overflow-hidden border border-white/10 shadow-lg"
+      className="absolute h-[44px] rounded-xl overflow-hidden border border-white/20 shadow-lg"
       style={{ left, width, top, background: `linear-gradient(135deg, ${track.color}cc, ${track.color}88)` }}
     >
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full opacity-80 pointer-events-none" />
@@ -416,8 +416,8 @@ const AudioBlock = ({ track, pxPerSec, containerW, currentTime, totalDuration, t
       {/* trim edge handles */}
       {focused && (
         <>
-          <TimelineTrimHandle side="left" onPointerDown={(e) => onPointerDown(e, "in")} className="absolute left-0 top-0 bottom-0" />
-          <TimelineTrimHandle side="right" onPointerDown={(e) => onPointerDown(e, "out")} className="absolute right-0 top-0 bottom-0" />
+          <TimelineTrimHandle side="left" variant="cyan" onPointerDown={(e) => onPointerDown(e, "in")} className="absolute left-0 top-0 bottom-0" />
+          <TimelineTrimHandle side="right" variant="cyan" isMaxReached={track.duration > 0 && (track.end || (track.start + track.duration)) >= (track.start + track.duration - 0.05)} onPointerDown={(e) => onPointerDown(e, "out")} className="absolute right-0 top-0 bottom-0" />
         </>
       )}
     </div>
