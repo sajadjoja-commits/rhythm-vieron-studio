@@ -19,9 +19,9 @@ export default defineConfig(({ mode }) => ({
     VitePWA({
       registerType: "autoUpdate",
       strategies: "generateSW",
-      injectRegister: "auto",
+      injectRegister: null,
       devOptions: {
-        enabled: true,
+        enabled: false,
       },
       workbox: {
         skipWaiting: true,
