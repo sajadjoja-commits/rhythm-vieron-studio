@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Plus, Zap, Upload, Image, Video, User, Camera, Sparkles, Film, Wand2, Scissors, Palette, Music, ArrowLeft } from "lucide-react";
+import { Plus, Zap, Upload, Image, Video, User, Camera, Sparkles, Film, Wand2, Scissors, Palette, Music, ArrowLeft, Download } from "lucide-react";
 import { VireonLogo } from "@/components/VireonLogo";
 import MediaPicker from "@/components/MediaPicker";
 import NotificationsBell from "@/components/NotificationsBell";
 import { useMedia, ProjectMeta } from "@/context/MediaContext";
 import { t, getLang } from "@/lib/i18n";
+import { useInstallPrompt } from "@/hooks/useInstallPrompt";
 
 interface HomeScreenProps {
   onNavigate: (tab: string) => void;
@@ -57,6 +58,7 @@ const PromoBanner = ({ onNavigate, onStartEditor, newProject, en }: { onNavigate
 const HomeScreen = ({ onNavigate, onStartEditor, session, newProject }: HomeScreenProps) => {
   const en = getLang() === "en";
   const { listProjects, loadProject } = useMedia();
+  const { showInstallEntry } = useInstallPrompt();
   const [recentProjects, setRecentProjects] = useState<ProjectMeta[]>([]);
 
   useEffect(() => { listProjects().then((p) => setRecentProjects(p.slice(0, 4))); }, [listProjects]);
@@ -77,6 +79,16 @@ const HomeScreen = ({ onNavigate, onStartEditor, session, newProject }: HomeScre
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {showInstallEntry && (
+            <button
+              onClick={() => window.dispatchEvent(new Event("vireon_open_install_prompt"))}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-primary/15 hover:bg-primary/25 border border-primary/30 text-primary text-[11px] font-bold transition-all active:scale-95 shadow-sm"
+              title={en ? "Install App" : "تثبيت التطبيق"}
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>{en ? "Install" : "تثبيت"}</span>
+            </button>
+          )}
           <NotificationsBell />
           {userAvatar ? (
             <img src={userAvatar} alt="" className="w-9 h-9 rounded-full object-cover border-2 border-primary cursor-pointer" onClick={() => onNavigate("settings")} />
