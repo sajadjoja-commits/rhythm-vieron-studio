@@ -6,7 +6,7 @@ const config: CapacitorConfig = {
   webDir: 'dist',
   backgroundColor: '#090d16',
   server: {
-    androidScheme: 'https',
+    url: 'https://rhythm-vieron-studio.lovable.app',
     cleartext: true,
   },
   android: {
