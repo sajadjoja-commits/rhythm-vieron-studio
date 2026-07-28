@@ -119,7 +119,7 @@ self.onmessage = async (e) => {
           self.postMessage({
             status: "loading",
             progress: progressPct,
-            message: `تحميل محرك Faster-Whisper ONNX (${targetModel.split("/")[1]}): ${progressPct}%`
+            message: "جاري استخراج الكلام..."
           });
         }
       };
@@ -131,7 +131,7 @@ self.onmessage = async (e) => {
           self.postMessage({
             status: "loading",
             progress: 10,
-            message: "جارٍ الانتقال لمحرك Faster-Whisper الخفيف..."
+            message: "جاري استخراج الكلام..."
           });
           transcriber = await loadModelWithRetry("Xenova/whisper-tiny", progress_callback);
         } else {
@@ -141,7 +141,7 @@ self.onmessage = async (e) => {
       self.postMessage({ status: "ready" });
     }
 
-    self.postMessage({ status: "processing", message: "جارٍ المعالجة السريعة عبر Faster-Whisper ONNX..." });
+    self.postMessage({ status: "processing", message: "جاري استخراج الكلام..." });
 
     // Faster-Whisper settings: Greedy decoding (num_beams: 1) for 5x speed
     const result = await transcriber(audio, {
