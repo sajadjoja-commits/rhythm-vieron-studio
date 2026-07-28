@@ -1,0 +1,52 @@
+{
+  "id": "/",
+  "name": "Vireon AI Studio — Smart Video Editor",
+  "short_name": "Vireon AI Studio",
+  "description": "محرر فيديو ذكي بالذكاء الاصطناعي يقص ويضيف الكابشن والموسيقى تلقائياً",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "window-controls-overlay"],
+  "background_color": "#0b1220",
+  "theme_color": "#3b82f6",
+  "orientation": "portrait",
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "مشروع جديد",
+      "short_name": "جديد",
+      "description": "إنشاء مشروع فيديو جديد بالذكاء الاصطناعي",
+      "url": "/",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ],
+  "categories": ["video", "productivity", "entertainment"]
+}
