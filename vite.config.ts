@@ -35,17 +35,22 @@ export default defineConfig(({ mode }) => ({
           /^https:\/\/hf-mirror\.com/
         ],
       },
+      manifestFilename: "manifest.json",
       manifest: {
-        name: "Vireon AI — Smart Video Editor",
+        id: "vireon-ai-studio",
+        name: "Vireon AI Studio — Smart Video Editor",
         short_name: "Vireon AI",
-        description: "محرر فيديو ذكي بالذكاء الاصطناعي يقص ويضيف الكابشن والموسيقى تلقائياً",
+        description: "محرر الفيديو الذكي بالذكاء الاصطناعي — قص تلقائي، كابشن ملون، موسيقى وتأثيرات سينمائية",
         lang: "ar",
         dir: "rtl",
-        theme_color: "#3b82f6",
-        background_color: "#0b1220",
+        start_url: "/",
+        scope: "/",
+        theme_color: "#090d16",
+        background_color: "#090d16",
         display: "standalone",
         display_override: ["standalone", "minimal-ui", "window-controls-overlay"],
-        orientation: "portrait",
+        orientation: "any",
+        prefer_related_applications: false,
         icons: [
           { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
           { src: "/icon-maskable-192.png", sizes: "192x192", type: "image/png", purpose: "maskable" },
@@ -61,10 +66,7 @@ export default defineConfig(({ mode }) => ({
             icons: [{ src: "/icon-192.png", sizes: "192x192", type: "image/png" }]
           }
         ],
-        categories: ["video", "productivity", "entertainment"],
-        screenshots: [
-          { src: "/placeholder.svg", sizes: "1080x1920", type: "image/svg+xml", form_factor: "narrow", label: "Editor" }
-        ]
+        categories: ["video", "productivity", "multimedia", "utilities"]
       },
     }),
   ].filter(Boolean),

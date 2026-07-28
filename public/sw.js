@@ -61,6 +61,26 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // Strategy 0: Full HTML Document Navigation Handler (Essential for Chrome PWA Installation)
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkRes) => {
+          if (networkRes && networkRes.status === 200) {
+            const clone = networkRes.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return networkRes;
+        })
+        .catch(() => {
+          return caches.match(event.request).then((cached) => {
+            return cached || caches.match("/index.html") || caches.match("/");
+          });
+        })
+    );
+    return;
+  }
+
   // Strategy 1: Cache-First for local WASM / FFmpeg core / local audio assets
   if (url.pathname.startsWith("/ffmpeg/") || url.pathname.endsWith(".wasm") || url.pathname.startsWith("/audio/")) {
     event.respondWith(

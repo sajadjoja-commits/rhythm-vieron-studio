@@ -147,13 +147,19 @@ export const InstallPrompt = () => {
               <div className="flex items-center gap-3 rounded-2xl bg-secondary/60 p-3 border border-border/50">
                 <MoreVertical className="w-5 h-5 text-primary shrink-0" />
                 <span className="text-xs text-foreground font-medium">
-                  {en ? "1. Open browser menu (⋮ or ⋯)" : "1. افتح قائمة خيارات المتصفح (⋮ أو ⋯)"}
+                  {en ? "1. Open browser menu (⋮ upper right)" : "1. افتح قائمة خيارات المتصفح (أعلى اليسار/اليمين ⋮)"}
                 </span>
               </div>
               <div className="flex items-center gap-3 rounded-2xl bg-secondary/60 p-3 border border-border/50">
                 <Smartphone className="w-5 h-5 text-primary shrink-0" />
                 <span className="text-xs text-foreground font-medium">
-                  {en ? "2. Click 'Install App' or 'Add to Home Screen'" : "2. انقر على «تثبيت التطبيق» أو «إضافة إلى الشاشة الرئيسية»"}
+                  {en ? "2. Tap 'Install App' or 'Add to Home screen' (Create shortcut)" : "2. اضغط «تثبيت التطبيق» أو «إضافة إلى الشاشة الرئيسية» (إنشاء اختصار)"}
+                </span>
+              </div>
+              <div className="flex items-center gap-3 rounded-2xl bg-primary/10 p-3 border border-primary/20">
+                <CheckCircle2 className="w-5 h-5 text-primary shrink-0" />
+                <span className="text-[11px] text-foreground font-medium">
+                  {en ? "3. The app will be added to your home screen with high performance & full screen mode." : "3. سيظهر تطبيق Vireon AI على شاشة جوالك كتطبيق مستقل بملء الشاشة وبسرعة عالية."}
                 </span>
               </div>
               <button
