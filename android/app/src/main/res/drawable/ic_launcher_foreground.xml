@@ -1,0 +1,43 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportHeight="108"
+    android:viewportWidth="108">
+
+    <!-- Outer Glow (Soft Purple) -->
+    <path
+        android:pathData="M30,35 L54,73 L78,35"
+        android:strokeWidth="10"
+        android:strokeColor="#40B46BFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- Main Neon 'V' with Gradient -->
+    <path
+        android:pathData="M30,35 L54,73 L78,35"
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="30"
+                android:startY="35"
+                android:endX="78"
+                android:endY="35"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#4D9FFF" />
+                <item android:offset="1.0" android:color="#B46BFF" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Inner Bright Core (White/Light Cyan) -->
+    <path
+        android:pathData="M30,35 L54,73 L78,35"
+        android:strokeWidth="1.5"
+        android:strokeColor="#CCFFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+</vector>
