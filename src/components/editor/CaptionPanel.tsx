@@ -74,6 +74,12 @@ const COLOR_SWATCHES = [
   "#3b82f6",
   "#a855f7",
   "#ec4899",
+  "linear-gradient(135deg, #facc15, #f97316)",
+  "linear-gradient(135deg, #22d3ee, #3b82f6)",
+  "linear-gradient(135deg, #f43f5e, #a855f7)",
+  "linear-gradient(135deg, #4ade80, #06b6d4)",
+  "linear-gradient(135deg, #ff007f, #7928ca)",
+  "linear-gradient(135deg, #ffed4a, #ff7675)",
 ];
 
 const BG_SWATCHES = [
@@ -85,6 +91,9 @@ const BG_SWATCHES = [
   "rgba(239,68,68,0.85)",
   "rgba(168,85,247,0.85)",
   "rgba(34,197,94,0.85)",
+  "linear-gradient(135deg, rgba(15,23,42,0.9), rgba(30,41,59,0.9))",
+  "linear-gradient(135deg, rgba(234,179,8,0.9), rgba(249,115,22,0.9))",
+  "linear-gradient(135deg, rgba(236,72,153,0.9), rgba(168,85,247,0.9))",
 ];
 
 const ANIMATIONS: { id: CaptionAnimation; label: string; labelEn: string }[] = [

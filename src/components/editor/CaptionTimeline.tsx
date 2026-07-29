@@ -19,6 +19,7 @@ const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
 const CaptionTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused, onSeek, onAddClick }: Props) => {
   const { captions, updateCaption, removeCaption, totalDuration, setCaptions, captionStyle } = useMedia();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const dragRef = useRef<{
     id: string; mode: "move" | "left" | "right"; startX: number; origStart: number; origEnd: number;
   } | null>(null);
@@ -231,15 +232,21 @@ const CaptionTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused
             const row = focused ? getRow(rows, c.id) : 0;
             const left = c.start * pxPerSec;
             const w = Math.max(20, (c.end - c.start) * pxPerSec);
+            const isSelected = selectedId === c.id;
             return (
               <div
                 key={c.id}
-                className={`absolute rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-orange-500 text-slate-950 font-black shadow-md border border-amber-300/80 flex items-center justify-between cursor-grab overflow-hidden transition-all ${focused ? "ring-2 ring-amber-300 ring-offset-1 ring-offset-black" : ""}`}
+                data-caption-item
+                onClick={() => setSelectedId(c.id)}
+                className={`absolute rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-orange-500 text-slate-950 font-black shadow-md border border-amber-300/80 flex items-center justify-between cursor-grab overflow-hidden transition-all ${focused && isSelected ? "ring-2 ring-amber-300 ring-offset-1 ring-offset-black z-20 opacity-100" : "opacity-90 hover:opacity-100"}`}
                 style={{ left, width: w, top: row * trackHeight + 2, height: trackHeight - 4 }}
-                onPointerDown={(e) => onDown(e, c, "move")}
+                onPointerDown={(e) => {
+                  setSelectedId(c.id);
+                  onDown(e, c, "move");
+                }}
                 title={c.text}
               >
-                {focused && (
+                {focused && isSelected && (
                   <TimelineTrimHandle side="left" variant="amber" onPointerDown={(e) => onDown(e, c, "left")} />
                 )}
                 
@@ -268,7 +275,7 @@ const CaptionTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused
                 </div>
 
                 <span className="flex-1 text-[9.5px] text-slate-950 font-black truncate px-1.5 z-10">{c.text}</span>
-                {focused && (
+                {focused && isSelected && (
                   <button
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => { e.stopPropagation(); removeCaption(c.id); }}
@@ -277,7 +284,7 @@ const CaptionTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused
                     <Trash2 className="w-2.5 h-2.5 text-slate-950/80" />
                   </button>
                 )}
-                {focused && (
+                {focused && isSelected && (
                   <TimelineTrimHandle side="right" variant="amber" onPointerDown={(e) => onDown(e, c, "right")} />
                 )}
               </div>

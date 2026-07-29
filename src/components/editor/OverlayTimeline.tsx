@@ -18,6 +18,7 @@ interface Props {
 
 const OverlayTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused, onSeek, onAddClick }: Props) => {
   const { overlays, updateOverlay, removeOverlay, totalDuration } = useMedia();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const dragRef = useRef<any>(null);
 
   const currentTimeRef = useRef(currentTime);
@@ -219,11 +220,20 @@ const OverlayTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused
             const w = Math.max(20, (o.end - o.start) * pxPerSec);
             const isVideo = o.type === "video";
             const isMaxReached = isVideo && o.duration && o.duration > 0 && (o.end - o.start) >= o.duration - 0.05;
+            const isSelected = selectedId === o.id;
             return (
-              <div key={o.id} className={`absolute rounded-xl flex items-center justify-between cursor-grab overflow-hidden border shadow-md transition-all ${focused ? "border-emerald-400 ring-2 ring-emerald-400/40" : "border-emerald-500/40 hover:border-emerald-400/70"}`}
+              <div 
+                key={o.id} 
+                data-overlay-item
+                onClick={() => setSelectedId(o.id)}
+                className={`absolute rounded-xl flex items-center justify-between cursor-grab overflow-hidden border shadow-md transition-all ${focused && isSelected ? "border-emerald-300 ring-2 ring-emerald-400 z-20" : "border-emerald-500/40 hover:border-emerald-400/70 opacity-90"}`}
                 style={{ left, width: w, height: 32, top: (focused ? lane : 0) * ROW + 2, background: `linear-gradient(135deg, rgba(16,185,129,0.55), rgba(5,150,105,0.3))` }}
-                onPointerDown={(e) => onDown(e, o, "move")}>
-                {focused && (
+                onPointerDown={(e) => {
+                  setSelectedId(o.id);
+                  onDown(e, o, "move");
+                }}
+              >
+                {focused && isSelected && (
                   <TimelineTrimHandle side="left" variant="emerald" onPointerDown={(e) => onDown(e, o, "left")} />
                 )}
                 
@@ -258,13 +268,13 @@ const OverlayTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused
                   <video src={o.url} className="w-6 h-6 object-cover rounded flex-shrink-0" muted />
                 )}
                 <span className="flex-1 text-[9px] text-white font-bold truncate px-1 z-10">{o.name}</span>
-                {focused && (
+                {focused && isSelected && (
                   <button onPointerDown={(e) => e.stopPropagation()} onClick={() => removeOverlay(o.id)}
                     className="w-5 h-5 flex items-center justify-center flex-shrink-0 text-white/70 hover:text-white transition-colors z-10">
                     <Trash2 className="w-2.5 h-2.5" />
                   </button>
                 )}
-                {focused && (
+                {focused && isSelected && (
                   <TimelineTrimHandle side="right" variant="emerald" isMaxReached={isMaxReached} onPointerDown={(e) => onDown(e, o, "right")} />
                 )}
               </div>

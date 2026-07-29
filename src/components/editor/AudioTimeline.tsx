@@ -23,6 +23,7 @@ interface Props {
  */
 const AudioTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused, onSeek, onAddClick }: Props) => {
   const { audioTracks, totalDuration, updateAudioTrack, removeAudioTrack, audioBeats } = useMedia();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const halfW = containerW / 2;
   const totalPx = Math.max(totalDuration, 0.001) * pxPerSec;
   const translateX = halfW - currentTime * pxPerSec;
@@ -44,6 +45,11 @@ const AudioTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused, 
     const startY = e.clientY;
     const startCurrentTime = currentTimeRef.current;
     const clickedTime = Math.max(0, Math.min(totalDuration, startCurrentTime + (startX - rect.left - halfW) / pxPerSec));
+
+    // Deselect if clicking on empty track space
+    if (!(e.target as HTMLElement).closest("[data-audio-block]")) {
+      setSelectedId(null);
+    }
 
     if (onSeek) onSeek(clickedTime);
 
@@ -124,6 +130,8 @@ const AudioTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused, 
               track={a}
               top={(focused ? (laneOf.get(a.id) ?? 0) : 0) * ROW + 2}
               focused={focused}
+              isSelected={selectedId === a.id}
+              onSelect={() => setSelectedId(a.id)}
               pxPerSec={pxPerSec}
               containerW={containerW}
               currentTime={currentTime}
@@ -162,6 +170,8 @@ interface BlockProps {
   totalDuration: number;
   top?: number;
   focused?: boolean;
+  isSelected?: boolean;
+  onSelect?: () => void;
   onSeek?: (t: number) => void;
   onMove: (start: number) => void;
   onResize: (edge: "in" | "out", value: number) => void;
@@ -170,7 +180,7 @@ interface BlockProps {
   onRemove: () => void;
 }
 
-const AudioBlock = ({ track, pxPerSec, containerW, currentTime, totalDuration, top = 2, focused, onSeek, onMove, onResize, onFade, onMute, onRemove }: BlockProps) => {
+const AudioBlock = ({ track, pxPerSec, containerW, currentTime, totalDuration, top = 2, focused, isSelected, onSelect, onSeek, onMove, onResize, onFade, onMute, onRemove }: BlockProps) => {
   const left = track.start * pxPerSec;
   const width = Math.max(20, track.duration * pxPerSec);
   const dragRef = useRef<{ kind: "move" | "in" | "out" | "fadeIn" | "fadeOut"; startX: number; base: number } | null>(null);
@@ -331,7 +341,9 @@ const AudioBlock = ({ track, pxPerSec, containerW, currentTime, totalDuration, t
 
   return (
     <div
-      className="absolute h-[44px] rounded-xl overflow-hidden border border-white/20 shadow-lg"
+      data-audio-block
+      onClick={onSelect}
+      className={`absolute h-[44px] rounded-xl overflow-hidden border shadow-lg transition-all ${focused && isSelected ? "border-indigo-300 ring-2 ring-indigo-400" : "border-white/20"}`}
       style={{ left, width, top, background: `linear-gradient(135deg, ${track.color}cc, ${track.color}88)` }}
     >
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full opacity-80 pointer-events-none" />
@@ -351,7 +363,10 @@ const AudioBlock = ({ track, pxPerSec, containerW, currentTime, totalDuration, t
 
       {/* draggable body */}
       <div
-        onPointerDown={(e) => onPointerDown(e, "move")}
+        onPointerDown={(e) => {
+          if (onSelect) onSelect();
+          onPointerDown(e, "move");
+        }}
         className="absolute inset-0 cursor-grab active:cursor-grabbing flex items-center justify-between px-3 z-[7]"
         style={{ touchAction: "none" }}
       >
@@ -394,7 +409,7 @@ const AudioBlock = ({ track, pxPerSec, containerW, currentTime, totalDuration, t
       </div>
 
       {/* fade heads — blue (in) top-left, red (out) top-right */}
-      {focused && (
+      {focused && isSelected && (
         <>
           <div
             onPointerDown={(e) => onPointerDown(e, "fadeIn")}
@@ -414,7 +429,7 @@ const AudioBlock = ({ track, pxPerSec, containerW, currentTime, totalDuration, t
       )}
 
       {/* trim edge handles */}
-      {focused && (
+      {focused && isSelected && (
         <>
           <TimelineTrimHandle side="left" variant="cyan" onPointerDown={(e) => onPointerDown(e, "in")} className="absolute left-0 top-0 bottom-0" />
           <TimelineTrimHandle side="right" variant="cyan" isMaxReached={track.duration > 0 && (track.end || (track.start + track.duration)) >= (track.start + track.duration - 0.05)} onPointerDown={(e) => onPointerDown(e, "out")} className="absolute right-0 top-0 bottom-0" />

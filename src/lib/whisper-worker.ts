@@ -36,25 +36,30 @@ const loadModelWithRetry = async (modelName: string, progress_callback: any, max
     const origin = typeof self !== "undefined" && self.location?.origin ? self.location.origin : "https://localhost";
     env.localModelPath = `${origin}/models/`;
 
-    const localModelName = modelName.replace(/^Xenova\//i, "");
-    console.log(`[Faster-Whisper ONNX Native Android] Loading local model "${localModelName}" from ${env.localModelPath} (No remote network requests)`);
+    console.log(`[Faster-Whisper ONNX Native Android] Attempting local model "whisper-base" from ${env.localModelPath} (Offline native load)`);
 
     try {
-      const model = await pipeline("automatic-speech-recognition", localModelName, {
+      const model = await pipeline("automatic-speech-recognition", "whisper-base", {
         quantized: true,
         progress_callback,
       });
-      currentModelName = modelName;
+      currentModelName = "whisper-base";
+      console.log(`[Faster-Whisper ONNX Native Android] Successfully loaded local "whisper-base" model`);
       return model;
-    } catch (localErr: any) {
-      console.error("[Faster-Whisper ONNX Native Android] Local model load error:", localErr);
-      // Fallback attempt using modelName as-is if stripped name fails
-      const model = await pipeline("automatic-speech-recognition", modelName, {
-        quantized: true,
-        progress_callback,
-      });
-      currentModelName = modelName;
-      return model;
+    } catch (baseErr: any) {
+      console.warn("[Faster-Whisper ONNX Native Android] Local whisper-base failed, falling back to local whisper-tiny:", baseErr);
+      try {
+        const model = await pipeline("automatic-speech-recognition", "whisper-tiny", {
+          quantized: true,
+          progress_callback,
+        });
+        currentModelName = "whisper-tiny";
+        console.log(`[Faster-Whisper ONNX Native Android] Successfully loaded fallback local "whisper-tiny" model`);
+        return model;
+      } catch (tinyErr: any) {
+        console.error("[Faster-Whisper ONNX Native Android] Both local whisper-base and whisper-tiny failed:", tinyErr);
+        throw tinyErr;
+      }
     }
   }
 

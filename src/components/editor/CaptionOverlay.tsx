@@ -468,56 +468,61 @@ const CaptionOverlay = memo(({ currentTime }: Props) => {
               {isSelected && (
                 <>
                   {/* Visual dashed container outline with corner guides */}
-                  <div className="absolute inset-x-0 -inset-y-1.5 border border-dashed border-amber-400 rounded pointer-events-none">
-                    {/* Corner Guide Handles (دليل مستخدم) */}
-                    <div className="absolute -top-1 -left-1 w-2.5 h-2.5 rounded-full bg-amber-400 border border-black shadow-sm" />
-                    <div className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 border border-black shadow-sm" />
-                    <div className="absolute -bottom-1 -left-1 w-2.5 h-2.5 rounded-full bg-amber-400 border border-black shadow-sm" />
-                    <div className="absolute -bottom-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 border border-black shadow-sm" />
+                  <div className="absolute -inset-1 border-2 border-dashed border-amber-400 rounded-lg pointer-events-none">
+                    {/* Corner Guide Dots */}
+                    <div className="absolute -top-1.5 -left-1.5 w-3 h-3 rounded-full bg-amber-400 border-2 border-slate-950 shadow-md" />
+                    <div className="absolute -top-1.5 -right-1.5 w-3 h-3 rounded-full bg-amber-400 border-2 border-slate-950 shadow-md" />
+                    <div className="absolute -bottom-1.5 -left-1.5 w-3 h-3 rounded-full bg-amber-400 border-2 border-slate-950 shadow-md" />
+                    <div className="absolute -bottom-1.5 -right-1.5 w-3 h-3 rounded-full bg-amber-400 border-2 border-slate-950 shadow-md" />
                   </div>
                   
-                  {/* Delete Button */}
-                  <button
-                    onClick={(e) => { e.stopPropagation(); removeCaption(active.id); }}
-                    className="absolute -top-3.5 -right-3.5 w-6 h-6 rounded-full bg-destructive text-white border border-destructive/20 flex items-center justify-center shadow-lg transition-transform active:scale-90 z-20"
-                    aria-label="حذف الكابشن"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
+                  {/* Sleek Floating Control Toolbar above text box (no text obscuring) */}
+                  <div className="absolute -top-11 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-slate-950/90 border border-amber-400/60 p-1 rounded-full shadow-2xl backdrop-blur-md z-30 pointer-events-auto">
+                    {/* Scale & Line Mode Badge */}
+                    <div className="flex items-center gap-1 bg-amber-400/20 text-amber-300 px-2 py-0.5 rounded-full text-[10px] font-black">
+                      <Maximize2 className="w-2.5 h-2.5" />
+                      <span>{Math.round(scale * 100)}%</span>
+                    </div>
 
-                  {/* Corner Resize / Wrap Control Handle (تحكم السطر الواحد / أسطر متعددة من الزاوية) */}
-                  <button
-                    onClick={(e) => { e.stopPropagation(); updateCaption(active.id, { isMultiLine: !active.isMultiLine }); }}
-                    className="absolute -bottom-3.5 -right-3.5 w-7 h-7 rounded-full bg-amber-500 text-slate-950 border-2 border-amber-300 flex items-center justify-center shadow-lg transition-transform active:scale-90 z-20"
-                    title={active.isMultiLine ? "جعل النص سطر واحد" : "تقسيم النص لعدة أسطر"}
-                  >
-                    <WrapText className="w-4 h-4" />
-                  </button>
+                    <div className="w-px h-3 bg-white/20" />
 
-                  {/* Horizontal Flip */}
-                  <button
-                    onClick={(e) => { e.stopPropagation(); updateCaption(active.id, { flipH: !flipH }); }}
-                    className="absolute -bottom-3.5 -left-3.5 w-6 h-6 rounded-full bg-primary text-white border border-primary/20 flex items-center justify-center shadow-lg transition-transform active:scale-90 z-20"
-                    title="قلب أفقي"
-                  >
-                    <FlipHorizontal className="w-3.5 h-3.5" />
-                  </button>
+                    {/* Single line / Multi-line Toggle */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); updateCaption(active.id, { isMultiLine: !active.isMultiLine }); }}
+                      className="p-1 rounded-full bg-secondary hover:bg-amber-500/20 text-foreground hover:text-amber-400 transition-colors"
+                      title={active.isMultiLine ? "جعل النص سطر واحد" : "تقسيم النص لعدة أسطر"}
+                    >
+                      <WrapText className="w-3.5 h-3.5" />
+                    </button>
 
-                  {/* Vertical Flip */}
-                  <button
-                    onClick={(e) => { e.stopPropagation(); updateCaption(active.id, { flipV: !flipV }); }}
-                    className="absolute -top-3.5 -left-3.5 w-6 h-6 rounded-full bg-primary text-white border border-primary/20 flex items-center justify-center shadow-lg transition-transform active:scale-90 z-20"
-                    title="قلب عمودي"
-                  >
-                    <FlipVertical className="w-3.5 h-3.5" />
-                  </button>
+                    {/* Horizontal Flip */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); updateCaption(active.id, { flipH: !flipH }); }}
+                      className="p-1 rounded-full bg-secondary hover:bg-amber-500/20 text-foreground hover:text-amber-400 transition-colors"
+                      title="قلب أفقي"
+                    >
+                      <FlipHorizontal className="w-3.5 h-3.5" />
+                    </button>
 
-                  {/* Manual Scale & Line Mode Indicator */}
-                  <div className="absolute -top-7 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-amber-500 text-slate-950 px-2.5 py-0.5 rounded-full shadow-lg text-[9px] font-black pointer-events-none whitespace-nowrap">
-                    <Maximize2 className="w-2.5 h-2.5" />
-                    <span>{Math.round(scale * 100)}%</span>
-                    <span className="opacity-70">|</span>
-                    <span>{active.isMultiLine ? "عدة أسطر" : "سطر واحد"}</span>
+                    {/* Vertical Flip */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); updateCaption(active.id, { flipV: !flipV }); }}
+                      className="p-1 rounded-full bg-secondary hover:bg-amber-500/20 text-foreground hover:text-amber-400 transition-colors"
+                      title="قلب عمودي"
+                    >
+                      <FlipVertical className="w-3.5 h-3.5" />
+                    </button>
+
+                    <div className="w-px h-3 bg-white/20" />
+
+                    {/* Delete Button */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); removeCaption(active.id); }}
+                      className="p-1 rounded-full bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white transition-colors"
+                      title="حذف النص"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </>
               )}

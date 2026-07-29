@@ -18,6 +18,7 @@ interface Props {
 
 const FilterTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused, onSeek, onAddClick }: Props) => {
   const { filters, updateFilter, removeFilter, totalDuration } = useMedia();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const dragRef = useRef<any>(null);
 
   const currentTimeRef = useRef(currentTime);
@@ -214,11 +215,20 @@ const FilterTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused,
           {packed.map(({ item: f, lane }) => {
             const left = f.start * pxPerSec;
             const w = Math.max(20, (f.end - f.start) * pxPerSec);
+            const isSelected = selectedId === f.id;
             return (
-              <div key={f.id} className={`absolute rounded-xl flex items-center justify-between cursor-grab overflow-hidden border shadow-md transition-all ${focused ? "border-purple-400 ring-2 ring-purple-400/40" : "border-purple-500/40 hover:border-purple-400/70"}`}
+              <div 
+                key={f.id} 
+                data-filter-item
+                onClick={() => setSelectedId(f.id)}
+                className={`absolute rounded-xl flex items-center justify-between cursor-grab overflow-hidden border shadow-md transition-all ${focused && isSelected ? "border-purple-300 ring-2 ring-purple-400 z-20" : "border-purple-500/40 hover:border-purple-400/70 opacity-90"}`}
                 style={{ left, width: w, height: 28, top: (focused ? lane : 0) * ROW + 2, background: `linear-gradient(135deg, rgba(168,85,247,0.6), rgba(126,34,206,0.35))` }}
-                onPointerDown={(e) => onDown(e, f, "move")}>
-                {focused && (
+                onPointerDown={(e) => {
+                  setSelectedId(f.id);
+                  onDown(e, f, "move");
+                }}
+              >
+                {focused && isSelected && (
                   <TimelineTrimHandle side="left" variant="purple" onPointerDown={(e) => onDown(e, f, "left")} />
                 )}
                 
@@ -248,13 +258,13 @@ const FilterTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused,
 
                 <span className="flex-1 text-[9px] text-white font-bold truncate px-1 z-10">{f.type}</span>
                 <span className="text-[8px] text-white/70 px-0.5">{Math.round(f.intensity * 100)}%</span>
-                {focused && (
+                {focused && isSelected && (
                   <button onPointerDown={(e) => e.stopPropagation()} onClick={() => removeFilter(f.id)}
                     className="w-5 h-5 flex items-center justify-center flex-shrink-0 text-white/70 hover:text-white transition-colors z-10">
                     <Trash2 className="w-2.5 h-2.5" />
                   </button>
                 )}
-                {focused && (
+                {focused && isSelected && (
                   <TimelineTrimHandle side="right" variant="purple" onPointerDown={(e) => onDown(e, f, "right")} />
                 )}
               </div>
