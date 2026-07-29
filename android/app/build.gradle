@@ -41,9 +41,13 @@ android {
     }
     
     // Performance: Large heap for AI processing
-    applicationVariants.all { variant ->
-        variant.outputs.all {
-            outputFileName = "RhythmVieron-${variant.name}-${variant.versionName}.apk"
+}
+
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        variant.outputs.each { output ->
+            def versionName = variant.outputs.get(0).versionName.get()
+            output.outputFileName.set("RhythmVieron-${variant.name}-${versionName}.apk")
         }
     }
 }
