@@ -104,7 +104,7 @@ export async function generateThumbnails(
             requestAnimationFrame(() => {
               try {
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                thumbs.push(canvas.toDataURL("image/jpeg", 0.72));
+                thumbs.push(canvas.toDataURL("image/jpeg", 0.85));
                 if (onProgress) {
                   onProgress([...thumbs]);
                 }

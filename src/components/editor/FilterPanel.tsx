@@ -343,7 +343,7 @@ const FilterPanel = ({ open, onClose, currentTime }: Props) => {
   const addNewFilter = useCallback((type: FilterType, customParams?: Partial<any>) => {
     playSfx("click");
     const start = Math.max(0, currentTimeRef.current);
-    const existing = filters.find((f) => (selectedId && f.id === selectedId) || (currentTimeRef.current >= f.start && currentTimeRef.current <= f.end));
+    const existing = selectedId ? filters.find((f) => f.id === selectedId) : null;
     
     const baseParams = {
       type,
@@ -360,22 +360,13 @@ const FilterPanel = ({ open, onClose, currentTime }: Props) => {
 
     if (existing) {
       updateFilter(existing.id, baseParams);
-      setSelectedId(existing.id);
-      toast.success(en ? "Replaced filter preset!" : "تم استبدال الفلتر اللوني!");
+      toast.success(en ? "Replaced filter preset!" : "تم تغيير الفلتر اللوني المحدد بنجاح!");
       return;
     }
 
     addFilter(baseParams);
-    // Find the newly added filter ID and select it
-    setTimeout(() => {
-      const allFilters = filters;
-      if (allFilters.length > 0) {
-        setSelectedId(allFilters[allFilters.length - 1].id);
-      }
-    }, 50);
-
-    toast.success(en ? "Added new custom filter track!" : "تمت إضافة مسار فلتر لوني جديد!");
-  }, [filters, selectedId, totalDuration, updateFilter, addFilter, en]);
+    toast.success(en ? "Added new custom filter track!" : "تمت إضافة مسار مصفوفة فلتر لوني جديد أسفله!");
+  }, [selectedId, filters, totalDuration, updateFilter, addFilter, en]);
 
   const colorFilters = useMemo(() => ["warm", "cool", "dramatic", "vintage", "noir", "dream", "neon", "sepia", "sepia-blue", "duotone"], []);
   const shown = useMemo(() => {
@@ -938,6 +929,29 @@ const FilterPanel = ({ open, onClose, currentTime }: Props) => {
               );
             })}
           </div>
+
+          {/* Mode Indicator Banner */}
+          {selectedId ? (
+            <div className="flex items-center justify-between bg-primary/10 border border-primary/30 px-3 py-2 rounded-2xl text-xs font-bold text-primary animate-in fade-in duration-200">
+              <div className="flex items-center gap-2">
+                <Palette className="w-4 h-4 animate-spin" />
+                <span>{en ? "Replacing selected filter preset..." : "جاري استبدال/تعديل الفلتر المحدد في المخطط الزمني"}</span>
+              </div>
+              <button
+                onClick={() => { playSfx("click"); setSelectedId(null); }}
+                className="px-3 py-1 rounded-xl bg-card hover:bg-secondary text-foreground text-[10px] font-extrabold border border-border/60 shadow-sm transition-all active:scale-95"
+              >
+                {en ? "Deselect (Add New)" : "إلغاء التحديد (إضافة جديد)"}
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between bg-secondary/40 border border-border/40 px-3 py-2 rounded-2xl text-[11px] font-semibold text-muted-foreground">
+              <span>{en ? "Click any filter to add a new preset layer track below" : "اضغط على أي فلتر لإضافة مصفوفة فلتر جديدة أسفله بسهولة"}</span>
+              <span className="text-primary font-bold text-[10px] bg-primary/10 px-2.5 py-0.5 rounded-full border border-primary/20">
+                {filters.length} {en ? "Filters" : "فلاتر"}
+              </span>
+            </div>
+          )}
 
           {/* Quick Remove Active Filter Button */}
           {activeFilter && (

@@ -74,6 +74,12 @@ const COLOR_SWATCHES = [
   "#3b82f6",
   "#a855f7",
   "#ec4899",
+  "linear-gradient(135deg, #facc15, #f97316)",
+  "linear-gradient(135deg, #22d3ee, #3b82f6)",
+  "linear-gradient(135deg, #f43f5e, #a855f7)",
+  "linear-gradient(135deg, #4ade80, #06b6d4)",
+  "linear-gradient(135deg, #ff007f, #7928ca)",
+  "linear-gradient(135deg, #ffed4a, #ff7675)",
 ];
 
 const BG_SWATCHES = [
@@ -85,6 +91,9 @@ const BG_SWATCHES = [
   "rgba(239,68,68,0.85)",
   "rgba(168,85,247,0.85)",
   "rgba(34,197,94,0.85)",
+  "linear-gradient(135deg, rgba(15,23,42,0.9), rgba(30,41,59,0.9))",
+  "linear-gradient(135deg, rgba(234,179,8,0.9), rgba(249,115,22,0.9))",
+  "linear-gradient(135deg, rgba(236,72,153,0.9), rgba(168,85,247,0.9))",
 ];
 
 const ANIMATIONS: { id: CaptionAnimation; label: string; labelEn: string }[] = [
@@ -493,16 +502,19 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
   };
 
   const autoExtract = async () => {
-    const videoItem = media.find((m) => m.type === "video");
-    if (!videoItem) {
-      toast.error(en ? "No video found to extract audio from" : "لا يوجد فيديو لاستخراج الصوت منه");
+    // Check video or audio item in media library
+    const mediaItem = media.find((m) => m.type === "video" || m.type === "audio");
+    
+    if (!mediaItem && audioTracks.length === 0) {
+      toast.error(en ? "No video or audio file found to extract speech from" : "لا يوجد ملف فيديو أو صوت لاستخراج الكلام منه");
       return;
     }
 
     setExtractError(null);
     setExtracting(true);
     setExtractProgress(0);
-    setExtractMsg(en ? "Extracting audio from video..." : "جارٍ استخراج الصوت من الفيديو...");
+    const cleanMsg = en ? "Extracting speech..." : "جاري استخراج الكلام...";
+    setExtractMsg(cleanMsg);
 
     let progressVal = 0;
     let currentPhase: "loading" | "processing" | "done" = "loading";
@@ -510,40 +522,36 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
     const interval = setInterval(() => {
       if (currentPhase === "loading") {
         if (progressVal < 45) {
-          progressVal += 2;
+          progressVal += 3;
         }
       } else if (currentPhase === "processing") {
         if (progressVal < 50) {
           progressVal = 50;
         } else if (progressVal < 95) {
-          progressVal += 1.5;
+          progressVal += 2;
         }
       }
       setExtractProgress(Math.min(100, progressVal));
-    }, 120);
+    }, 100);
 
     try {
-      // 1. Extract audio
-      const { base64 } = await extractAudioBase64(videoItem.file);
+      // 1. Extract audio from media file or audio track
+      const targetFile = mediaItem?.file;
+      if (!targetFile) {
+        throw new Error(en ? "Source media file unavailable" : "ملف الوسائط المصدر غير متوفر");
+      }
+
+      const { base64 } = await extractAudioBase64(targetFile);
       
       currentPhase = "processing";
-      setExtractMsg(en ? "Loading local Whisper AI model..." : "جارٍ تحميل نموذج Whisper المحلي لنسخ الصوت...");
 
-      // 2. Call local Whisper AI transcription directly
+      // 2. Transcribe speech cleanly
       const items = await localTranscribe(
         base64, 
         captionStyle.language, 
-        (msg, progress) => {
-          setExtractMsg(msg);
-          const isProcessing = msg.includes("تحليل") || msg.includes("analysing") || msg.includes("processing") || msg.includes("extracting");
-          
-          if (isProcessing) {
-            currentPhase = "processing";
-            if (progressVal < 50) {
-              progressVal = 50;
-              setExtractProgress(50);
-            }
-          } else if (progress !== undefined) {
+        (_msg, progress) => {
+          setExtractMsg(cleanMsg);
+          if (progress !== undefined && progress > 0) {
             setExtractProgress(progress);
           }
         }
@@ -552,11 +560,10 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
       currentPhase = "done";
       progressVal = 100;
       setExtractProgress(100);
-      setExtractMsg(en ? "Extraction Completed!" : "اكتمل استخراج النصوص بنجاح!");
 
       if (items.length === 0) {
         clearInterval(interval);
-        toast.error(en ? "No speech detected in clip" : "لم يتم العثور على كلام في المقطع");
+        toast.error(en ? "No speech detected in media" : "لم يتم العثور على كلام في المقطع");
         setExtracting(false);
         setExtractProgress(0);
         setExtractMsg("");
@@ -574,7 +581,7 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
 
       setCaptions((prev) => [...prev, ...newCaps].sort((a, b) => a.start - b.start));
       playSfx("success");
-      toast.success(en ? `Extracted ${newCaps.length} captions locally` : `تم استخراج ${newCaps.length} كابشن محلياً بنجاح`);
+      toast.success(en ? `Extracted ${newCaps.length} captions successfully` : `تم استخراج ${newCaps.length} كابشن بنجاح`);
 
       // Jump to list tab and focus first caption text field automatically for fast editing
       setTab("list");
@@ -588,20 +595,16 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
         setExtracting(false);
         setExtractProgress(0);
         setExtractMsg("");
-      }, 1500);
+      }, 800);
 
     } catch (e: any) {
       clearInterval(interval);
-      console.error("Local AutoExtract Error:", e);
-      setExtractError(e.message || (en ? "Failed to transcribe speech using local Whisper AI" : "فشل استخراج الكلام عبر نموذج Whisper المحلي"));
+      console.error("AutoExtract Error:", e);
+      setExtractError(e.message || (en ? "Failed to extract speech" : "فشل استخراج الكلام"));
       toast.error(
-        e.message || (en ? "Failed to transcribe speech using local Whisper AI" : "فشل استخراج الكلام عبر نموذج Whisper المحلي"),
+        e.message || (en ? "Failed to extract speech" : "فشل استخراج الكلام"),
         {
-          duration: 12000,
-          action: {
-            label: en ? "Retry" : "إعادة المحاولة",
-            onClick: () => clearCacheAndRetry(),
-          }
+          duration: 8000,
         }
       );
       setExtracting(false);
@@ -762,8 +765,8 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-white stroke-[3px]" />
                 <span>{Math.round(extractProgress)}%</span>
               </div>
-              <span className="text-[10px] font-medium text-white/90 font-sans mt-0.5 truncate max-w-full text-center">
-                {extractMsg}
+              <span className="text-[11px] font-bold text-white/95 font-sans mt-0.5 truncate max-w-full text-center">
+                {en ? "Extracting speech..." : "جاري استخراج الكلام..."}
               </span>
             </div>
           </div>
@@ -790,7 +793,7 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
           >
             <Sparkles className="w-4 h-4 text-white animate-pulse" />
             <span className="tracking-wide">
-              {en ? "AI Auto-Extract Speech" : "استخراج تلقائي محلي للكلام (AI)"}
+              {en ? "Auto-Extract Speech" : "استخراج تلقائي للكلام"}
             </span>
           </button>
         )}

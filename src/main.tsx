@@ -66,6 +66,10 @@ if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
         .register("/sw.js", { scope: "/" })
         .then((reg) => {
           console.log("[Vireon PWA] Service worker active:", reg.scope);
+          // Check for app updates every 60 seconds automatically
+          setInterval(() => {
+            try { reg.update(); } catch {}
+          }, 60 * 1000);
         })
         .catch((err) => {
           console.warn("[Vireon PWA] Service worker registration notice:", err);

@@ -25,7 +25,11 @@ const OverlayPanel = ({ open, onClose, currentTime }: Props) => {
     updateOverlay, 
     removeOverlay, 
     setOverlays, 
-    totalDuration 
+    totalDuration,
+    clips = [],
+    media = [],
+    resolveTimelineTime,
+    removeClip
   } = useMedia();
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -33,6 +37,61 @@ const OverlayPanel = ({ open, onClose, currentTime }: Props) => {
   const [activeTab, setActiveTab] = useState<TabType>("layers");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const en = getLang() === "en";
+
+  const handleConvertVideoToOverlay = () => {
+    playSfx("click");
+    const resolved = resolveTimelineTime(currentTime);
+    if (!resolved || !resolved.clip) {
+      toast.error(en ? "No video clip found under playhead" : "لا يوجد مقطع فيديو عند مؤشر التشغيل لتحويله إلى تراكب");
+      return;
+    }
+
+    const currentClip = resolved.clip;
+    const mediaItem = media.find(m => m.id === currentClip.mediaId);
+    if (!mediaItem) {
+      toast.error(en ? "Media source not found" : "لم يتم العثور على مصدر الفيديو");
+      return;
+    }
+
+    const overlayId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const clipDur = (currentClip.out - currentClip.in) / (currentClip.speed || 1);
+    const start = Math.max(0, resolved.clipStart);
+    const end = Math.min(totalDuration, start + clipDur);
+
+    const newOverlay = {
+      id: overlayId,
+      url: mediaItem.url,
+      file: mediaItem.file,
+      type: (mediaItem.type === "video" ? "video" : "image") as "video" | "image",
+      name: `${mediaItem.name || (en ? "Clip" : "مقطع")} (${en ? "Overlay" : "تراكب"})`,
+      start,
+      end,
+      x: 50,
+      y: 50,
+      scale: 0.5,
+      opacity: 1,
+      rotation: 0,
+      blend: "normal" as const,
+      brightness: 1,
+    };
+
+    setOverlays(prev => [...prev, newOverlay]);
+    setSelectedId(overlayId);
+    setActiveTab("layers");
+
+    toast.success(
+      en ? "Video converted to PIP Overlay successfully!" : "تم تحويل مقطع الفيديو إلى طبقة تراكب (PIP) بنجاح!",
+      {
+        action: clips.length > 1 ? {
+          label: en ? "Remove Original Clip" : "حذف المقطع الأصلي",
+          onClick: () => {
+            removeClip(currentClip.id);
+            toast.success(en ? "Original clip removed from main track" : "تم حذف المقطع الأصلي من المسار الرئيسي");
+          }
+        } : undefined
+      }
+    );
+  };
 
   useEffect(() => {
     if (!open) {
@@ -271,14 +330,41 @@ const OverlayPanel = ({ open, onClose, currentTime }: Props) => {
           {/* TAB 1: LAYERS & OVERLAYS LIST */}
           {activeTab === "layers" && (
             <div className="space-y-3">
-              {/* Add New Button */}
-              <button
-                onClick={() => { playSfx("click"); inputRef.current?.click(); }}
-                className="w-full py-3.5 rounded-2xl border-2 border-dashed border-primary/40 bg-primary/5 hover:bg-primary/10 flex items-center justify-center gap-2 text-primary font-extrabold text-xs transition-all active:scale-[0.98]"
-              >
-                <Plus className="w-4 h-4" />
-                <span>{en ? "Upload New Overlay / Image / Video" : "إضافة تراكب جديد (صورة، ملصق، فيديو)"}</span>
-              </button>
+              {/* Action Buttons Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  onClick={() => { playSfx("click"); inputRef.current?.click(); }}
+                  className="w-full py-3 rounded-2xl border-2 border-dashed border-primary/40 bg-primary/5 hover:bg-primary/10 flex items-center justify-center gap-2 text-primary font-extrabold text-xs transition-all active:scale-[0.98]"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>{en ? "Upload Overlay (Image/Video)" : "إضافة تراكب جديد (صورة/فيديو)"}</span>
+                </button>
+
+                <button
+                  onClick={handleConvertVideoToOverlay}
+                  className="w-full py-3 rounded-2xl border border-primary/30 bg-secondary/60 hover:bg-secondary flex items-center justify-center gap-2 text-foreground font-extrabold text-xs transition-all active:scale-[0.98] shadow-sm"
+                  title={en ? "Convert current video clip under playhead to PIP overlay" : "تحويل مقطع الفيديو عند مؤشر التشغيل إلى طبقة تراكب"}
+                >
+                  <VideoIcon className="w-4 h-4 text-primary animate-pulse" />
+                  <span>{en ? "Convert Video Clip to PIP" : "تحويل الفيديو الحالي إلى تراكب"}</span>
+                </button>
+              </div>
+
+              {/* Selection State Banner */}
+              {selectedId && selectedOverlay && (
+                <div className="flex items-center justify-between bg-primary/10 border border-primary/30 px-3 py-2 rounded-2xl text-xs font-bold text-primary animate-in fade-in duration-200">
+                  <div className="flex items-center gap-2 truncate">
+                    <Layers className="w-4 h-4 shrink-0" />
+                    <span className="truncate">{en ? `Selected: ${selectedOverlay.name}` : `الطبقة المحددة: ${selectedOverlay.name}`}</span>
+                  </div>
+                  <button
+                    onClick={() => { playSfx("click"); setSelectedId(null); }}
+                    className="px-2.5 py-1 rounded-xl bg-card hover:bg-secondary text-foreground text-[10px] font-extrabold border border-border/60 shrink-0 shadow-sm transition-all active:scale-95"
+                  >
+                    {en ? "Deselect" : "إلغاء التحديد"}
+                  </button>
+                </div>
+              )}
 
               {overlays.length === 0 ? (
                 <div className="text-center py-8 bg-secondary/20 rounded-2xl border border-dashed border-border/40">

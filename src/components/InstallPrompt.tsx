@@ -10,46 +10,48 @@ const DISMISS_DAYS = 3;
 export const InstallPrompt = () => {
   const { install, isIOS, canInstall, installed, isNative } = useInstallPrompt();
   const [open, setOpen] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
   const [isInIframe, setIsInIframe] = useState(false);
   const en = getLang() === "en";
 
   useEffect(() => {
-    // Never open PWA install prompt when running natively inside Android/iOS App
-    if (isNative || installed) {
-      setOpen(false);
-      return;
-    }
-
-    // Check if running inside an iframe (e.g. AI Studio preview)
     const iframeCheck = typeof window !== "undefined" && window.self !== window.top;
     setIsInIframe(iframeCheck);
 
     const handleOpen = () => {
+      setManualOpen(true);
       setOpen(true);
     };
     window.addEventListener("vireon_open_install_prompt", handleOpen);
 
+    if (isNative) {
+      return () => window.removeEventListener("vireon_open_install_prompt", handleOpen);
+    }
+
+    if (installed && !manualOpen) {
+      return () => window.removeEventListener("vireon_open_install_prompt", handleOpen);
+    }
+
     const dismissed = localStorage.getItem(DISMISS_KEY);
-    if (dismissed) {
+    if (dismissed && !manualOpen) {
       const days = (Date.now() - Number(dismissed)) / (1000 * 60 * 60 * 24);
       if (days < DISMISS_DAYS) {
-        return () => {
-          window.removeEventListener("vireon_open_install_prompt", handleOpen);
-        };
+        return () => window.removeEventListener("vireon_open_install_prompt", handleOpen);
       }
     }
 
-    const tmr = setTimeout(() => setOpen(true), 2000);
+    const tmr = setTimeout(() => setOpen(true), 2500);
     return () => {
       clearTimeout(tmr);
       window.removeEventListener("vireon_open_install_prompt", handleOpen);
     };
-  }, [installed, isNative]);
+  }, [installed, isNative, manualOpen]);
 
   const close = () => {
     localStorage.setItem(DISMISS_KEY, String(Date.now()));
     setOpen(false);
+    setManualOpen(false);
     setShowGuide(false);
   };
 
@@ -64,6 +66,7 @@ export const InstallPrompt = () => {
       const ok = await install();
       if (ok) {
         setOpen(false);
+        setManualOpen(false);
       } else {
         setShowGuide(true);
       }
@@ -72,7 +75,7 @@ export const InstallPrompt = () => {
     }
   };
 
-  if (!open || installed || isNative) return null;
+  if (!open || isNative || (installed && !manualOpen)) return null;
 
   return (
     <div className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200" dir={en ? "ltr" : "rtl"}>

@@ -18,6 +18,7 @@ interface Props {
 
 const VfxTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused, onSeek, onAddClick }: Props) => {
   const { vfx, updateVfx, removeVfx, totalDuration } = useMedia();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const dragRef = useRef<any>(null);
 
   const currentTimeRef = useRef(currentTime);
@@ -214,11 +215,20 @@ const VfxTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused, on
           {packed.map(({ item: v, lane }) => {
             const left = v.start * pxPerSec;
             const w = Math.max(20, (v.end - v.start) * pxPerSec);
+            const isSelected = selectedId === v.id;
             return (
-              <div key={v.id} className={`absolute rounded-xl flex items-center justify-between cursor-grab overflow-hidden border shadow-md transition-all ${focused ? "border-amber-400 ring-2 ring-amber-400/40" : "border-amber-500/40 hover:border-amber-400/70"}`}
+              <div 
+                key={v.id} 
+                data-vfx-item
+                onClick={() => setSelectedId(v.id)}
+                className={`absolute rounded-xl flex items-center justify-between cursor-grab overflow-hidden border shadow-md transition-all ${focused && isSelected ? "border-amber-300 ring-2 ring-amber-400 z-20" : "border-amber-500/40 hover:border-amber-400/70 opacity-90"}`}
                 style={{ left, width: w, height: 28, top: (focused ? lane : 0) * ROW + 2, background: `linear-gradient(135deg, rgba(245,158,11,0.6), rgba(217,119,6,0.35))` }}
-                onPointerDown={(e) => onDown(e, v, "move")}>
-                {focused && (
+                onPointerDown={(e) => {
+                  setSelectedId(v.id);
+                  onDown(e, v, "move");
+                }}
+              >
+                {focused && isSelected && (
                   <TimelineTrimHandle side="left" variant="amber" onPointerDown={(e) => onDown(e, v, "left")} />
                 )}
                 
@@ -248,13 +258,13 @@ const VfxTimeline = ({ currentTime, pxPerSec, containerW, isPlaying, focused, on
 
                 <span className="flex-1 text-[9px] text-white font-bold truncate px-1 z-10">{v.type}</span>
                 <span className="text-[8px] text-white/70 px-0.5">{Math.round(v.intensity * 100)}%</span>
-                {focused && (
+                {focused && isSelected && (
                   <button onPointerDown={(e) => e.stopPropagation()} onClick={() => removeVfx(v.id)}
                     className="w-5 h-5 flex items-center justify-center flex-shrink-0 text-white/70 hover:text-white transition-colors">
                     <Trash2 className="w-2.5 h-2.5" />
                   </button>
                 )}
-                {focused && (
+                {focused && isSelected && (
                   <TimelineTrimHandle side="right" variant="amber" onPointerDown={(e) => onDown(e, v, "right")} />
                 )}
               </div>

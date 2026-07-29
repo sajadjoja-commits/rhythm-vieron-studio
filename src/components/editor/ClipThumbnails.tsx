@@ -29,7 +29,7 @@ const ClipThumbnails = ({ clip, media, pxPerSec }: Props) => {
     // Initialize with empty slot skeletons
     setThumbs(Array(count).fill(""));
 
-    generateThumbnails(media.url, count, clip.in, clip.out, 64, (updatedThumbs) => {
+    generateThumbnails(media.url, count, clip.in, clip.out, 120, (updatedThumbs) => {
       if (!cancelled) {
         setThumbs(() => {
           const arr = Array(count).fill("");
