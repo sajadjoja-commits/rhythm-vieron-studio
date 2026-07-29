@@ -30,6 +30,10 @@ export class ErrorBoundary extends Component<Props, State> {
     window.location.reload();
   };
 
+  private handleTryRecover = () => {
+    this.setState({ hasError: false, error: null, errorInfo: null });
+  };
+
   private handleResetApp = async () => {
     if (confirm("هل أنت متأكد من رغبتك في إعادة تعيين التطبيق؟ سيتم مسح بيانات المسودات المحلية لإصلاح الأعطال المستعصية.")) {
       try {
@@ -103,6 +107,16 @@ export class ErrorBoundary extends Component<Props, State> {
 
             {/* Action Buttons */}
             <div className="flex flex-col gap-3">
+              <button
+                onClick={this.handleTryRecover}
+                className="w-full py-3.5 rounded-2xl bg-amber-500/20 text-amber-300 border border-amber-500/40 font-semibold hover:bg-amber-500/30 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                متابعة وإصلاح الخطأ فوراً (بدون إعادة التحميل)
+              </button>
+
               <button
                 onClick={this.handleReload}
                 className="w-full py-3.5 rounded-2xl bg-primary text-primary-foreground font-semibold hover:bg-primary/90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/20 cursor-pointer"

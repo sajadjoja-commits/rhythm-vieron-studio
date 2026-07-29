@@ -49,21 +49,40 @@ const ProjectsScreen = ({ onStartEditor }: ProjectsScreenProps) => {
   return (
     <div className="min-h-screen pb-24 px-4 pt-6 select-none" dir={en ? "ltr" : "rtl"}>
       <div className="flex items-center justify-between mb-5">
-        <h1 className="font-heading text-2xl font-bold text-foreground">{showTrash ? t("projects.trash") : t("projects.title")}</h1>
+        <h1 className="font-heading text-2xl font-bold text-foreground">
+          <span>{showTrash ? t("projects.trash") : t("projects.title")}</span>
+        </h1>
         <div className="flex items-center gap-2">
-          <button onClick={() => setShowTrash(!showTrash)}
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${showTrash ? "bg-primary/15 text-primary" : "bg-secondary text-muted-foreground"}`}>
+          <button
+            onClick={() => setShowTrash(!showTrash)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              showTrash ? "bg-primary/15 text-primary" : "bg-secondary text-muted-foreground"
+            }`}
+          >
             {showTrash ? <RotateCcw className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
-            {showTrash ? t("projects.projectsBtn") : t("projects.trashBtn")}
-            {!showTrash && trash.length > 0 && <span className="ml-1 w-4 h-4 rounded-full bg-destructive text-destructive-foreground text-[9px] flex items-center justify-center">{trash.length}</span>}
+            <span>{showTrash ? t("projects.projectsBtn") : t("projects.trashBtn")}</span>
+            {!showTrash && trash.length > 0 && (
+              <span className="ml-1 w-4 h-4 rounded-full bg-destructive text-destructive-foreground text-[9px] flex items-center justify-center">
+                {trash.length}
+              </span>
+            )}
           </button>
-          {!showTrash && <button onClick={onNew} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg gradient-primary glow-primary-sm text-primary-foreground text-xs font-bold"><Plus className="w-3.5 h-3.5" /> {t("projects.new")}</button>}
+          {!showTrash && (
+            <button
+              onClick={onNew}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg gradient-primary glow-primary-sm text-primary-foreground text-xs font-bold"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>{t("projects.new")}</span>
+            </button>
+          )}
         </div>
       </div>
 
       {!showTrash && projects.length > 0 && (
         <div className="flex items-center gap-1.5 mb-4 text-[10px] text-muted-foreground">
-          <Cloud className="w-3 h-3 text-primary" />{en ? "Synced with cloud" : "متزامن مع السحابة"}
+          <Cloud className="w-3 h-3 text-primary" />
+          <span>{en ? "Synced with cloud" : "متزامن مع السحابة"}</span>
         </div>
       )}
 
@@ -71,47 +90,100 @@ const ProjectsScreen = ({ onStartEditor }: ProjectsScreenProps) => {
         trash.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <Archive className="w-16 h-16 text-muted-foreground/30 mb-4" />
-            <p className="text-lg font-heading font-bold text-foreground mb-1">{t("projects.trashEmpty")}</p>
-            <p className="text-sm text-muted-foreground">{t("projects.trashNote", { n: String(TRASH_DAYS) })}</p>
+            <p className="text-lg font-heading font-bold text-foreground mb-1">
+              <span>{t("projects.trashEmpty")}</span>
+            </p>
+            <p className="text-sm text-muted-foreground">
+              <span>{t("projects.trashNote", { n: String(TRASH_DAYS) })}</span>
+            </p>
           </div>
         ) : (
           <div className="space-y-3">
-            <p className="text-[11px] text-muted-foreground mb-2">{t("projects.trashNote", { n: String(TRASH_DAYS) })}</p>
+            <p className="text-[11px] text-muted-foreground mb-2">
+              <span>{t("projects.trashNote", { n: String(TRASH_DAYS) })}</span>
+            </p>
             {trash.map((p, i) => (
-              <div key={p.id} className="w-full flex items-center gap-3 p-4 rounded-xl bg-card border border-border animate-fade-in" style={{ animationDelay: `${i * 0.04}s` }}>
-                <div className="w-12 h-12 rounded-xl bg-secondary flex items-center justify-center flex-shrink-0 opacity-50"><Play className="w-4 h-4 text-muted-foreground" /></div>
-                <div className="flex-1 min-w-0"><p className="text-sm font-bold text-foreground truncate">{p.name}</p><p className="text-[10px] text-muted-foreground">{t("projects.trashDeleted", { time: timeAgo(p.trashedAt, en) })}</p></div>
-                <button onClick={() => onRestoreFromTrash(p)} className="w-8 h-8 rounded-lg bg-primary/10 hover:bg-primary/20 flex items-center justify-center flex-shrink-0"><RotateCcw className="w-3.5 h-3.5 text-primary" /></button>
-                <button onClick={() => onDeleteForever(p)} className="w-8 h-8 rounded-lg bg-destructive/10 hover:bg-destructive/20 flex items-center justify-center flex-shrink-0"><Trash2 className="w-3.5 h-3.5 text-destructive" /></button>
+              <div
+                key={`trash-${p.id}`}
+                className="w-full flex items-center gap-3 p-4 rounded-xl bg-card border border-border animate-fade-in"
+                style={{ animationDelay: `${i * 0.04}s` }}
+              >
+                <div className="w-12 h-12 rounded-xl bg-secondary flex items-center justify-center flex-shrink-0 opacity-50">
+                  <Play className="w-4 h-4 text-muted-foreground" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-foreground truncate">{p.name}</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    <span>{t("projects.trashDeleted", { time: timeAgo(p.trashedAt, en) })}</span>
+                  </p>
+                </div>
+                <button
+                  onClick={() => onRestoreFromTrash(p)}
+                  className="w-8 h-8 rounded-lg bg-primary/10 hover:bg-primary/20 flex items-center justify-center flex-shrink-0"
+                  title={en ? "Restore" : "استعادة"}
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-primary" />
+                </button>
+                <button
+                  onClick={() => onDeleteForever(p)}
+                  className="w-8 h-8 rounded-lg bg-destructive/10 hover:bg-destructive/20 flex items-center justify-center flex-shrink-0"
+                  title={en ? "Delete forever" : "حذف نهائي"}
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-destructive" />
+                </button>
               </div>
             ))}
           </div>
         )
       ) : loading ? (
-        <div className="flex items-center justify-center py-20"><div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>
+        <div className="flex items-center justify-center py-20">
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        </div>
       ) : projects.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <FolderOpen className="w-16 h-16 text-muted-foreground/30 mb-4" />
-          <p className="text-lg font-heading font-bold text-foreground mb-1">{t("projects.empty")}</p>
-          <p className="text-sm text-muted-foreground mb-4">{t("projects.emptyDesc")}</p>
-          <button onClick={onNew} className="flex items-center gap-2 px-4 py-2 rounded-xl gradient-primary text-primary-foreground text-sm font-bold"><Plus className="w-4 h-4" /> {t("projects.startProject")}</button>
+          <p className="text-lg font-heading font-bold text-foreground mb-1">
+            <span>{t("projects.empty")}</span>
+          </p>
+          <p className="text-sm text-muted-foreground mb-4">
+            <span>{t("projects.emptyDesc")}</span>
+          </p>
+          <button
+            onClick={onNew}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl gradient-primary text-primary-foreground text-sm font-bold"
+          >
+            <Plus className="w-4 h-4" />
+            <span>{t("projects.startProject")}</span>
+          </button>
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-3">
           {projects.map((p, i) => (
-            <div key={p.id} onClick={() => onOpen(p.id)}
+            <div
+              key={`project-${p.id}`}
+              onClick={() => onOpen(p.id)}
               role="button"
               tabIndex={0}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(p.id); } }}
-              className={`relative rounded-xl bg-card border cursor-pointer transition-all text-start animate-fade-in overflow-hidden ${p.id === projectId ? "border-primary/60 glow-primary-sm" : "border-border hover:border-primary/30"}`}
-              style={{ animationDelay: `${i * 0.04}s` }}>
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onOpen(p.id);
+                }
+              }}
+              className={`relative rounded-xl bg-card border cursor-pointer transition-all text-start animate-fade-in overflow-hidden ${
+                p.id === projectId ? "border-primary/60 glow-primary-sm" : "border-border hover:border-primary/30"
+              }`}
+              style={{ animationDelay: `${i * 0.04}s` }}
+            >
               <div className="w-full h-28 rounded-t-xl bg-gradient-to-br from-secondary via-secondary/60 to-background flex items-center justify-center relative overflow-hidden group">
                 {p.coverImage ? (
                   <img
                     src={p.coverImage}
                     alt={p.name}
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                    onError={(e) => { e.currentTarget.style.display = "none"; }}
+                    onError={(e) => {
+                      e.currentTarget.style.display = "none";
+                    }}
                   />
                 ) : (
                   <div className="flex flex-col items-center justify-center gap-1.5 opacity-50">
@@ -124,30 +196,61 @@ const ProjectsScreen = ({ onStartEditor }: ProjectsScreenProps) => {
                 </div>
                 {p.id === projectId && (
                   <div className="absolute top-1.5 left-1.5 flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/90 backdrop-blur-md shadow-md z-10">
-                    <Check className="w-2.5 h-2.5 text-white" /><span className="text-[8px] font-extrabold text-white">{en ? "Active" : "نشط"}</span>
+                    <Check className="w-2.5 h-2.5 text-white" />
+                    <span className="text-[8px] font-extrabold text-white">{en ? "Active" : "نشط"}</span>
                   </div>
                 )}
               </div>
               <div className="p-3">
                 {editingId === p.id ? (
                   <div onClick={(e) => e.stopPropagation()}>
-                    <input value={editName} onChange={(e) => setEditName(e.target.value)}
-                      onBlur={onFinishRename} onKeyDown={(e) => e.key === "Enter" && onFinishRename()}
-                      className="text-sm font-bold text-foreground bg-secondary rounded px-2 py-0.5 w-full focus:outline-none focus:ring-1 focus:ring-primary" autoFocus />
+                    <input
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      onBlur={onFinishRename}
+                      onKeyDown={(e) => e.key === "Enter" && onFinishRename()}
+                      className="text-sm font-bold text-foreground bg-secondary rounded px-2 py-0.5 w-full focus:outline-none focus:ring-1 focus:ring-primary"
+                      autoFocus
+                    />
                   </div>
-                ) : <p className="text-sm font-bold text-foreground truncate">{p.name}</p>}
-                <div className="flex items-center gap-1.5 mt-1"><Clock className="w-3 h-3 text-muted-foreground" /><span className="text-[10px] text-muted-foreground">{timeAgo(p.updatedAt, en)}</span></div>
+                ) : (
+                  <p className="text-sm font-bold text-foreground truncate">{p.name}</p>
+                )}
+                <div className="flex items-center gap-1.5 mt-1">
+                  <Clock className="w-3 h-3 text-muted-foreground" />
+                  <span className="text-[10px] text-muted-foreground">{timeAgo(p.updatedAt, en)}</span>
+                </div>
               </div>
               {editingId !== p.id && (
                 <div className="absolute top-2 right-2">
-                  <button onClick={(e) => { e.stopPropagation(); setMenuOpenId(menuOpenId === p.id ? null : p.id); }}
-                    className="w-7 h-7 rounded-lg bg-black/40 backdrop-blur-sm flex items-center justify-center">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMenuOpenId(menuOpenId === p.id ? null : p.id);
+                    }}
+                    className="w-7 h-7 rounded-lg bg-black/40 backdrop-blur-sm flex items-center justify-center hover:bg-black/60 transition-colors"
+                  >
                     <MoreVertical className="w-3.5 h-3.5 text-white" />
                   </button>
                   {menuOpenId === p.id && (
-                    <div className="absolute top-8 right-0 z-20 bg-card border border-border rounded-lg shadow-xl py-1 min-w-[120px]" onClick={(e) => e.stopPropagation()}>
-                      <button onClick={(e) => onStartRename(p, e)} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-secondary"><Edit3 className="w-3 h-3" /> {en ? "Rename" : "إعادة تسمية"}</button>
-                      <button onClick={(e) => onMoveToTrash(p, e)} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10"><Trash2 className="w-3 h-3" /> {en ? "Delete" : "حذف"}</button>
+                    <div
+                      className="absolute top-8 right-0 z-20 bg-card border border-border rounded-lg shadow-xl py-1 min-w-[120px]"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        onClick={(e) => onStartRename(p, e)}
+                        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-secondary"
+                      >
+                        <Edit3 className="w-3 h-3" />
+                        <span>{en ? "Rename" : "إعادة تسمية"}</span>
+                      </button>
+                      <button
+                        onClick={(e) => onMoveToTrash(p, e)}
+                        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>{en ? "Delete" : "حذف"}</span>
+                      </button>
                     </div>
                   )}
                 </div>
