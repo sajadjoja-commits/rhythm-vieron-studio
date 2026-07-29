@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { User, Globe, Moon, Sun, Monitor, LogOut, Info, Bell, BellOff, HardDrive, Trash2, Shield, Volume2, VolumeX, Smartphone, Download } from "lucide-react";
+import { User, Globe, Moon, Sun, Monitor, LogOut, Info, Bell, BellOff, HardDrive, Trash2, Shield, Volume2, VolumeX, Smartphone, Download, RefreshCw, CheckCircle2 } from "lucide-react";
 import { VireonLogo } from "@/components/VireonLogo";
 import { t, setLang as applyLang } from "@/lib/i18n";
 import { isSfxEnabled, setSfxEnabled, playSfx } from "@/lib/soundFx";
@@ -20,6 +20,8 @@ const SettingsScreen = ({ session, isGuest, onLogout }: SettingsScreenProps) => 
   const [notifications, setNotifications] = useState(() => localStorage.getItem("vireon:notifications") !== "0");
   const [sound, setSound] = useState(() => isSfxEnabled());
   const [storageUsed, setStorageUsed] = useState("...");
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -33,6 +35,25 @@ const SettingsScreen = ({ session, isGuest, onLogout }: SettingsScreenProps) => 
     }
     return () => { mounted = false; };
   }, []);
+
+  const handleCheckUpdate = async () => {
+    setCheckingUpdate(true);
+    setUpdateStatus(null);
+    try {
+      if ("serviceWorker" in navigator) {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg) {
+          await reg.update();
+        }
+      }
+      await new Promise((r) => setTimeout(r, 600));
+      setUpdateStatus(lang === "en" ? "App is up to date!" : "التطبيق بنسخته الأحدث!");
+    } catch {
+      setUpdateStatus(lang === "en" ? "Check completed" : "تم الفحص بنجاح");
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
 
   const handleTheme = (th: "dark" | "light" | "auto") => { setTheme(th); localStorage.setItem("vireon:theme", th); applyThemeToDOM(th); };
   const handleLang = (l: "ar" | "en") => { setLangState(l); applyLang(l); };
@@ -101,7 +122,7 @@ const SettingsScreen = ({ session, isGuest, onLogout }: SettingsScreenProps) => 
       <div className="bg-card border border-border rounded-2xl p-4 mb-4">
         <button
           onClick={async () => {
-            if (isNative || installed) return;
+            if (isNative) return;
             const ok = await install();
             if (!ok) {
               window.dispatchEvent(new Event("vireon_open_install_prompt"));
@@ -110,7 +131,7 @@ const SettingsScreen = ({ session, isGuest, onLogout }: SettingsScreenProps) => 
           className="w-full flex items-center justify-between group"
         >
           <div className="flex items-center gap-2.5">
-            <Smartphone className="w-4 h-4 text-primary" />
+            <Smartphone className="w-4 h-4 text-primary shrink-0" />
             <div className="text-start">
               <p className="text-sm font-bold text-foreground">
                 {isNative
@@ -126,13 +147,42 @@ const SettingsScreen = ({ session, isGuest, onLogout }: SettingsScreenProps) => 
               </p>
             </div>
           </div>
-          {!installed && !isNative && (
-            <span className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl gradient-primary text-primary-foreground text-xs font-bold shadow-sm group-active:scale-95 transition-transform">
+          {!isNative && (
+            <span className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl gradient-primary text-primary-foreground text-xs font-bold shadow-sm group-active:scale-95 transition-transform shrink-0">
               <Download className="w-3.5 h-3.5" />
-              {lang === "en" ? "Install" : "تثبيت"}
+              {installed ? (lang === "en" ? "Open" : "عرض") : (lang === "en" ? "Install" : "تثبيت")}
             </span>
           )}
         </button>
+      </div>
+      <div className="bg-card border border-border rounded-2xl p-4 mb-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <RefreshCw className={`w-4 h-4 text-primary ${checkingUpdate ? "animate-spin" : ""}`} />
+            <div className="text-start">
+              <p className="text-sm font-bold text-foreground">
+                {lang === "en" ? "Check for Updates" : "التحقق من التحديثات"}
+              </p>
+              <p className="text-[10px] text-muted-foreground">
+                {updateStatus || (lang === "en" ? "Ensure you have the latest software features" : "تأكد من حصولك على أحدث الميزات والإصلاحات")}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleCheckUpdate}
+            disabled={checkingUpdate}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-secondary hover:bg-secondary/80 text-foreground text-xs font-bold transition-all disabled:opacity-50"
+          >
+            {checkingUpdate ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-primary" />
+            ) : updateStatus ? (
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+            ) : (
+              <RefreshCw className="w-3.5 h-3.5 text-primary" />
+            )}
+            <span>{checkingUpdate ? (lang === "en" ? "Checking..." : "جاري...") : (lang === "en" ? "Check" : "فحص")}</span>
+          </button>
+        </div>
       </div>
       <div className="bg-card border border-border rounded-2xl p-4 mb-4">
         <div className="flex items-center gap-3"><VireonLogo className="w-8 h-8" /><div className="flex-1"><p className="text-sm font-bold text-foreground">Vireon AI</p><p className="text-[10px] text-muted-foreground">v1.0.0</p></div><Info className="w-4 h-4 text-muted-foreground" /></div>

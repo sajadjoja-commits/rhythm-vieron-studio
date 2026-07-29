@@ -71,7 +71,6 @@ export function useInstallPrompt() {
 
     if (isStandalone()) {
       setInstalled(true);
-      setCanInstall(false);
     }
 
     return () => {
@@ -82,7 +81,8 @@ export function useInstallPrompt() {
   }, [isNative]);
 
   const install = useCallback(async () => {
-    if (isNative || !deferredPrompt) return false;
+    if (isNative) return false;
+    if (!deferredPrompt) return false;
     try {
       await deferredPrompt.prompt();
       const { outcome } = await deferredPrompt.userChoice;
@@ -99,10 +99,11 @@ export function useInstallPrompt() {
     return false;
   }, [isNative]);
 
-  // showInstallEntry is true if not native and not already installed
-  const showInstallEntry = !isNative && !installed;
+  // showInstallEntry is true if not native (allows re-opening or installing)
+  const showInstallEntry = !isNative;
 
   return { canInstall, install, isIOS, installed, showInstallEntry, isNative };
 }
+
 
 
