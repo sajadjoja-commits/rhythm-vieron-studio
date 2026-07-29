@@ -1,0 +1,5 @@
+- [ ] Delete conflicting vector icon file
+- [ ] Deploy PNG logo to all mipmap density folders (hdpi to xxxhdpi)
+- [ ] Update adaptive icon XML configurations
+- [ ] Perform fresh web build and Capacitor sync
+- [ ] Verify resource integrity
