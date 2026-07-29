@@ -281,16 +281,15 @@ const VfxPanel = ({ open, onClose, currentTime }: Props) => {
   const addNewVfx = (type: VfxType) => {
     playSfx("click");
     const start = Math.max(0, currentTime); 
-    const existing = vfx.find((v) => (selected && v.id === selected) || (currentTime >= v.start && currentTime <= v.end));
+    const existing = selected ? vfx.find((v) => v.id === selected) : null;
     if (existing) {
       updateVfx(existing.id, { type });
-      setSelected(existing.id);
-      toast.success(en ? "Replaced effect!" : "تم استبدال المؤثر البصري!");
+      toast.success(en ? "Replaced effect!" : "تم تغيير المؤثر البصري المحدد بنجاح!");
       return;
     }
     const end = Math.min(totalDuration, start + 2);
     addVfx({ type, start, end, intensity: 0.8 });
-    toast.success(en ? "Added new effect track!" : "تم إضافة مؤثر بصري جديد!");
+    toast.success(en ? "Added new effect track!" : "تم إضافة مصفوفة مؤثر بصري جديدة أسفله بنجاح!");
   };
 
   const handleApplyPromoAd = (promo: typeof VFX_PROMOS[0]) => {
@@ -447,6 +446,29 @@ const VfxPanel = ({ open, onClose, currentTime }: Props) => {
               </div>
             </div>
           </div>
+
+          {/* Mode Indicator Banner */}
+          {selected ? (
+            <div className="flex items-center justify-between bg-primary/10 border border-primary/30 px-3 py-2 rounded-2xl text-xs font-bold text-primary animate-in fade-in duration-200">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 animate-spin" />
+                <span>{en ? "Replacing selected effect track..." : "جاري تعديل/استبدال المؤثر المحدد في المخطط الزمني"}</span>
+              </div>
+              <button
+                onClick={() => { playSfx("click"); setSelected(null); }}
+                className="px-3 py-1 rounded-xl bg-card hover:bg-secondary text-foreground text-[10px] font-extrabold border border-border/60 shadow-sm transition-all active:scale-95"
+              >
+                {en ? "Deselect (Add New)" : "إلغاء التحديد (إضافة جديد)"}
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between bg-secondary/40 border border-border/40 px-3 py-2 rounded-2xl text-[11px] font-semibold text-muted-foreground">
+              <span>{en ? "Click any effect to add a new layer track below" : "اضغط على أي مؤثر لإضافة مصفوفة جديدة أسفله بسهولة"}</span>
+              <span className="text-primary font-bold text-[10px] bg-primary/10 px-2.5 py-0.5 rounded-full border border-primary/20">
+                {vfx.length} {en ? "Layers" : "طبقات"}
+              </span>
+            </div>
+          )}
 
           <div className="grid grid-cols-3 gap-2">
             {VFX_LIB.map((v) => (
