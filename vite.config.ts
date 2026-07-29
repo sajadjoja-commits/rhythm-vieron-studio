@@ -53,10 +53,26 @@ export default defineConfig(({ mode }) => ({
         orientation: "any",
         prefer_related_applications: false,
         icons: [
-          { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any maskable" },
+          { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
           { src: "/icon-maskable-192.png", sizes: "192x192", type: "image/png", purpose: "maskable" },
-          { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
+          { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
           { src: "/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" }
+        ],
+        screenshots: [
+          {
+            src: "/screenshot-mobile.jpg",
+            sizes: "720x1280",
+            type: "image/jpeg",
+            form_factor: "narrow",
+            label: "شاشة تطبيق Vireon AI على الهاتف"
+          },
+          {
+            src: "/screenshot-desktop.jpg",
+            sizes: "1280x720",
+            type: "image/jpeg",
+            form_factor: "wide",
+            label: "واجهة الاستوديو الاحترافية على الحاسوب"
+          }
         ],
         shortcuts: [
           {
