@@ -1,5 +1,3 @@
-- [x] Create `ic_launcher_foreground.xml` vector drawable
-- [x] Update `ic_launcher.xml` to use vector foreground
-- [x] Update `ic_launcher_round.xml` to use vector foreground
-- [x] Update `styles.xml` splash screen icon
-- [ ] Verify build and deploy
+- [x] Redesign `ic_launcher_foreground.xml` as a solid 'V'
+- [x] Verify build compatibility
+- [x] Create walkthrough

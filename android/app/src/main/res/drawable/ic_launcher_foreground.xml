@@ -5,39 +5,22 @@
     android:viewportHeight="108"
     android:viewportWidth="108">
 
-    <!-- Outer Glow (Soft Purple) -->
+    <!-- Solid Brand 'V' with Rounded Bottom -->
     <path
-        android:pathData="M30,35 L54,73 L78,35"
-        android:strokeWidth="10"
-        android:strokeColor="#40B46BFF"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round" />
-
-    <!-- Main Neon 'V' with Gradient -->
-    <path
-        android:pathData="M30,35 L54,73 L78,35"
-        android:strokeWidth="6"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round">
-        <aapt:attr name="android:strokeColor">
+        android:pathData="M 26,28 H 40 L 54,62 L 68,28 H 82 L 62,80 Q 54,92 46,80 Z"
+        android:strokeWidth="1"
+        android:strokeColor="#00000000">
+        <aapt:attr name="android:fillColor">
             <gradient
-                android:startX="30"
-                android:startY="35"
-                android:endX="78"
-                android:endY="35"
+                android:startX="26"
+                android:startY="28"
+                android:endX="82"
+                android:endY="80"
                 android:type="linear">
                 <item android:offset="0.0" android:color="#4D9FFF" />
                 <item android:offset="1.0" android:color="#B46BFF" />
             </gradient>
         </aapt:attr>
     </path>
-
-    <!-- Inner Bright Core (White/Light Cyan) -->
-    <path
-        android:pathData="M30,35 L54,73 L78,35"
-        android:strokeWidth="1.5"
-        android:strokeColor="#CCFFFFFF"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round" />
 
 </vector>
