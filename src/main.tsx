@@ -6,6 +6,9 @@ import { applyLangToDOM } from "./lib/i18n";
 import { preloadSfx } from "./lib/soundFx";
 import { initCapgo } from "./services/capgo";
 import { initializePerformanceOptimizations, logPerformanceMetrics, enableGarbageCollectionHints } from "./lib/performanceOptimizations";
+import { CapacitorUpdater } from '@capgo/capacitor-updater';
+
+CapacitorUpdater.notifyAppReady();
 
 try { applyLangToDOM(); } catch (e) { console.warn("Language init warning:", e); }
 

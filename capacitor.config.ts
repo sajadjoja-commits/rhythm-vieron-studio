@@ -1,43 +1,45 @@
-import { CapacitorConfig } from '@capacitor/cli';
+import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.vireon.ai',
+  appId: 'com.vireon.vireon',
   appName: 'Vireon AI Studio',
   webDir: 'dist',
   backgroundColor: '#090d16',
   server: {
     url: 'https://rhythm-vieron-studio.lovable.app',
-    cleartext: true,
+    cleartext: true
   },
   android: {
     allowMixedContent: true,
     captureInput: true,
-    webContentsDebuggingEnabled: false,
+    webContentsDebuggingEnabled: false
   },
   plugins: {
     SplashScreen: {
       launchShowDuration: 1000,
-      launchAutoHide: true,
+      launchAutoHide: false,
       backgroundColor: '#090d16',
       androidScaleType: 'CENTER_CROP',
       splashFullScreen: true,
-      splashImmersive: true,
+      splashImmersive: true
     },
     StatusBar: {
       style: 'DARK',
       backgroundColor: '#090d16',
-      overlaysWebView: false,
+      overlaysWebView: false
     },
     Keyboard: {
       resize: 'body',
       style: 'DARK',
-      resizeOnFullScreen: true,
+      resizeOnFullScreen: true
     },
     CapacitorUpdater: {
-      autoUpdate: true,
-    },
-  },
+      autoUpdate: 'always',
+      appId: 'com.vireon.vireon',
+      version: '0.0.0',
+      autoSplashscreen: true
+    }
+  }
 };
 
 export default config;
-
