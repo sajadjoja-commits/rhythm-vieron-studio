@@ -1,3 +1,5 @@
-- [x] Redesign `ic_launcher_foreground.xml` as a solid 'V'
-- [x] Verify build compatibility
-- [x] Create walkthrough
+- [x] Branding Clean-up (Delete old assets)
+- [x] Create scaled logo drawable `ic_launcher_logo.xml`
+- [x] Update adaptive icon configurations
+- [x] Update Splash Screen style
+- [ ] Verify build and deploy
