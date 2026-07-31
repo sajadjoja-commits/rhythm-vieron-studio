@@ -1,4 +1,6 @@
-- [x] Implement back button listener in `Index.tsx` using `@capacitor/app`
-- [x] Update tab switching and menu opening to use history state
-- [x] Implement exit app confirmation logic
-- [x] Verify build and functionality
+- [ ] Create `CustomGallery.tsx` for professional photo/video selection
+- [ ] Create `MusicLibrary.tsx` with waveform visualization
+- [ ] Integrate new libraries into `Index.tsx` navigation
+- [ ] Update `MediaPicker.tsx` to use custom libraries
+- [ ] Refine Back Button logic for sequential closing
+- [ ] Verify build and functionality

@@ -13,6 +13,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@capacitor-community/media": "^9.1.0",
     "@capacitor/android": "^8.4.2",
     "@capacitor/app": "^8.1.1",
     "@capacitor/cli": "^8.4.2",
@@ -77,6 +78,7 @@
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
     "vaul": "^0.9.9",
+    "wavesurfer.js": "^7.12.11",
     "web-audio-beat-detector": "^8.2.37",
     "webm-muxer": "^5.1.4",
     "zod": "^3.25.76"

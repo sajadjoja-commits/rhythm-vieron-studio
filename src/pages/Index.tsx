@@ -20,6 +20,8 @@ const SettingsScreen = lazy(() => import("@/components/SettingsScreen"));
 const EditorScreen = lazy(() => import("@/components/EditorScreen"));
 const TemplateUseScreen = lazy(() => import("@/components/TemplateUseScreen"));
 const SmartTemplateQuickEditor = lazy(() => import("@/components/SmartTemplateQuickEditor"));
+const CustomGallery = lazy(() => import("@/components/CustomGallery"));
+const MusicLibrary = lazy(() => import("@/components/MusicLibrary"));
 
 const ScreenLoader = () => (
   <div className="min-h-[100dvh] w-full flex flex-col items-center justify-center bg-background text-foreground animate-pulse">
@@ -38,6 +40,8 @@ const Index = () => {
   const [activeTemplateObj, setActiveTemplateObj] = useState<any | null>(null);
   const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
   const [activeSmartTemplate, setActiveSmartTemplate] = useState<any | null>(null);
+  const [showGallery, setShowGallery] = useState<{ open: boolean; type: "image" | "video" | "both" }>({ open: false, type: "both" });
+  const [showMusicLibrary, setShowMusicLibrary] = useState(false);
   const { newProject } = useMedia();
 
   useEffect(() => {
@@ -89,6 +93,16 @@ const Index = () => {
         return;
       }
 
+      if (showGallery.open) {
+        setShowGallery({ ...showGallery, open: false });
+        return;
+      }
+
+      if (showMusicLibrary) {
+        setShowMusicLibrary(false);
+        return;
+      }
+
       if (activeTab !== "home") {
         setActiveTab("home");
         window.history.pushState({ isHome: true, tab: "home" }, "");
@@ -120,7 +134,9 @@ const Index = () => {
     };
 
     // Hardware Back Button (Android)
-    const backButtonListener = App.addListener('backButton', ({ canGoBack }) => {
+    const backButtonListener = App.addListener('backButton', () => {
+      // In professional apps, we often want to prioritize closing overlays
+      // over navigating the history stack.
       handleBackAction();
     });
 
@@ -129,7 +145,7 @@ const Index = () => {
       window.removeEventListener("popstate", handlePopState);
       backButtonListener.then(l => l.remove());
     };
-  }, [showEditor, showPhotoEditor, showPlusMenu, activeTab, lastBackClick, activeTemplateObj, activeTemplateId, activeSmartTemplate]);
+  }, [showEditor, showPhotoEditor, showPlusMenu, activeTab, lastBackClick, activeTemplateObj, activeTemplateId, activeSmartTemplate, showGallery, showMusicLibrary]);
 
   const handleTabChange = (tab: string) => {
     if (tab !== activeTab) {
@@ -423,6 +439,26 @@ const Index = () => {
       </Suspense>
 
       <BottomNav active={activeTab} onNavigate={handleTabChange} onPlusClick={handlePlusClick} />
+
+      <Suspense fallback={null}>
+        {showGallery.open && (
+          <CustomGallery
+            type={showGallery.type}
+            onClose={() => setShowGallery({ ...showGallery, open: false })}
+            onSelect={(files) => {
+              // Handle selection
+            }}
+          />
+        )}
+        {showMusicLibrary && (
+          <MusicLibrary
+            onClose={() => setShowMusicLibrary(false)}
+            onAdd={(url, name) => {
+              // Handle add to editor
+            }}
+          />
+        )}
+      </Suspense>
 
       {showPlusMenu && (
         <div className="fixed inset-0 z-[55] bg-black/60 flex items-end" onClick={() => setShowPlusMenu(false)}>
