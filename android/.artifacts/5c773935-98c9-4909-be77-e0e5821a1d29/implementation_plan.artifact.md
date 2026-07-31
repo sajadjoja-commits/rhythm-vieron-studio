@@ -1,39 +1,33 @@
-# Fix Media Access & Full Device Integration
+# Enable Full Access to Device Photos and Videos
 
-The custom gallery and music library are currently empty because they either lack runtime permission requests or are using simulated data. I will implement actual device scanning to show all photos, videos, and music files.
+The user is experiencing an empty gallery despite granting permissions. This is due to modern Android security policies (Android 13/14) which require specific configuration for "Gallery Apps" and granular permissions.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> To access all files on the device (especially on Android 11+), I will implement recursive folder scanning for the Music Library. This ensures we find all audio files regardless of where they are stored.
-> For the Gallery, I will add the mandatory runtime permission pop-ups.
+> I will be enabling "Gallery Mode" for the media plugin. This will allow the app to see all albums and media files on the device. On Android 14, you may see a prompt asking to "Select photos" or "Allow all". For the best experience, please choose **"Allow all"**.
 
 ## Proposed Changes
 
-### Media Access (Photos/Videos)
+### Build & Plugin Configuration
 
-#### [MODIFY] [CustomGallery.tsx](file:///D:/rhythm-vieron-studio/src/components/CustomGallery.tsx)
-- Add `Media.requestPermissions()` call before fetching assets.
-- Use `Media.getMedias` with proper error handling and fallback logic.
-- Ensure thumbnails are correctly converted for display in the webview.
-
-### Full Music Access (Audio)
-
-#### [MODIFY] [MusicLibrary.tsx](file:///D:/rhythm-vieron-studio/src/components/MusicLibrary.tsx)
-- Replace simulated songs with actual file scanning.
-- Use `@capacitor/filesystem` to scan `Documents`, `Downloads`, and `Music` directories.
-- Filter for `.mp3`, `.m4a`, `.wav`, and `.ogg` files.
-- Extract file metadata (name, size) to show in the list.
-
-### Native Configuration
+#### [MODIFY] [capacitor.config.ts](file:///D:/rhythm-vieron-studio/capacitor.config.ts)
+- Add `Media: { androidGallery: true }` to the `plugins` section. This is a mandatory requirement for the `@capacitor-community/media` plugin version 7+ to function as a full gallery.
 
 #### [MODIFY] [AndroidManifest.xml](file:///D:/rhythm-vieron-studio/android/app/src/main/AndroidManifest.xml)
-- Double-check that `android:requestLegacyExternalStorage="true"` is set if needed (though we are targeting modern APIs).
+- Add `READ_MEDIA_VISUAL_USER_SELECTED` permission to support Android 14's partial access feature.
+
+### Media Fetching Logic
+
+#### [MODIFY] [CustomGallery.tsx](file:///D:/rhythm-vieron-studio/src/components/CustomGallery.tsx)
+- Update the permission request to be more granular.
+- Implement a broader fetch that doesn't just look for "Recent" but queries the global media store.
+- Add a "Retry" and "Open Settings" button if access is denied or restricted.
 
 ## Verification Plan
 
 ### Manual Verification
-- Launch the app and click "Add Media" -> A system permission dialog should appear.
-- After granting permission, the custom gallery should populate with your device's photos and videos.
-- Open the Music Library -> It should show a "Scanning..." state and then list all audio files found on your device.
-- Select an audio file -> Waveform should render as before, but with the real file data.
+- Deploy to Android 13/14 device.
+- Open Gallery -> Accept the "Allow access to all photos and videos" prompt.
+- Verify that the grid populates with all device media.
+- Test both "Image" and "Video" filters.

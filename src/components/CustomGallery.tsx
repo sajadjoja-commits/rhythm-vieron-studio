@@ -31,20 +31,27 @@ const CustomGallery = ({ onClose, onSelect, type = "both" }: CustomGalleryProps)
     try {
       setLoading(true);
 
+      // Request granular permissions for Android 13/14
       const perm = await Media.requestPermissions();
-      if (perm.photos !== 'granted') {
-        console.error("Gallery permission denied");
+      const isGranted = perm.photos === 'granted' || perm.photos === 'limited';
+
+      if (!isGranted) {
+        console.error("Gallery permission denied or limited without selection");
         setLoading(false);
         return;
       }
 
+      // Fetch all media using the broad query
       const photos = await Media.getMedias({
-        quantity: 500, // Load more for a better experience
+        quantity: 1000, // Increase limit for full access
         types: type === "both" ? ["photos", "videos"] : type === "image" ? ["photos"] : ["videos"],
       });
 
-      // Filter out assets without paths
-      const validMedias = photos.medias.filter(m => m.path);
+      // Filter out assets without paths and sort by date (latest first)
+      const validMedias = photos.medias
+        .filter(m => m.path || m.identifier)
+        .sort((a, b) => (b.creationDate || 0) - (a.creationDate || 0));
+
       setAssets(validMedias);
     } catch (err) {
       console.error("Error loading gallery:", err);

@@ -38,6 +38,9 @@ const config: CapacitorConfig = {
       appId: 'com.vireon.vireon',
       version: '1.0.0',
       autoSplashscreen: true
+    },
+    Media: {
+      androidGallery: true
     }
   }
 };
