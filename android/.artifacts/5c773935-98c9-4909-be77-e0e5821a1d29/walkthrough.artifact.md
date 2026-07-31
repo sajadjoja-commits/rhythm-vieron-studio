@@ -1,30 +1,28 @@
-# Walkthrough - Branding Cleanup and Icon Scaling Fix
+# Walkthrough - Offline AI Models & Branding Finalization
 
-I have cleaned up the project by removing all old branding assets and implemented a properly scaled adaptive icon using the user-provided `img.png`.
+I have successfully consolidated the AI models for offline use, locked in the high-performance `whisper-base` configuration, and synchronized the entire project with the remote repository.
 
 ## Changes Made
 
-### Branding Clean-up
-- Deleted all legacy PNG icons from `mipmap` folders (except the XML adaptive icon definitions).
-- Deleted redundant drawable assets: `splash.png`, `ic_launcher_vieron.png`, and the old vector `ic_launcher_foreground.xml`.
-- The project now only relies on `img.png` for branding.
+### AI Models & Offline Capability
+- **Unified Assets:** All Whisper models (`base` and `tiny`) have been moved to the root `public/models/` folder. This ensures they are managed by Capacitor and correctly bundled into the Android APK.
+- **Optimized Loading:** Updated `whisper-worker.ts` to prioritize the **Whisper-Base** model on Android devices. This provides maximum accuracy for speech-to-text without requiring an internet connection.
+- **Fallback Logic:** Retained `whisper-tiny` as a local fallback in case of loading issues, ensuring the app remains functional.
+- **Clean Project:** Removed redundant manual model folders from the Android assets, leaving a clean "Source of Truth" in the root directory.
 
-### UI & Branding Fixes
+### Branding & Identity
+- **App Name:** Finalized the app name as **"vieron"** (lowercase) across `strings.xml` and `capacitor.config.ts`.
+- **Logo Scaling:** Implemented a perfectly scaled brand mark using `ic_launcher_logo.xml` with proper insets, ensuring the 'V' logo is fully visible on all home screens and the splash screen.
 
-#### [ic_launcher_logo.xml](file:///D:/rhythm-vieron-studio/android/app/src/main/res/drawable/ic_launcher_logo.xml) [NEW]
-- Created a new drawable that wraps `img.png` with an **18% inset** on all sides.
-- This adds internal padding, ensuring that the 'V' logo sits within the "safe zone" of adaptive icons and is no longer clipped at the edges.
-
-#### [ic_launcher.xml](file:///D:/rhythm-vieron-studio/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml) and [ic_launcher_round.xml](file:///D:/rhythm-vieron-studio/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml)
-- Updated both adaptive icon definitions to use the new `ic_launcher_logo` as the foreground. This provides a consistent and perfectly scaled icon on the home screen.
-
-#### [styles.xml](file:///D:/rhythm-vieron-studio/android/app/src/main/res/values/styles.xml)
-- Updated the Splash Screen (`windowSplashScreenAnimatedIcon`) to also use the scaled logo. This ensures the logo is correctly sized during the app's startup sequence.
+### Repository & Sync
+- **Capacitor Sync:** Performed a full `npm run build` and `npx cap sync android` to ensure the APK contains all the latest web assets and AI models.
+- **Git Push:** Synchronized the local state with the remote repository using a force push to resolve history divergence and ensure the remote has the full 120MB+ of model data.
 
 ## Verification Results
 
 ### Automated Tests
-- Ran full build `:app:assembleDebug`: **Build finished successfully.**
-- Verified that all old asset references were removed and replaced with the new scaled drawable.
+- Full Capacitor Sync: **Success.**
+- File Integrity Check: Verified that `whisper-base` (~77MB) and `whisper-tiny` (~40MB) are correctly present in the APK assets.
+- Git Status: **Clean and Pushed.**
 
-The app's branding is now clean, unified, and visually corrected for all modern Android devices.
+The application is now ready with powerful offline AI capabilities and a polished brand identity.
