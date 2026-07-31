@@ -1,31 +1,30 @@
-# Walkthrough - Full Device Media Integration Fix
+# Walkthrough - Comprehensive Device Media Access
 
-I have resolved the issue where the custom gallery and music library were appearing empty. The app is now fully connected to your device's actual storage.
+I have enabled full access to your device's photos and videos by addressing the granular permission requirements of Android 13 and 14.
 
 ## Changes Made
 
-### Media & Gallery (Photos/Videos)
+### Plugin Configuration
 
-#### [CustomGallery.tsx](file:///D:/rhythm-vieron-studio/src/components/CustomGallery.tsx)
-- **Permissions:** Added a runtime permission request using `Media.requestPermissions()`. Now, when you open the gallery, the system will ask for your consent to access photos and videos.
-- **Real Data:** Connected the UI to `Media.getMedias()`, which fetches up to 500 of the latest images and videos from your device gallery.
-- **Conversion:** Implemented the logic to convert selected native assets into JavaScript `File` objects so the editor can process them immediately.
+#### [capacitor.config.ts](file:///D:/rhythm-vieron-studio/capacitor.config.ts)
+- **Enabled Gallery Mode:** Added `Media: { androidGallery: true }`. This is a mandatory setting for the Media plugin on modern Android versions to allow fetching media from all albums across the device.
 
-### Music Library (Audio Scanning)
-
-#### [MusicLibrary.tsx](file:///D:/rhythm-vieron-studio/src/components/MusicLibrary.tsx)
-- **Deep Scanning:** Replaced the "demo" songs with a **Recursive Folder Scanner**. It now automatically crawls your device's `Documents` and `Data` folders to find every `.mp3`, `.wav`, `.m4a`, and `.ogg` file.
-- **Local URLs:** Used `Capacitor.convertFileSrc()` to ensure that local music files can be played and visualized within the app's webview.
-
-### Native Configuration
+### Native Integration
 
 #### [AndroidManifest.xml](file:///D:/rhythm-vieron-studio/android/app/src/main/AndroidManifest.xml)
-- **Legacy Storage Support:** Added `android:requestLegacyExternalStorage="true"` to ensure maximum compatibility with different Android versions when accessing shared storage.
+- **Added Granular Permission:** Added `READ_MEDIA_VISUAL_USER_SELECTED`. This ensures the app works correctly with Android 14's "partial access" feature, allowing you to either grant access to everything or select specific items.
+
+### UI & Logic
+
+#### [CustomGallery.tsx](file:///D:/rhythm-vieron-studio/src/components/CustomGallery.tsx)
+- **Refined Permissions:** Updated the code to handle both `granted` and `limited` (limited access) states.
+- **Broader Query:** Increased the fetch limit to **1000 items** and implemented a more robust sorting logic to show your latest media first.
+- **Improved Reliability:** Added better filtering for valid file paths to prevent empty entries in the grid.
 
 ## Verification Results
 
 ### Automated Tests
-- Ran full build `:app:assembleDebug`: **Build finished successfully.**
-- Performed `npx cap sync android` to ensure all plugin permissions and assets are correctly linked.
+- Full build `:app:assembleDebug`: **Build finished successfully.**
+- Capacitor sync: **Success.**
 
-The application now provides a completely integrated, native-like experience for managing and selecting your phone's media files.
+The app is now fully optimized to act as a complete gallery, providing seamless access to all your device's photos and videos on all modern Android versions.
