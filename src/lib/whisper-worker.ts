@@ -114,8 +114,12 @@ self.onmessage = async (e) => {
 
   try {
     const isArabic = language === "ar" || language === "arabic";
-    // Ultra-fast Xenova/whisper-tiny (~39MB quantized) Faster-Whisper model
-    const targetModel = modelPreference || "Xenova/whisper-tiny";
+    const isAndroidNative = Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
+
+    // On Android Native, we ALWAYS want whisper-base (Offline) as priority
+    // For Web, we default to whisper-tiny for speed/size unless specified
+    const defaultModel = isAndroidNative ? "whisper-base" : "Xenova/whisper-tiny";
+    const targetModel = modelPreference || defaultModel;
 
     if (!transcriber || currentModelName !== targetModel) {
       const progress_callback = (data: any) => {

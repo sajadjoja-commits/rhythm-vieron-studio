@@ -1,5 +1,5 @@
-- [x] Branding Clean-up (Delete old assets)
-- [x] Create scaled logo drawable `ic_launcher_logo.xml`
-- [x] Update adaptive icon configurations
-- [x] Update Splash Screen style
-- [ ] Verify build and deploy
+- [ ] Copy `whisper-tiny` to root `public/models/`
+- [ ] Update `whisper-worker.ts` to prioritize `whisper-base`
+- [ ] Remove redundant manual asset models
+- [ ] Perform full Capacitor sync (`npm run build` & `npx cap sync`)
+- [ ] Git commit and push updates
