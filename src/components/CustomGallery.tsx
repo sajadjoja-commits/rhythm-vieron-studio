@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Media, PhotoResponse } from "@capacitor-community/media";
 import { X, Check, Image as ImageIcon, Video as VideoIcon, Loader2, Search } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
+import { Filesystem } from "@capacitor/filesystem";
 import { t, isRTL } from "@/lib/i18n";
 import { useMedia } from "@/context/MediaContext";
 
@@ -29,12 +30,22 @@ const CustomGallery = ({ onClose, onSelect, type = "both" }: CustomGalleryProps)
 
     try {
       setLoading(true);
-      const albums = await Media.getAlbums();
+
+      const perm = await Media.requestPermissions();
+      if (perm.photos !== 'granted') {
+        console.error("Gallery permission denied");
+        setLoading(false);
+        return;
+      }
+
       const photos = await Media.getMedias({
-        quantity: 100,
+        quantity: 500, // Load more for a better experience
         types: type === "both" ? ["photos", "videos"] : type === "image" ? ["photos"] : ["videos"],
       });
-      setAssets(photos.medias);
+
+      // Filter out assets without paths
+      const validMedias = photos.medias.filter(m => m.path);
+      setAssets(validMedias);
     } catch (err) {
       console.error("Error loading gallery:", err);
     } finally {
@@ -51,10 +62,30 @@ const CustomGallery = ({ onClose, onSelect, type = "both" }: CustomGalleryProps)
   };
 
   const handleDone = async () => {
-    const selectedAssets = assets.filter(a => selectedIds.includes(asset.identifier));
-    // Implementation for converting native assets to File objects would go here
-    // For now, we simulate or pass identifiers back to context
-    onClose();
+    setLoading(true);
+    try {
+      const selectedAssets = assets.filter(a => selectedIds.includes(a.identifier));
+      const files: File[] = [];
+
+      for (const asset of selectedAssets) {
+        // Read file as base64 and convert to blob
+        const fileData = await Filesystem.readFile({
+          path: asset.path,
+        });
+
+        const response = await fetch(`data:${asset.mimeType};base64,${fileData.data}`);
+        const blob = await response.blob();
+        const file = new File([blob], asset.name || `media_${Date.now()}`, { type: asset.mimeType });
+        files.push(file);
+      }
+
+      onSelect(files);
+    } catch (err) {
+      console.error("Error processing selection:", err);
+    } finally {
+      setLoading(false);
+      onClose();
+    }
   };
 
   return (

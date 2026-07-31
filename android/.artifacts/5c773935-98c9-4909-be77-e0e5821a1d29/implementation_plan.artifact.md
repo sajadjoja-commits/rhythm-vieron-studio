@@ -1,45 +1,39 @@
-# Professional Custom Media & Music Libraries
+# Fix Media Access & Full Device Integration
 
-The user wants to replace the standard file pickers with custom, professionally designed galleries for photos, videos, and music that match the app's theme.
+The custom gallery and music library are currently empty because they either lack runtime permission requests or are using simulated data. I will implement actual device scanning to show all photos, videos, and music files.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> I will be adding a **Custom Gallery** and a **Music Library** with real-time waveform visualization.
-> This requires device permissions (`READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO`, `READ_MEDIA_AUDIO`) which are already in the manifest but will now be requested at runtime through the custom UI.
+> To access all files on the device (especially on Android 11+), I will implement recursive folder scanning for the Music Library. This ensures we find all audio files regardless of where they are stored.
+> For the Gallery, I will add the mandatory runtime permission pop-ups.
 
 ## Proposed Changes
 
-### Custom Media Gallery (Photos/Videos)
+### Media Access (Photos/Videos)
 
-#### [NEW] [CustomGallery.tsx](file:///D:/rhythm-vieron-studio/src/components/CustomGallery.tsx)
-- Create a modern, high-performance grid UI.
-- Use `@capacitor-community/media` to fetch actual device thumbnails and media metadata.
-- Support multi-selection with "Vieron" styled checkmarks.
-- Dark theme integration with glassmorphism effects.
+#### [MODIFY] [CustomGallery.tsx](file:///D:/rhythm-vieron-studio/src/components/CustomGallery.tsx)
+- Add `Media.requestPermissions()` call before fetching assets.
+- Use `Media.getMedias` with proper error handling and fallback logic.
+- Ensure thumbnails are correctly converted for display in the webview.
 
-### Custom Music Library (Audio)
+### Full Music Access (Audio)
 
-#### [NEW] [MusicLibrary.tsx](file:///D:/rhythm-vieron-studio/src/components/MusicLibrary.tsx)
-- Create a dedicated audio file browser.
-- **Waveform Visualization:** Use `wavesurfer.js` to show moving audio waves when a track is previewed.
-- **Pre-listening:** Allow users to play the music before adding it to the editor.
-- **Direct Add:** Include a '+' button to insert the chosen track into the timeline immediately.
+#### [MODIFY] [MusicLibrary.tsx](file:///D:/rhythm-vieron-studio/src/components/MusicLibrary.tsx)
+- Replace simulated songs with actual file scanning.
+- Use `@capacitor/filesystem` to scan `Documents`, `Downloads`, and `Music` directories.
+- Filter for `.mp3`, `.m4a`, `.wav`, and `.ogg` files.
+- Extract file metadata (name, size) to show in the list.
 
-### Navigation & Integration
+### Native Configuration
 
-#### [MODIFY] [Index.tsx](file:///D:/rhythm-vieron-studio/src/pages/Index.tsx)
-- Add states to manage the visibility of the new Custom Gallery and Music Library.
-- Update the Back Button logic to handle closing these new libraries one by one.
-
-#### [MODIFY] [MediaPicker.tsx](file:///D:/rhythm-vieron-studio/src/components/MediaPicker.tsx)
-- Re-route existing "Upload" actions to trigger the new custom libraries instead of the native system picker.
+#### [MODIFY] [AndroidManifest.xml](file:///D:/rhythm-vieron-studio/android/app/src/main/AndroidManifest.xml)
+- Double-check that `android:requestLegacyExternalStorage="true"` is set if needed (though we are targeting modern APIs).
 
 ## Verification Plan
 
 ### Manual Verification
-- Click on "Add Media" -> The new custom dark-themed gallery should open.
-- Scroll through photos/videos -> Thumbnails should load quickly.
-- Click on "Add Music" -> The music browser should open.
-- Select a song -> A waveform should appear and move in sync with the audio.
-- Press hardware Back Button -> The library should close first, returning you to the previous screen.
+- Launch the app and click "Add Media" -> A system permission dialog should appear.
+- After granting permission, the custom gallery should populate with your device's photos and videos.
+- Open the Music Library -> It should show a "Scanning..." state and then list all audio files found on your device.
+- Select an audio file -> Waveform should render as before, but with the real file data.

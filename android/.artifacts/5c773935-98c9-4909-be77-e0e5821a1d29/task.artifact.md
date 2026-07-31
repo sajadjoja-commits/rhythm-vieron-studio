@@ -1,6 +1,6 @@
-- [ ] Create `CustomGallery.tsx` for professional photo/video selection
-- [ ] Create `MusicLibrary.tsx` with waveform visualization
-- [ ] Integrate new libraries into `Index.tsx` navigation
-- [ ] Update `MediaPicker.tsx` to use custom libraries
-- [ ] Refine Back Button logic for sequential closing
-- [ ] Verify build and functionality
+- [ ] Implement runtime permission requests in `CustomGallery.tsx`
+- [ ] Connect `CustomGallery.tsx` to real device media using `@capacitor-community/media`
+- [ ] Implement recursive folder scanning in `MusicLibrary.tsx` using `@capacitor/filesystem`
+- [ ] Add `requestLegacyExternalStorage` to `AndroidManifest.xml` for maximum compatibility
+- [ ] Perform full build and sync
+- [ ] Git commit and push updates

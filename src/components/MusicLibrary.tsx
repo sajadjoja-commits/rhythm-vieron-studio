@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from "react";
-import { X, Music, Play, Pause, Plus, Search, Loader2, Volume2, WaveformIcon } from "lucide-react";
+import { X, Music, Play, Pause, Plus, Search, Loader2, Volume2 } from "lucide-react";
 import WaveSurfer from "wavesurfer.js";
 import { t, isRTL } from "@/lib/i18n";
 import { Capacitor } from "@capacitor/core";
+import { Filesystem, Directory } from "@capacitor/filesystem";
 
 interface MusicLibraryProps {
   onClose: () => void;
@@ -20,20 +21,82 @@ const MusicLibrary = ({ onClose, onAdd }: MusicLibraryProps) => {
   const wavesurfer = useRef<WaveSurfer | null>(null);
 
   useEffect(() => {
-    // Simulated Device Songs for Demo / Native would fetch via Filesystem
-    const fetchMusic = async () => {
-      setLoading(true);
-      setTimeout(() => {
-        setSongs([
-          { id: '1', name: 'Vieron Deep Bass', artist: 'Original', duration: '2:45', url: '/audio/demo1.mp3' },
-          { id: '2', name: 'Cyberpunk Pulse', artist: 'Neon Beats', duration: '1:30', url: '/audio/demo2.mp3' },
-          { id: '3', name: 'Ambient Flow', artist: 'Atmosphere', duration: '3:12', url: '/audio/demo3.mp3' },
-        ]);
-        setLoading(false);
-      }, 1000);
-    };
-    fetchMusic();
+    loadMusic();
   }, []);
+
+  const scanDirectory = async (path: string, directory: Directory) => {
+    try {
+      const result = await Filesystem.readdir({
+        path,
+        directory,
+      });
+
+      let foundSongs: any[] = [];
+
+      for (const file of result.files) {
+        if (file.type === 'directory') {
+          // Limited recursion to avoid performance issues
+          if (!path.includes('Android') && !path.includes('.')) {
+            const subSongs = await scanDirectory(`${path}/${file.name}`, directory);
+            foundSongs = [...foundSongs, ...subSongs];
+          }
+        } else {
+          const lowerName = file.name.toLowerCase();
+          if (lowerName.endsWith('.mp3') || lowerName.endsWith('.wav') || lowerName.endsWith('.m4a') || lowerName.endsWith('.ogg')) {
+            foundSongs.push({
+              id: file.uri,
+              name: file.name,
+              artist: 'Device Audio',
+              duration: '--:--',
+              url: Capacitor.convertFileSrc(file.uri),
+              path: file.uri
+            });
+          }
+        }
+      }
+      return foundSongs;
+    } catch (e) {
+      return [];
+    }
+  };
+
+  const loadMusic = async () => {
+    if (!Capacitor.isNativePlatform()) {
+      setLoading(false);
+      setSongs([
+        { id: '1', name: 'Demo Track 1', artist: 'Web Preview', duration: '2:45', url: '/audio/demo1.mp3' },
+        { id: '2', name: 'Demo Track 2', artist: 'Web Preview', duration: '1:30', url: '/audio/demo2.mp3' },
+      ]);
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      // Request permissions
+      const perm = await Filesystem.requestPermissions();
+      if (perm.publicStorage !== 'granted') {
+        console.error("Storage permission denied");
+        setLoading(false);
+        return;
+      }
+
+      // Scan common directories
+      const docsSongs = await scanDirectory('', Directory.Documents);
+      const musicSongs = await scanDirectory('', Directory.Data); // Often mapping to internal storage
+
+      const allSongs = [...docsSongs, ...musicSongs];
+
+      // Remove duplicates by ID
+      const uniqueSongs = Array.from(new Map(allSongs.map(item => [item.id, item])).values());
+
+      setSongs(uniqueSongs);
+    } catch (err) {
+      console.error("Error scanning music:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const initWaveform = (url: string) => {
     if (wavesurfer.current) {
