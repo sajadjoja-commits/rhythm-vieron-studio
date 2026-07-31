@@ -72,27 +72,43 @@ const MusicLibrary = ({ onClose, onAdd }: MusicLibraryProps) => {
 
     try {
       setLoading(true);
+      console.log("[Vieron Music] Requesting storage permissions...");
 
       // Request permissions
       const perm = await Filesystem.requestPermissions();
       if (perm.publicStorage !== 'granted') {
-        console.error("Storage permission denied");
+        console.error("[Vieron Music] Storage permission denied");
         setLoading(false);
         return;
       }
 
-      // Scan common directories
-      const docsSongs = await scanDirectory('', Directory.Documents);
-      const musicSongs = await scanDirectory('', Directory.Data); // Often mapping to internal storage
+      console.log("[Vieron Music] Scanning device for audio...");
 
-      const allSongs = [...docsSongs, ...musicSongs];
+      // Scan common directories
+      const foldersToScan = [
+        { path: '', dir: Directory.Documents },
+        { path: '', dir: Directory.ExternalStorage }, // Root of external storage
+      ];
+
+      let allSongs: any[] = [];
+      for (const folder of foldersToScan) {
+        try {
+          console.log(`[Vieron Music] Scanning folder: ${folder.dir}`);
+          const songs = await scanDirectory(folder.path, folder.dir);
+          console.log(`[Vieron Music] Found ${songs.length} songs in ${folder.dir}`);
+          allSongs = [...allSongs, ...songs];
+        } catch (e) {
+          console.warn(`[Vieron Music] Failed to scan ${folder.dir}`, e);
+        }
+      }
 
       // Remove duplicates by ID
       const uniqueSongs = Array.from(new Map(allSongs.map(item => [item.id, item])).values());
+      console.log(`[Vieron Music] Final unique songs count: ${uniqueSongs.length}`);
 
       setSongs(uniqueSongs);
     } catch (err) {
-      console.error("Error scanning music:", err);
+      console.error("[Vieron Music] Error scanning music:", err);
     } finally {
       setLoading(false);
     }
@@ -206,7 +222,13 @@ const MusicLibrary = ({ onClose, onAdd }: MusicLibraryProps) => {
         ) : (
           <div className="h-full w-full flex flex-col items-center justify-center text-muted-foreground p-10 text-center">
             <Music className="w-12 h-12 mb-4 opacity-20" />
-            <p className="text-sm font-medium">{t("music.empty")}</p>
+            <p className="text-sm font-medium mb-4">{t("music.empty")}</p>
+            <button
+              onClick={loadMusic}
+              className="px-6 py-2.5 rounded-xl bg-secondary text-foreground text-sm font-semibold hover:bg-secondary/70 transition-all active:scale-95"
+            >
+              {t("music.retry")}
+            </button>
           </div>
         )}
       </div>
