@@ -36,7 +36,7 @@ const config: CapacitorConfig = {
     CapacitorUpdater: {
       autoUpdate: 'always',
       appId: 'com.vireon.vireon',
-      version: '0.0.0',
+      version: '1.0.0',
       autoSplashscreen: true
     }
   }
