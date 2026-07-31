@@ -1,38 +1,36 @@
-# Solidify Whisper-Base Integration for Offline AI
+# Implement Step-by-Step Back Button Navigation
 
-The user wants to ensure that the more powerful `whisper-base` model is the primary engine for speech-to-text, accepting the increase in application size. Currently, the project has models split between manual asset folders and the Capacitor-managed `public` folder. I will unify this and lock in the `whisper-base` priority.
+The goal is to allow users to navigate backward through the app's menus and pages one by one using the hardware back button, until they reach the home screen, and then exit the app.
 
 ## User Review Required
 
-> [!NOTE]
-> Including the `whisper-base` model (~77MB) and `whisper-tiny` (~40MB) as a fallback will increase the final APK size by approximately 120MB. This ensures the app works perfectly without an internet connection.
+> [!IMPORTANT]
+> I have installed the `@capacitor/app` plugin to properly intercept the hardware back button on Android.
+> I will modify the app's navigation logic so that changing tabs or opening menus adds a new entry to the navigation history. This ensures that the "one by one" back behavior works as expected.
 
 ## Proposed Changes
 
-### AI Models & Assets Unification
+### Navigation Logic
 
-#### [MOVE] Transfer Models to Root Public Folder
-- Move/Copy all files from `android/app/src/main/assets/models/` to the project root `public/models/`.
-- Specifically, ensure `whisper-tiny` is present in `public/models/` (currently only `whisper-base` is there).
-- This ensures Capacitor manages all models and they are correctly synced to the APK assets.
+#### [MODIFY] [Index.tsx](file:///D:/rhythm-vieron-studio/src/pages/Index.tsx)
+- Integrate `@capacitor/app` to listen for the hardware `backButton` event.
+- Update the `activeTab` change logic to use `history.pushState` so tab changes can be reversed by the back button.
+- Consolidate the "one by one" logic:
+    1. Close open templates/editors first.
+    2. Close the "Plus" menu if open.
+    3. Close the "Photo Editor" if open.
+    4. If in a sub-tab (Projects, Settings, etc.), return to the Home tab.
+    5. If already on the Home tab, require a second back press within 2 seconds to exit the app.
 
-#### [DELETE] Cleanup Manual Asset Folders
-- Remove the manual `android/app/src/main/assets/models` folder once the transfer is confirmed. This prevents confusion and ensures the "Source of Truth" is the root `public` folder.
+### Native Integration
 
-### AI Engine Configuration
-
-#### [MODIFY] [whisper-worker.ts](file:///D:/rhythm-vieron-studio/src/lib/whisper-worker.ts)
-- Explicitly set the priority to `whisper-base` for the Android Native platform.
-- Ensure the `quantized: true` setting matches the files available (`_quantized.onnx`).
-- Add robust error handling to fallback to `whisper-tiny` ONLY if `base` fails to load.
+#### [MODIFY] [MainActivity.java](file:///D:/rhythm-vieron-studio/android/app/src/main/java/com/vireon/ai/MainActivity.java)
+- Ensure the back button is correctly forwarded to the Capacitor bridge (standard behavior, but I will double-check).
 
 ## Verification Plan
 
-### Automated Tests
-- Run `npm run build` and `npx cap sync android`.
-- Verify the presence of all models in `android/app/src/main/assets/public/models/`.
-
 ### Manual Verification
-- Deploy the app.
-- Check the logs to confirm: `[Faster-Whisper ONNX Native Android] Successfully loaded local "whisper-base" model`.
-- Test speech-to-text offline to ensure the model is functioning correctly.
+- Open the app, switch to "Settings". Press back -> should return to "Home".
+- Open the "Plus" menu. Press back -> should close menu.
+- Open the Editor. Press back -> should return to previous screen.
+- On the "Home" screen, press back once -> should show a toast message. Press again -> app should exit.

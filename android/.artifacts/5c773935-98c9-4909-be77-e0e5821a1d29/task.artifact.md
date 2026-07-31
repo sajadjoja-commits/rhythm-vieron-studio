@@ -1,5 +1,4 @@
-- [ ] Copy `whisper-tiny` to root `public/models/`
-- [ ] Update `whisper-worker.ts` to prioritize `whisper-base`
-- [ ] Remove redundant manual asset models
-- [ ] Perform full Capacitor sync (`npm run build` & `npx cap sync`)
-- [ ] Git commit and push updates
+- [x] Implement back button listener in `Index.tsx` using `@capacitor/app`
+- [x] Update tab switching and menu opening to use history state
+- [x] Implement exit app confirmation logic
+- [x] Verify build and functionality

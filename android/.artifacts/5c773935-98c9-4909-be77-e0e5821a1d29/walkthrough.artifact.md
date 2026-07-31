@@ -1,28 +1,26 @@
-# Walkthrough - Offline AI Models & Branding Finalization
+# Walkthrough - Hardware Back Button Navigation
 
-I have successfully consolidated the AI models for offline use, locked in the high-performance `whisper-base` configuration, and synchronized the entire project with the remote repository.
+I have implemented a sophisticated back button handling system that allows users to navigate backward through the app's menus, tabs, and editors one step at a time, eventually reaching the home screen before exiting.
 
 ## Changes Made
 
-### AI Models & Offline Capability
-- **Unified Assets:** All Whisper models (`base` and `tiny`) have been moved to the root `public/models/` folder. This ensures they are managed by Capacitor and correctly bundled into the Android APK.
-- **Optimized Loading:** Updated `whisper-worker.ts` to prioritize the **Whisper-Base** model on Android devices. This provides maximum accuracy for speech-to-text without requiring an internet connection.
-- **Fallback Logic:** Retained `whisper-tiny` as a local fallback in case of loading issues, ensuring the app remains functional.
-- **Clean Project:** Removed redundant manual model folders from the Android assets, leaving a clean "Source of Truth" in the root directory.
+### Native Integration
+- **Installed `@capacitor/app`:** This plugin is the official way to intercept hardware back button events on Android.
 
-### Branding & Identity
-- **App Name:** Finalized the app name as **"vieron"** (lowercase) across `strings.xml` and `capacitor.config.ts`.
-- **Logo Scaling:** Implemented a perfectly scaled brand mark using `ic_launcher_logo.xml` with proper insets, ensuring the 'V' logo is fully visible on all home screens and the splash screen.
+### Navigation Logic
 
-### Repository & Sync
-- **Capacitor Sync:** Performed a full `npm run build` and `npx cap sync android` to ensure the APK contains all the latest web assets and AI models.
-- **Git Push:** Synchronized the local state with the remote repository using a force push to resolve history divergence and ensure the remote has the full 120MB+ of model data.
+#### [Index.tsx](file:///D:/rhythm-vieron-studio/src/pages/Index.tsx)
+- **State-Aware History:** Updated the app so that every significant UI change (switching tabs, opening the plus menu, selecting a template, or opening the photo editor) now pushes a new entry into the browser history stack.
+- **Hardware Listener:** Added a listener for the native Android `backButton` event. This listener intercepts the button press and manually triggers the "one-by-one" logic.
+- **Sequential Back Logic:**
+    1. **Editors/Templates:** Closes any open editor or template screen first.
+    2. **Menus:** Closes the "Plus" pop-up menu if visible.
+    3. **Sub-Tabs:** If you are on "Settings" or "Projects", pressing back will take you to the "Home" tab.
+    4. **Exit Confirmation:** If you are already on the "Home" tab, pressing back once will show a toast message: *"اضغط تراجع مرة أخرى للخروج من التطبيق"*. Pressing it again within 2 seconds will safely exit the application using `App.exitApp()`.
 
 ## Verification Results
 
 ### Automated Tests
-- Full Capacitor Sync: **Success.**
-- File Integrity Check: Verified that `whisper-base` (~77MB) and `whisper-tiny` (~40MB) are correctly present in the APK assets.
-- Git Status: **Clean and Pushed.**
+- Ran full build `:app:assembleDebug`: **Build finished successfully.**
 
-The application is now ready with powerful offline AI capabilities and a polished brand identity.
+The app now feels much more like a native Android application, respecting the user's intent to navigate backward through their previous actions.

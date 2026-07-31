@@ -8,6 +8,8 @@ import { toast } from "sonner";
 import { applyThemeToDOM } from "@/lib/theme";
 import { safeStorage } from "@/lib/safeStorage";
 import AuthScreen from "@/components/AuthScreen";
+import { App } from "@capacitor/app";
+import { Capacitor } from "@capacitor/core";
 
 const HomeScreen = lazy(() => import("@/components/HomeScreen"));
 const TemplatesScreen = lazy(() => import("@/components/TemplatesScreen"));
@@ -51,14 +53,29 @@ const Index = () => {
   const [lastBackClick, setLastBackClick] = useState(0);
 
   useEffect(() => {
-    if (!window.history.state) window.history.replaceState({ isHome: true }, "");
+    if (!window.history.state) window.history.replaceState({ isHome: true, tab: "home" }, "");
   }, []);
 
   useEffect(() => {
-    const handlePopState = () => {
+    const handleBackAction = () => {
       if (showEditor) {
         setShowEditor(false);
         applyThemeToDOM((safeStorage.getItem("vireon:theme") as "dark" | "light" | "auto") || "dark");
+        return;
+      }
+
+      if (activeTemplateObj || activeTemplateId) {
+        setActiveTemplateObj(null);
+        setActiveTemplateId(null);
+        const url = new URL(window.location.href);
+        url.searchParams.delete("templateId");
+        url.searchParams.delete("template");
+        window.history.replaceState({}, "", url.toString());
+        return;
+      }
+
+      if (activeSmartTemplate) {
+        setActiveSmartTemplate(null);
         return;
       }
 
@@ -74,28 +91,52 @@ const Index = () => {
 
       if (activeTab !== "home") {
         setActiveTab("home");
-        window.history.pushState({ isHome: true }, "");
+        window.history.pushState({ isHome: true, tab: "home" }, "");
         return;
       }
 
       const now = Date.now();
       if (now - lastBackClick < 2000) {
-        try {
-          window.close();
-        } catch {
-          // ignore
+        if (Capacitor.isNativePlatform()) {
+          App.exitApp();
+        } else {
+          setExitOverlay(true);
         }
-        setExitOverlay(true);
       } else {
         setLastBackClick(now);
-        window.history.pushState({ isHome: true }, "");
         toast(isRTL() ? "اضغط تراجع مرة أخرى للخروج من التطبيق ⬥" : "Press back again to exit the application ⬥");
       }
     };
 
+    // Standard Web Back Button
+    const handlePopState = (event: PopStateEvent) => {
+      // If we are navigating via history, we sync the UI state
+      const state = event.state;
+      if (state?.tab) setActiveTab(state.tab);
+      if (state?.isEditor === false) setShowEditor(false);
+      if (state?.isPlusMenu === false) setShowPlusMenu(false);
+
+      handleBackAction();
+    };
+
+    // Hardware Back Button (Android)
+    const backButtonListener = App.addListener('backButton', ({ canGoBack }) => {
+      handleBackAction();
+    });
+
     window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, [showEditor, showPhotoEditor, showPlusMenu, activeTab, lastBackClick]);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+      backButtonListener.then(l => l.remove());
+    };
+  }, [showEditor, showPhotoEditor, showPlusMenu, activeTab, lastBackClick, activeTemplateObj, activeTemplateId, activeSmartTemplate]);
+
+  const handleTabChange = (tab: string) => {
+    if (tab !== activeTab) {
+      window.history.pushState({ isHome: tab === "home", tab: tab }, "");
+      setActiveTab(tab);
+    }
+  };
 
   useEffect(() => {
     const saved = (safeStorage.getItem("vireon:theme") as "dark" | "light" | "auto") || "dark";
@@ -225,6 +266,16 @@ const Index = () => {
   const handlePlusClick = () => {
     window.history.pushState({ isPlusMenu: true }, "");
     setShowPlusMenu(true);
+  };
+
+  const handleSelectTemplate = (tpl: any) => {
+    window.history.pushState({ isTemplate: true }, "");
+    setActiveTemplateObj(tpl);
+  };
+
+  const handleSelectSmartTemplate = (tpl: any) => {
+    window.history.pushState({ isSmartTemplate: true }, "");
+    setActiveSmartTemplate(tpl);
   };
 
   if (exitOverlay) {
@@ -357,13 +408,13 @@ const Index = () => {
     <div className="min-h-screen bg-background select-none" dir={isRTL() ? "rtl" : "ltr"}>
       <Suspense fallback={<ScreenLoader />}>
         {activeTab === "home" && (
-          <HomeScreen onNavigate={setActiveTab} onStartEditor={handleOpenEditor} session={session} newProject={newProject} />
+          <HomeScreen onNavigate={handleTabChange} onStartEditor={handleOpenEditor} session={session} newProject={newProject} />
         )}
         {activeTab === "templates" && (
           <TemplatesScreen
             onStartEditor={handleOpenEditor}
-            onSelectPublishedTemplate={(tpl) => setActiveTemplateObj(tpl)}
-            onSelectSmartTemplateQuick={(tpl) => setActiveSmartTemplate(tpl)}
+            onSelectPublishedTemplate={handleSelectTemplate}
+            onSelectSmartTemplateQuick={handleSelectSmartTemplate}
           />
         )}
         {activeTab === "camera" && <CameraScreen />}
@@ -371,7 +422,7 @@ const Index = () => {
         {activeTab === "settings" && <SettingsScreen session={session} isGuest={isGuest} onLogout={handleLogout} />}
       </Suspense>
 
-      <BottomNav active={activeTab} onNavigate={setActiveTab} onPlusClick={handlePlusClick} />
+      <BottomNav active={activeTab} onNavigate={handleTabChange} onPlusClick={handlePlusClick} />
 
       {showPlusMenu && (
         <div className="fixed inset-0 z-[55] bg-black/60 flex items-end" onClick={() => setShowPlusMenu(false)}>
@@ -390,6 +441,7 @@ const Index = () => {
               <button
                 onClick={() => {
                   setShowPlusMenu(false);
+                  window.history.pushState({ isPhotoEditor: true }, "");
                   setShowPhotoEditor(true);
                 }}
                 className="flex flex-col items-center gap-2 p-5 rounded-2xl bg-secondary hover:bg-secondary/70 transition-colors"
