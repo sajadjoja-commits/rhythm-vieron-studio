@@ -1,57 +1,38 @@
-# Clean Up Old Logos and Fix Icon Scaling
+# Solidify Whisper-Base Integration for Offline AI
 
-The user wants to remove all old branding assets and use only `img.png`. Additionally, the current icon appears too large, with parts of the 'V' clipped or not visible. I will clean up the project and implement a properly scaled adaptive icon.
+The user wants to ensure that the more powerful `whisper-base` model is the primary engine for speech-to-text, accepting the increase in application size. Currently, the project has models split between manual asset folders and the Capacitor-managed `public` folder. I will unify this and lock in the `whisper-base` priority.
 
 ## User Review Required
 
-> [!WARNING]
-> I will be deleting legacy PNG icons from the `mipmap` folders. While this cleans up the project as requested, it means older Android devices (pre-API 26) will fall back to a default icon unless I generate new legacy icons. I will focus on making the modern adaptive icon look perfect first.
+> [!NOTE]
+> Including the `whisper-base` model (~77MB) and `whisper-tiny` (~40MB) as a fallback will increase the final APK size by approximately 120MB. This ensures the app works perfectly without an internet connection.
 
 ## Proposed Changes
 
-### Branding Clean-up
+### AI Models & Assets Unification
 
-#### [DELETE] Old Assets
-I will delete the following redundant files:
-- `res/drawable/splash.png`
-- `res/drawable/ic_launcher_vieron.png`
-- `res/drawable/ic_launcher_foreground.xml` (the vector version)
-- All `ic_launcher.png`, `ic_launcher_round.png`, and `ic_launcher_foreground.png` files in `mipmap-hdpi`, `mipmap-mdpi`, `mipmap-xhdpi`, `mipmap-xxhdpi`, and `mipmap-xxxhdpi`.
+#### [MOVE] Transfer Models to Root Public Folder
+- Move/Copy all files from `android/app/src/main/assets/models/` to the project root `public/models/`.
+- Specifically, ensure `whisper-tiny` is present in `public/models/` (currently only `whisper-base` is there).
+- This ensures Capacitor manages all models and they are correctly synced to the APK assets.
 
-### Icon Scaling Fix
+#### [DELETE] Cleanup Manual Asset Folders
+- Remove the manual `android/app/src/main/assets/models` folder once the transfer is confirmed. This prevents confusion and ensures the "Source of Truth" is the root `public` folder.
 
-#### [NEW] [ic_launcher_logo.xml](file:///D:/rhythm-vieron-studio/android/app/src/main/res/drawable/ic_launcher_logo.xml)
-I will create a new drawable that wraps `img.png` with an `inset`. This will add internal padding so the logo fits within the "safe zone" of adaptive icons.
-```xml
-<inset xmlns:android="http://schemas.android.com/apk/res/android"
-    android:drawable="@drawable/img"
-    android:insetTop="18%"
-    android:insetBottom="18%"
-    android:insetLeft="18%"
-    android:insetRight="18%" />
-```
+### AI Engine Configuration
 
-#### [MODIFY] [ic_launcher.xml](file:///D:/rhythm-vieron-studio/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml)
-Update to use the new scaled drawable.
-```xml
-<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@color/ic_launcher_background"/>
-    <foreground android:drawable="@drawable/ic_launcher_logo"/>
-</adaptive-icon>
-```
-
-#### [MODIFY] [ic_launcher_round.xml](file:///D:/rhythm-vieron-studio/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml)
-Update to use the new scaled drawable.
-
-#### [MODIFY] [styles.xml](file:///D:/rhythm-vieron-studio/android/app/src/main/res/values/styles.xml)
-Update the splash screen to use the new scaled logo so it's not too large during startup.
+#### [MODIFY] [whisper-worker.ts](file:///D:/rhythm-vieron-studio/src/lib/whisper-worker.ts)
+- Explicitly set the priority to `whisper-base` for the Android Native platform.
+- Ensure the `quantized: true` setting matches the files available (`_quantized.onnx`).
+- Add robust error handling to fallback to `whisper-tiny` ONLY if `base` fails to load.
 
 ## Verification Plan
 
 ### Automated Tests
-- Run `./gradlew :app:assembleDebug` to ensure all references are correct.
+- Run `npm run build` and `npx cap sync android`.
+- Verify the presence of all models in `android/app/src/main/assets/public/models/`.
 
 ### Manual Verification
-- Deploy to a device.
-- Verify the home screen icon: the 'V' should be centered and fully visible within the icon shape.
-- Verify the splash screen: the logo should be appropriately sized and not touching the edges.
+- Deploy the app.
+- Check the logs to confirm: `[Faster-Whisper ONNX Native Android] Successfully loaded local "whisper-base" model`.
+- Test speech-to-text offline to ensure the model is functioning correctly.
