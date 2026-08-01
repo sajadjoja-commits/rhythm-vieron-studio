@@ -7,6 +7,70 @@ export interface TranscribeResult {
   text: string;
 }
 
+/**
+ * Transcribes audio directly via Groq Open-AI compatible API
+ */
+async function transcribeDirectlyWithGroq(
+  audioBase64: string,
+  apiKey: string,
+  language?: string,
+  mimeType: string = "audio/wav"
+): Promise<TranscribeResult[]> {
+  const binaryString = atob(audioBase64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  const audioBlob = new Blob([bytes], { type: mimeType || "audio/wav" });
+  const filename = mimeType?.includes("wav") ? "audio.wav" : "audio.mp3";
+
+  const formData = new FormData();
+  formData.append("file", audioBlob, filename);
+  formData.append("model", "whisper-large-v3");
+  formData.append("response_format", "verbose_json");
+  formData.append("temperature", "0");
+
+  const isArabic = language === "ar" || language === "arabic";
+  if (isArabic) {
+    formData.append("language", "ar");
+    formData.append("prompt", "تفريغ صوتي باللغة العربية الفصحى والعامية بوضوح ودقة ودون حذف أي كلمات، مع مراعاة الفواصل والترقيم.");
+  } else if (language && language !== "auto") {
+    formData.append("language", language);
+  }
+
+  const response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey.trim()}`,
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("Groq Direct API error:", response.status, errorText);
+    throw new Error(`Groq API error (${response.status}): ${errorText || response.statusText}`);
+  }
+
+  const result = await response.json();
+  const rawCaptions: TranscribeResult[] = (result.segments || [])
+    .map((seg: any) => ({
+      start: Math.round(Number(seg.start || 0) * 100) / 100,
+      end: Math.round(Number(seg.end || seg.start + 2) * 100) / 100,
+      text: String(seg.text || "").trim(),
+    }))
+    .filter((seg: TranscribeResult) => seg.text.length > 0);
+
+  if (isArabic) {
+    return rawCaptions.map((cap) => ({
+      ...cap,
+      text: correctArabicText(cap.text),
+    }));
+  }
+
+  return rawCaptions;
+}
+
 export async function transcribeWithGroq(
   audioBase64: string,
   language?: string,
@@ -23,68 +87,98 @@ export async function transcribeWithGroq(
     );
   }
 
+  const apiKey =
+    (import.meta.env.VITE_GROQ_API_KEY as string | undefined) ||
+    (typeof localStorage !== "undefined" ? localStorage.getItem("GROQ_API_KEY") || undefined : undefined);
+
+  // 1. Try direct Groq API if key is available in environment or localStorage
+  if (apiKey && apiKey.trim().length > 0) {
+    try {
+      console.log("[Groq AI Transcription] Using direct Groq API key...");
+      return await transcribeDirectlyWithGroq(audioBase64, apiKey, language, mimeType);
+    } catch (directErr: any) {
+      console.warn("[Groq Direct API failed, trying Edge Function fallback...]", directErr);
+    }
+  }
+
   const langCode = isArabic ? "ar" : language || "auto";
 
+  // 2. Try Supabase Edge Function 'transcribe-groq'
   console.log("[Groq AI Transcription] Calling Supabase edge function 'transcribe-groq'...");
 
-  const { data, error } = await supabase.functions.invoke("transcribe-groq", {
-    body: {
-      audioBase64,
-      mimeType,
-      language: langCode,
-    },
-  });
+  try {
+    const { data, error } = await supabase.functions.invoke("transcribe-groq", {
+      body: {
+        audioBase64,
+        mimeType,
+        language: langCode,
+      },
+    });
 
-  if (error) {
-    console.error("[Groq AI Transcription Error]", error);
-    let errMsg = error.message || (isArabic ? "فشل استخراج الكلام عبر السيرفر" : "Groq transcription failed");
-    
-    // Attempt to parse edge function error response
-    if (typeof error === "object" && error !== null && "context" in error) {
-      try {
-        const resObj = (error as any).context;
-        if (resObj && typeof resObj.text === "function") {
-          const bodyText = await resObj.text();
-          const parsed = JSON.parse(bodyText);
-          if (parsed?.error) errMsg = parsed.error;
-        }
-      } catch (err) {
-        // use default error message
+    if (!error && data?.captions && Array.isArray(data.captions)) {
+      const rawCaptions: TranscribeResult[] = data.captions
+        .map((seg: any) => ({
+          start: Math.round(Number(seg.start || 0) * 100) / 100,
+          end: Math.round(Number(seg.end || seg.start + 2) * 100) / 100,
+          text: String(seg.text || "").trim(),
+        }))
+        .filter((seg: TranscribeResult) => seg.text.length > 0);
+
+      if (isArabic) {
+        return rawCaptions.map((cap) => ({
+          ...cap,
+          text: correctArabicText(cap.text),
+        }));
       }
-    }
-    throw new Error(errMsg);
-  }
 
-  if (!data) {
-    throw new Error(
-      isArabic
-        ? "لم يتم استلام أي استجابة من خدمة استخراج الكلام"
-        : "No response received from transcription service"
-    );
-  }
-
-  if (data.error) {
-    throw new Error(data.error);
-  }
-
-  if (Array.isArray(data.captions)) {
-    const rawCaptions: TranscribeResult[] = data.captions
-      .map((seg: any) => ({
-        start: Math.round(Number(seg.start || 0) * 100) / 100,
-        end: Math.round(Number(seg.end || seg.start + 2) * 100) / 100,
-        text: String(seg.text || "").trim(),
-      }))
-      .filter((seg: TranscribeResult) => seg.text.length > 0);
-
-    if (isArabic) {
-      return rawCaptions.map((cap) => ({
-        ...cap,
-        text: correctArabicText(cap.text),
-      }));
+      return rawCaptions;
     }
 
-    return rawCaptions;
+    if (error) {
+      console.warn("[transcribe-groq edge function returned error]", error);
+    }
+  } catch (err: any) {
+    console.warn("[transcribe-groq edge function invoke exception]", err);
   }
 
-  return [];
+  // 3. Try Supabase Edge Function 'transcribe' as fallback
+  try {
+    console.log("[Groq AI Transcription] Trying fallback edge function 'transcribe'...");
+    const { data, error } = await supabase.functions.invoke("transcribe", {
+      body: {
+        audioBase64,
+        mimeType,
+        language: langCode,
+      },
+    });
+
+    if (!error && data?.captions && Array.isArray(data.captions)) {
+      const rawCaptions: TranscribeResult[] = data.captions
+        .map((seg: any) => ({
+          start: Math.round(Number(seg.start || 0) * 100) / 100,
+          end: Math.round(Number(seg.end || seg.start + 2) * 100) / 100,
+          text: String(seg.text || "").trim(),
+        }))
+        .filter((seg: TranscribeResult) => seg.text.length > 0);
+
+      if (isArabic) {
+        return rawCaptions.map((cap) => ({
+          ...cap,
+          text: correctArabicText(cap.text),
+        }));
+      }
+
+      return rawCaptions;
+    }
+  } catch (fallbackErr: any) {
+    console.warn("[transcribe edge function invoke exception]", fallbackErr);
+  }
+
+  // If all attempts fail, provide clear diagnostic message
+  throw new Error(
+    isArabic
+      ? "تعذر الاتصال بخدمة استخراج الكلام عبر السيرفر (Edge Function غير متاح). يرجى التأكد من إضافة VITE_GROQ_API_KEY في متغيرات البيئة للاتصال المباشر بـ Groq AI."
+      : "Could not connect to Edge Function transcription service. Please ensure VITE_GROQ_API_KEY is configured in your environment for direct Groq AI transcription."
+  );
 }
+
