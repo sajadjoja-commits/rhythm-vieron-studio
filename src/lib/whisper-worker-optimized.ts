@@ -30,27 +30,30 @@ const loadModelWithRetry = async (progress_callback: any, maxRetries = 3) => {
   const hosts = ["https://huggingface.co", "https://hf-mirror.com"];
   let lastError = null;
 
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    for (const host of hosts) {
-      try {
-        env.remoteHost = host;
-        const model = await pipeline("automatic-speech-recognition", "Xenova/whisper-tiny", {
-          device: "webgpu",
-          progress_callback,
-        });
-        return model;
-      } catch (error: any) {
-        lastError = error;
+  const modelsToTry = ["onnx-community/whisper-large-v3-turbo", "Xenova/whisper-base", "Xenova/whisper-tiny"];
+
+  for (const modelName of modelsToTry) {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      for (const host of hosts) {
         try {
-          const model = await pipeline("automatic-speech-recognition", "Xenova/whisper-tiny", {
-            device: "wasm",
+          env.remoteHost = host;
+          const model = await pipeline("automatic-speech-recognition", modelName, {
+            device: "webgpu",
             progress_callback,
           });
           return model;
-        } catch (wasmError) {}
+        } catch (error: any) {
+          lastError = error;
+          try {
+            const model = await pipeline("automatic-speech-recognition", modelName, {
+              device: "wasm",
+              progress_callback,
+            });
+            return model;
+          } catch (wasmError) {}
+        }
       }
     }
-    if (attempt < maxRetries) await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
   }
   throw lastError || new Error("Loading failed");
 };

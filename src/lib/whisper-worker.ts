@@ -115,8 +115,8 @@ self.onmessage = async (e) => {
 
   try {
     const isArabic = language === "ar" || language === "arabic";
-    // Ultra-fast Xenova/whisper-tiny (~39MB quantized) Faster-Whisper model
-    const targetModel = modelPreference || "Xenova/whisper-tiny";
+    // Whisper Large-v3 Turbo by default, or specified modelPreference
+    const targetModel = modelPreference || "onnx-community/whisper-large-v3-turbo";
 
     if (!transcriber || currentModelName !== targetModel) {
       const progress_callback = (data: any) => {
@@ -125,7 +125,7 @@ self.onmessage = async (e) => {
           self.postMessage({
             status: "loading",
             progress: progressPct,
-            message: "جاري استخراج الكلام..."
+            message: "جاري استخراج الكلام بدقة Whisper Large-v3 Turbo..."
           });
         }
       };
@@ -133,14 +133,24 @@ self.onmessage = async (e) => {
       try {
         transcriber = await loadModelWithRetry(targetModel, progress_callback);
       } catch (err) {
-        if (targetModel !== "Xenova/whisper-tiny") {
-          self.postMessage({
-            status: "loading",
-            progress: 10,
-            message: "جاري استخراج الكلام..."
-          });
-          transcriber = await loadModelWithRetry("Xenova/whisper-tiny", progress_callback);
-        } else {
+        console.warn(`[Whisper Worker] Loading ${targetModel} failed, trying fallback ladder...`, err);
+        const fallbacks = ["Xenova/whisper-small", "Xenova/whisper-base", "Xenova/whisper-tiny"];
+        let loaded = false;
+        for (const fbModel of fallbacks) {
+          try {
+            self.postMessage({
+              status: "loading",
+              progress: 15,
+              message: `جاري تحميل نموذج Whisper التكيفي (${fbModel})...`
+            });
+            transcriber = await loadModelWithRetry(fbModel, progress_callback);
+            loaded = true;
+            break;
+          } catch (fbErr) {
+            console.warn(`[Whisper Worker] Fallback model ${fbModel} failed:`, fbErr);
+          }
+        }
+        if (!loaded) {
           throw err;
         }
       }
