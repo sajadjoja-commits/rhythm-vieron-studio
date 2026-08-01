@@ -4,7 +4,7 @@ import { useAdGate } from "@/context/AdGateContext";
 import { X, Plus, Trash2, Type, Languages, Sparkles, Loader2, Palette, Eye, EyeOff, Check, Music, AlertTriangle, CheckCircle2, RotateCw, RefreshCw, Search, Layers, Sliders, Zap, BookOpen, Radio, Youtube, Instagram, MapPin, Quote, Star, Flame, Award } from "lucide-react";
 import { toast } from "sonner";
 import { extractAudioBase64 } from "@/lib/audioExtract";
-import { localTranscribe } from "@/lib/localTranscribe";
+import { transcribeWithGroq } from "@/lib/groqTranscribe";
 import { analyzeAudioTrack } from "@/lib/beatDetector";
 import { getLang } from "@/lib/i18n";
 import { playSfx } from "@/lib/soundFx";
@@ -557,14 +557,6 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
   };
 
   const clearCacheAndRetry = async () => {
-    try {
-      if (typeof window !== "undefined" && "caches" in window) {
-        await window.caches.delete("transformers-cache");
-        console.log("Cleared transformers-cache manually on retry");
-      }
-    } catch (err) {
-      console.error("Failed to clear cache:", err);
-    }
     autoExtract();
   };
 
@@ -645,6 +637,16 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
     setCaptions((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
 
   const autoExtract = async () => {
+    // Check internet connection
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      const offlineMsg = en
+        ? "Internet connection required for speech recognition via Groq AI."
+        : "تنبيه: يلزم وجود اتصال بالإنترنت لاستخراج الكلام عبر Groq AI.";
+      setExtractError(offlineMsg);
+      toast.error(offlineMsg);
+      return;
+    }
+
     // Check video or audio item in media library
     const mediaItem = media.find((m) => m.type === "video" || m.type === "audio");
     
@@ -656,7 +658,7 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
     setExtractError(null);
     setExtracting(true);
     setExtractProgress(0);
-    const cleanMsg = en ? "Extracting speech..." : "جاري استخراج الكلام...";
+    const cleanMsg = en ? "Transcribing speech via Groq AI (whisper-large-v3)..." : "جاري استخراج الكلام عبر Groq AI (whisper-large-v3)...";
     setExtractMsg(cleanMsg);
 
     let progressVal = 0;
@@ -688,17 +690,8 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
       
       currentPhase = "processing";
 
-      // 2. Transcribe speech cleanly
-      const items = await localTranscribe(
-        base64, 
-        captionStyle.language, 
-        (_msg, progress) => {
-          setExtractMsg(cleanMsg);
-          if (progress !== undefined && progress > 0) {
-            setExtractProgress(progress);
-          }
-        }
-      );
+      // 2. Transcribe speech cleanly via Groq AI edge function
+      const items = await transcribeWithGroq(base64, captionStyle.language);
 
       currentPhase = "done";
       progressVal = 100;
@@ -757,6 +750,11 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
   };
 
   const regenerateSegment = async (capId: string, start: number, end: number) => {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      toast.error(en ? "Internet connection required for re-transcription" : "يلزم وجود اتصال بالإنترنت لإعادة الاستخراج");
+      return;
+    }
+
     const videoItem = media.find((m) => m.type === "video");
     if (!videoItem) {
       toast.error(en ? "No video found to extract audio from" : "لا يوجد فيديو لاستخراج الصوت منه");
@@ -764,11 +762,11 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
     }
 
     setRegeneratingId(capId);
-    toast.info(en ? "Re-transcribing segment..." : "جارٍ إعادة استخراج المقطع المحدد فقط...");
+    toast.info(en ? "Re-transcribing segment via Groq AI..." : "جارٍ إعادة استخراج المقطع المحدّد عبر Groq AI...");
 
     try {
       const { base64 } = await extractAudioBase64(videoItem.file, start, end);
-      const items = await localTranscribe(base64, captionStyle.language);
+      const items = await transcribeWithGroq(base64, captionStyle.language);
 
       if (items && items.length > 0) {
         const newText = items.map((i: any) => i.text).join(" ").trim();
@@ -781,7 +779,7 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
       }
     } catch (err: any) {
       console.error("Segment re-transcription error:", err);
-      toast.error(en ? "Failed to re-transcribe segment" : "فشلت إعادة استخراج الجزء المحدد");
+      toast.error(err.message || (en ? "Failed to re-transcribe segment" : "فشلت إعادة استخراج الجزء المحدد"));
     } finally {
       setRegeneratingId(null);
     }
@@ -971,24 +969,24 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
                 <span>{Math.round(extractProgress)}%</span>
               </div>
               <span className="text-[11px] font-bold text-white/95 font-sans mt-0.5 truncate max-w-full text-center">
-                {en ? "Extracting speech..." : "جاري استخراج الكلام..."}
+                {extractMsg || (en ? "Transcribing speech via Groq AI (whisper-large-v3)..." : "جاري استخراج الكلام عبر Groq AI (whisper-large-v3)...")}
               </span>
             </div>
           </div>
         ) : extractError ? (
           <div className="w-full mb-3 p-3 bg-destructive/15 border border-destructive/30 rounded-xl flex flex-col items-center gap-2 text-center animate-in fade-in slide-in-from-top-2 duration-200">
             <p className="text-[11px] font-bold text-destructive">
-              {en ? "Download/extraction failed. It might be due to a network interruption or partial/corrupted cache." : "فشل التحميل أو الاستخراج. قد يكون بسبب انقطاع الشبكة أو ملف تالف مؤقتاً."}
+              {en ? "Speech extraction failed. Please check your internet connection and try again." : "فشل استخراج الكلام. يرجى التثبت من الاتصال بالإنترنت وإعادة المحاولة."}
             </p>
             <p className="text-[10px] text-muted-foreground line-clamp-2 max-w-md bg-black/20 p-1.5 rounded-lg border border-border/20 font-mono">
               {extractError}
             </p>
             <button
-              onClick={clearCacheAndRetry}
+              onClick={autoExtract}
               className="px-4 py-2 rounded-xl bg-destructive text-white text-xs font-bold hover:bg-destructive/90 active:scale-95 transition-all flex items-center gap-1.5 shadow-md shadow-destructive/20 cursor-pointer"
             >
               <Sparkles className="w-3.5 h-3.5 animate-pulse text-white" />
-              <span>{en ? "Clear Cache & Retry Cleanly" : "مسح الملفات التالفة وإعادة المحاولة"}</span>
+              <span>{en ? "Retry Extraction" : "إعادة المحاولة"}</span>
             </button>
           </div>
         ) : (
@@ -998,7 +996,7 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
           >
             <Sparkles className="w-4 h-4 text-white animate-pulse" />
             <span className="tracking-wide">
-              {en ? "Auto-Extract Speech" : "استخراج تلقائي للكلام"}
+              {en ? "Auto-Extract Speech (Groq AI)" : "استخراج تلقائي للكلام (Groq AI)"}
             </span>
           </button>
         )}
