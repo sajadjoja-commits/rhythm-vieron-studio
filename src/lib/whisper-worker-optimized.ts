@@ -8,54 +8,35 @@ let transcriber: any = null;
 let isProcessing = false;
 
 const loadModelWithRetry = async (progress_callback: any, maxRetries = 3) => {
-  const isAndroidNative = typeof self !== "undefined" && self.location?.origin === "https://localhost";
-
-  if (isAndroidNative) {
-    env.allowLocalModels = true;
-    env.allowRemoteModels = false;
-    const origin = typeof self !== "undefined" && self.location?.origin ? self.location.origin : "https://localhost";
-    env.localModelPath = `${origin}/models/`;
-
-    console.log(`[Faster-Whisper Native Android] Loading local whisper-tiny from ${env.localModelPath}`);
-    const model = await pipeline("automatic-speech-recognition", "whisper-tiny", {
-      device: "wasm",
-      quantized: true,
-      progress_callback,
-    });
-    return model;
-  }
-
   env.allowLocalModels = false;
   env.allowRemoteModels = true;
   const hosts = ["https://huggingface.co", "https://hf-mirror.com"];
   let lastError = null;
 
-  const modelsToTry = ["onnx-community/whisper-large-v3-turbo", "Xenova/whisper-base", "Xenova/whisper-tiny"];
+  const modelName = "onnx-community/whisper-large-v3-turbo";
 
-  for (const modelName of modelsToTry) {
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      for (const host of hosts) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    for (const host of hosts) {
+      try {
+        env.remoteHost = host;
+        const model = await pipeline("automatic-speech-recognition", modelName, {
+          device: "webgpu",
+          progress_callback,
+        });
+        return model;
+      } catch (error: any) {
+        lastError = error;
         try {
-          env.remoteHost = host;
           const model = await pipeline("automatic-speech-recognition", modelName, {
-            device: "webgpu",
+            device: "wasm",
             progress_callback,
           });
           return model;
-        } catch (error: any) {
-          lastError = error;
-          try {
-            const model = await pipeline("automatic-speech-recognition", modelName, {
-              device: "wasm",
-              progress_callback,
-            });
-            return model;
-          } catch (wasmError) {}
-        }
+        } catch (wasmError) {}
       }
     }
   }
-  throw lastError || new Error("Loading failed");
+  throw lastError || new Error("Loading Whisper Large-v3 Turbo failed");
 };
 
 self.onmessage = async (e) => {

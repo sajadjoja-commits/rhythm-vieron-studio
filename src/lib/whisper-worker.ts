@@ -29,42 +29,11 @@ const loadModelWithRetry = async (modelName: string, progress_callback: any, max
   const isAndroidNative = typeof self !== "undefined" && self.location?.origin === "https://localhost";
 
   if (isAndroidNative) {
-    env.allowLocalModels = true;
-    env.allowRemoteModels = false;
-
-    // In Capacitor Android webview context, assets bundled in android/app/src/main/assets/models/
-    // are served directly by WebViewAssetLoader relative to origin (e.g. https://localhost/models/)
-    const origin = typeof self !== "undefined" && self.location?.origin ? self.location.origin : "https://localhost";
-    env.localModelPath = `${origin}/models/`;
-
-    console.log(`[Faster-Whisper ONNX Native Android] Attempting local model "whisper-base" from ${env.localModelPath} (Offline native load)`);
-
-    try {
-      const model = await pipeline("automatic-speech-recognition", "whisper-base", {
-        quantized: true,
-        progress_callback,
-      });
-      currentModelName = "whisper-base";
-      console.log(`[Faster-Whisper ONNX Native Android] Successfully loaded local "whisper-base" model`);
-      return model;
-    } catch (baseErr: any) {
-      console.warn("[Faster-Whisper ONNX Native Android] Local whisper-base failed, falling back to local whisper-tiny:", baseErr);
-      try {
-        const model = await pipeline("automatic-speech-recognition", "whisper-tiny", {
-          quantized: true,
-          progress_callback,
-        });
-        currentModelName = "whisper-tiny";
-        console.log(`[Faster-Whisper ONNX Native Android] Successfully loaded fallback local "whisper-tiny" model`);
-        return model;
-      } catch (tinyErr: any) {
-        console.error("[Faster-Whisper ONNX Native Android] Both local whisper-base and whisper-tiny failed:", tinyErr);
-        throw tinyErr;
-      }
-    }
+    env.allowLocalModels = false;
+    env.allowRemoteModels = true;
   }
 
-  // Web / PWA mode: Keep current remote fetch logic with mirror fallbacks
+  // Web / PWA / Native mode: Remote fetch with mirror fallbacks for Whisper Large-v3 Turbo
   env.allowLocalModels = false;
   env.allowRemoteModels = true;
   const hosts = ["https://huggingface.co", "https://hf-mirror.com"];
@@ -74,7 +43,7 @@ const loadModelWithRetry = async (modelName: string, progress_callback: any, max
     for (const host of hosts) {
       try {
         env.remoteHost = host;
-        console.log(`[Faster-Whisper ONNX Web] Loading ${modelName} from ${host} (Attempt ${attempt}/${maxRetries})`);
+        console.log(`[Whisper Engine] Loading ${modelName} from ${host} (Attempt ${attempt}/${maxRetries})`);
         
         const model = await pipeline("automatic-speech-recognition", modelName, {
           quantized: true,
@@ -100,7 +69,7 @@ const loadModelWithRetry = async (modelName: string, progress_callback: any, max
     }
   }
   
-  throw lastError || new Error(`Failed to load ${modelName}`);
+  throw lastError || new Error(`Failed to load high-accuracy model ${modelName}`);
 };
 
 self.onmessage = async (e) => {
@@ -115,7 +84,7 @@ self.onmessage = async (e) => {
 
   try {
     const isArabic = language === "ar" || language === "arabic";
-    // Whisper Large-v3 Turbo by default, or specified modelPreference
+    // Whisper Large-v3 Turbo as mandatory high-accuracy engine model
     const targetModel = modelPreference || "onnx-community/whisper-large-v3-turbo";
 
     if (!transcriber || currentModelName !== targetModel) {
@@ -125,35 +94,12 @@ self.onmessage = async (e) => {
           self.postMessage({
             status: "loading",
             progress: progressPct,
-            message: "جاري استخراج الكلام بدقة Whisper Large-v3 Turbo..."
+            message: "جاري استخراج الكلام بدقة Whisper Large-v3 Turbo العالية..."
           });
         }
       };
 
-      try {
-        transcriber = await loadModelWithRetry(targetModel, progress_callback);
-      } catch (err) {
-        console.warn(`[Whisper Worker] Loading ${targetModel} failed, trying fallback ladder...`, err);
-        const fallbacks = ["Xenova/whisper-small", "Xenova/whisper-base", "Xenova/whisper-tiny"];
-        let loaded = false;
-        for (const fbModel of fallbacks) {
-          try {
-            self.postMessage({
-              status: "loading",
-              progress: 15,
-              message: `جاري تحميل نموذج Whisper التكيفي (${fbModel})...`
-            });
-            transcriber = await loadModelWithRetry(fbModel, progress_callback);
-            loaded = true;
-            break;
-          } catch (fbErr) {
-            console.warn(`[Whisper Worker] Fallback model ${fbModel} failed:`, fbErr);
-          }
-        }
-        if (!loaded) {
-          throw err;
-        }
-      }
+      transcriber = await loadModelWithRetry(targetModel, progress_callback);
       self.postMessage({ status: "ready" });
     }
 
