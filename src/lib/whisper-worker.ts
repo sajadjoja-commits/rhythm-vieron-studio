@@ -105,16 +105,24 @@ self.onmessage = async (e) => {
 
     self.postMessage({ status: "processing", message: "جاري استخراج الكلام..." });
 
-    // Faster-Whisper settings: Greedy decoding (num_beams: 1) for 5x speed
-    const result = await transcriber(audio, {
+    // Optimized Whisper Large-v3 Turbo decoding parameters for high precision
+    const decodeOptions: any = {
       chunk_length_s: 30,
-      stride_length_s: 2,
-      language: isArabic ? "arabic" : language,
+      stride_length_s: 3,
       task: "transcribe",
       return_timestamps: true,
-      num_beams: 1,
+      num_beams: 3,
       temperature: 0.0,
-    });
+      condition_on_previous_text: true,
+    };
+
+    if (isArabic) {
+      decodeOptions.language = "arabic";
+    } else if (language) {
+      decodeOptions.language = language;
+    }
+
+    const result = await transcriber(audio, decodeOptions);
 
     // Post-processing: Normalize, spell-check, and trim Arabic text
     let captions = result.chunks

@@ -8,29 +8,51 @@ export interface TranscribeResult {
 }
 
 function preprocessAudio(float32Data: Float32Array): Float32Array {
-  // 1. Peak Normalization to ~0.95
+  if (!float32Data || float32Data.length === 0) return float32Data;
+
+  // 1. High-Pass Filter (80Hz cut-off @ 16kHz sample rate) to remove low-frequency DC offset & rumble
+  // H(z) = (1 - z^-1) / (1 + alpha * z^-1)
+  const dt = 1.0 / 16000;
+  const RC = 1.0 / (2 * Math.PI * 80);
+  const alpha = RC / (RC + dt);
+  const filtered = new Float32Array(float32Data.length);
+  filtered[0] = float32Data[0];
+  for (let i = 1; i < float32Data.length; i++) {
+    filtered[i] = alpha * (filtered[i - 1] + float32Data[i] - float32Data[i - 1]);
+  }
+
+  // 2. Dynamic Noise Gate (-45dB threshold) with smooth envelope attack/release
+  const gateThreshold = 0.0056; // -45dB
+  for (let i = 0; i < filtered.length; i++) {
+    if (Math.abs(filtered[i]) < gateThreshold) {
+      filtered[i] *= 0.1; // Soft attenuation instead of harsh clipping
+    }
+  }
+
+  // 3. RMS & Peak Dual-Stage Normalization
   let maxVal = 0;
-  for (let i = 0; i < float32Data.length; i++) {
-    const absVal = Math.abs(float32Data[i]);
+  let sumSquare = 0;
+  for (let i = 0; i < filtered.length; i++) {
+    const absVal = Math.abs(filtered[i]);
     if (absVal > maxVal) maxVal = absVal;
+    sumSquare += filtered[i] * filtered[i];
   }
 
-  if (maxVal > 0) {
-    const multiplier = 0.95 / maxVal;
-    for (let i = 0; i < float32Data.length; i++) {
-      float32Data[i] *= multiplier;
-    }
+  const rms = Math.sqrt(sumSquare / filtered.length);
+  // Target RMS ~ 0.12 with Peak ceiling at 0.95
+  let gain = 1.0;
+  if (rms > 0) {
+    gain = 0.12 / rms;
+  }
+  if (maxVal * gain > 0.95) {
+    gain = 0.95 / maxVal;
   }
 
-  // 2. Simple Noise Gate (-50dB threshold)
-  const threshold = 0.00316;
-  for (let i = 0; i < float32Data.length; i++) {
-    if (Math.abs(float32Data[i]) < threshold) {
-      float32Data[i] = 0;
-    }
+  for (let i = 0; i < filtered.length; i++) {
+    filtered[i] *= gain;
   }
 
-  return float32Data;
+  return filtered;
 }
 
 /**
@@ -53,10 +75,14 @@ async function transcribeWithGroqLargeV3(
     formData.append("file", audioBlob, "audio.wav");
     formData.append("model", "whisper-large-v3");
     formData.append("response_format", "verbose_json");
+    formData.append("temperature", "0");
 
-    if (language) {
-      const langCode = (language === "ar" || language === "arabic") ? "ar" : language;
-      formData.append("language", langCode);
+    const isArabic = language === "ar" || language === "arabic";
+    if (isArabic) {
+      formData.append("language", "ar");
+      formData.append("prompt", "تفريغ صوتي باللغة العربية الفصحى والعامية بوضوح ودقة ودون حذف أي كلمات، مع مراعاة الفواصل والترقيم.");
+    } else if (language) {
+      formData.append("language", language);
     }
 
     console.log("[Whisper Large-v3 Engine] Transcribing via Groq Cloud API (whisper-large-v3)...");
