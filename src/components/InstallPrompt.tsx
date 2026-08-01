@@ -89,11 +89,24 @@ export const InstallPrompt = () => {
         </button>
 
         <div className="flex flex-col items-center text-center">
-          {/* App Icon Cover Logo */}
-          <div className="relative mb-4 group">
-            <div className="absolute -inset-1 rounded-3xl gradient-primary blur-xl opacity-70 group-hover:opacity-90 transition-opacity" />
-            <div className="relative w-20 h-20 rounded-2xl bg-slate-950 p-2 border border-primary/40 shadow-2xl flex items-center justify-center overflow-hidden">
-              <VireonLogo className="w-full h-full" />
+          {/* App Icon & Cover Banner */}
+          <div className="relative mb-5 w-full rounded-2xl overflow-hidden border border-primary/30 p-4 text-center bg-gradient-to-b from-slate-900 via-slate-950 to-slate-900 shadow-xl group">
+            <div className="absolute inset-0 bg-gradient-to-r from-primary/10 via-purple-500/10 to-blue-500/10 opacity-70" />
+            
+            <div className="relative z-10 flex flex-col items-center">
+              <div className="relative mb-3">
+                <div className="absolute -inset-2 rounded-2xl gradient-primary blur-md opacity-70 group-hover:opacity-100 transition-opacity" />
+                <div className="relative w-16 h-16 rounded-2xl bg-black p-2 border border-primary/50 shadow-2xl flex items-center justify-center">
+                  <VireonLogo className="w-full h-full drop-shadow-md" />
+                </div>
+              </div>
+
+              <span className="px-2.5 py-0.5 rounded-full bg-primary/20 border border-primary/40 text-[10px] font-bold text-primary tracking-wide mb-1">
+                Vireon AI • PWA Web App
+              </span>
+              <h3 className="text-sm font-bold text-foreground">
+                Vireon AI Studio — محرر الفيديو الذكي
+              </h3>
             </div>
           </div>
 
