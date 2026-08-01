@@ -337,6 +337,22 @@ const Index = () => {
     );
   }
 
+  if (activeTab === "camera") {
+    return (
+      <div className="dark">
+        <Suspense fallback={<ScreenLoader />}>
+          <CameraScreen
+            onClose={() => setActiveTab("home")}
+            onCaptured={(file) => {
+              newProject();
+              handleOpenEditor();
+            }}
+          />
+        </Suspense>
+      </div>
+    );
+  }
+
   if (showPhotoEditor) {
     return (
       <Suspense fallback={<ScreenLoader />}>
@@ -364,15 +380,6 @@ const Index = () => {
             onStartEditor={handleOpenEditor}
             onSelectPublishedTemplate={(tpl) => setActiveTemplateObj(tpl)}
             onSelectSmartTemplateQuick={(tpl) => setActiveSmartTemplate(tpl)}
-          />
-        )}
-        {activeTab === "camera" && (
-          <CameraScreen
-            onClose={() => setActiveTab("home")}
-            onCaptured={(file) => {
-              newProject();
-              handleOpenEditor();
-            }}
           />
         )}
         {activeTab === "projects" && <ProjectsScreen onStartEditor={handleStartEditorKeep} />}
