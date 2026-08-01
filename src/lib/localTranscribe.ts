@@ -1,3 +1,6 @@
+import { correctArabicText } from "./arabicSpellCheck";
+import { detectSilenceGaps, alignCaptionsToSilenceGaps } from "./vadUtils";
+
 export interface TranscribeResult {
   start: number;
   end: number;
@@ -54,6 +57,11 @@ function runTranscribeWorker(
     // Apply Preprocessing (Normalization & Noise Gate)
     float32Data = preprocessAudio(float32Data);
 
+    // VAD: Detect natural speech silence gaps from raw audio Float32 amplitudes
+    const sampleRate = 16000;
+    const audioDuration = float32Data.length / sampleRate;
+    const silenceGaps = detectSilenceGaps(float32Data, sampleRate);
+
     const worker = new Worker(new URL("./whisper-worker.ts", import.meta.url), {
       type: "module",
     });
@@ -66,7 +74,21 @@ function runTranscribeWorker(
       } else if (status === "done") {
         worker.postMessage({ action: "cleanup" });
         worker.terminate();
-        resolve(captions);
+
+        const isArabic = language === "ar" || language === "arabic";
+
+        // 1. Align caption segment start & end boundaries to VAD silence gaps
+        let processedCaptions = alignCaptionsToSilenceGaps(captions || [], silenceGaps, audioDuration);
+
+        // 2. High-confidence Arabic spell correction pass
+        if (isArabic && processedCaptions.length > 0) {
+          processedCaptions = processedCaptions.map((cap) => ({
+            ...cap,
+            text: correctArabicText(cap.text),
+          }));
+        }
+
+        resolve(processedCaptions);
       } else if (status === "error") {
         worker.terminate();
         reject(new Error(error));

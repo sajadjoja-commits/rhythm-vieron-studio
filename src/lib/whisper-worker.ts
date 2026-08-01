@@ -1,4 +1,5 @@
 import { pipeline, env } from "@xenova/transformers";
+import { correctArabicText } from "./arabicSpellCheck";
 
 // Optimized Faster-Whisper configuration for Transformers.js in Web Worker
 env.allowLocalModels = false;
@@ -159,10 +160,14 @@ self.onmessage = async (e) => {
       temperature: 0.0,
     });
 
-    // Post-processing: Normalize and trim Arabic text
+    // Post-processing: Normalize, spell-check, and trim Arabic text
     let captions = result.chunks
       .map((chunk: any) => {
-        const text = isArabic ? normalizeArabicText(chunk.text) : chunk.text.trim();
+        let text = chunk.text.trim();
+        if (isArabic) {
+          text = normalizeArabicText(text);
+          text = correctArabicText(text);
+        }
         return {
           start: Math.round(chunk.timestamp[0] * 100) / 100,
           end: Math.round((chunk.timestamp[1] || chunk.timestamp[0] + 2) * 100) / 100,
