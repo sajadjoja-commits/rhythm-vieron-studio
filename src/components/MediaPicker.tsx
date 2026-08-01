@@ -48,11 +48,19 @@ const MediaPicker = ({
             for (let i = 0; i < result.photos.length; i++) {
               const photo = result.photos[i];
               if (photo.webPath) {
-                const response = await fetch(photo.webPath);
-                const blob = await response.blob();
-                const mimeType = blob.type || `image/${photo.format || "jpeg"}`;
-                const file = new File([blob], `photo_${Date.now()}_${i}.${photo.format || "jpg"}`, { type: mimeType });
-                pickedFiles.push(file);
+                try {
+                  const response = await fetch(photo.webPath);
+                  const blob = await response.blob();
+                  const format = (photo.format || "jpeg").toLowerCase();
+                  const mimeType = blob.type && blob.type !== "application/octet-stream"
+                    ? blob.type
+                    : `image/${format === "jpg" ? "jpeg" : format}`;
+                  const ext = format === "jpeg" ? "jpg" : format;
+                  const file = new File([blob], `photo_${Date.now()}_${i}.${ext}`, { type: mimeType });
+                  pickedFiles.push(file);
+                } catch (e) {
+                  console.warn("Failed to convert photo webPath to file:", e);
+                }
               }
             }
             if (pickedFiles.length > 0) {

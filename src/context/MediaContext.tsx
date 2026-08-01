@@ -579,10 +579,25 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
 
   const addFiles = useCallback(async (files: FileList | File[]) => {
     const arr = Array.from(files);
-    const valid = arr.filter((f) => f.type.startsWith("video/") || f.type.startsWith("image/"));
+    const isValidMediaFile = (f: File) => {
+      if (f.type && (f.type.startsWith("video/") || f.type.startsWith("image/"))) return true;
+      const name = (f.name || "").toLowerCase();
+      return /\.(mp4|mov|avi|m4v|webm|mkv|3gp|jpg|jpeg|png|gif|webp|heic|bmp|tiff)$/i.test(name);
+    };
+
+    const valid = arr.filter(isValidMediaFile);
     if (valid.length === 0) { toast.error(t("toast.selectValidFiles")); return []; }
+
     const items: MediaItem[] = valid.map((file) => {
-      const type: MediaType = file.type.startsWith("video/") ? "video" : "image";
+      let type: MediaType = "image";
+      if (file.type && file.type.startsWith("video/")) {
+        type = "video";
+      } else if (file.type && file.type.startsWith("image/")) {
+        type = "image";
+      } else {
+        const isVideoExt = /\.(mp4|mov|avi|m4v|webm|mkv|3gp)$/i.test((file.name || "").toLowerCase());
+        type = isVideoExt ? "video" : "image";
+      }
       return { id: uid(), url: URL.createObjectURL(file), type, name: file.name, size: file.size, file, duration: type === "video" ? 0 : 5 };
     });
     setMedia((prev) => [...prev, ...items]);
