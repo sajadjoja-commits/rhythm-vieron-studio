@@ -23,7 +23,7 @@ export abstract class BaseTask<TPayload = any, TResult = any> {
     // 2. Filter by mode
     let candidates = providers.filter((p) => p.supportsTask(this.taskType));
 
-    if (mode === "remote") {
+    if (mode === "remote" || mode === "cloud") {
       candidates = candidates.filter((p) => p.type === "remote");
     } else if (mode === "local") {
       candidates = candidates.filter((p) => p.type === "local");

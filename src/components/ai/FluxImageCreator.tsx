@@ -143,6 +143,7 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
           },
           {
             executionMode: "cloud",
+            preferredProvider: "flux",
           }
         );
 
@@ -183,8 +184,15 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
   // Helper to store generated image to App Media Library
   const saveToMediaLibrary = async (imageUrl: string, name: string = "FLUX_AI_Image.png") => {
     try {
-      const resp = await fetch(imageUrl);
-      const blob = await resp.blob();
+      let blob: Blob;
+      try {
+        const resp = await fetch(imageUrl);
+        blob = await resp.blob();
+      } catch {
+        // Proxy fallback if direct fetch hits CORS
+        const proxyResp = await fetch(`https://corsproxy.io/?${encodeURIComponent(imageUrl)}`);
+        blob = await proxyResp.blob();
+      }
       const file = new File([blob], `${name}_${Date.now()}.${outputFormat}`, { type: blob.type || `image/${outputFormat}` });
       await addFiles([file]);
       return true;
