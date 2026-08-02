@@ -35,6 +35,7 @@ import { aiPlugins } from "@/ai/plugins";
 import { AIJobProgress, DeviceResourceProfile } from "@/ai/runtime/types";
 import { getLang, isRTL } from "@/lib/i18n";
 import { playSfx } from "@/lib/soundFx";
+import { FluxImageCreator } from "@/components/ai/FluxImageCreator";
 
 export interface AIToolConfig {
   id: string;
@@ -303,13 +304,16 @@ export const AI_STUDIO_TOOLS: AIToolConfig[] = [
 
 interface AIStudioScreenProps {
   onBack?: () => void;
+  onOpenPhotoEditor?: (imageUrl?: string) => void;
+  onOpenVideoEditor?: (imageUrl?: string) => void;
 }
 
-const AIStudioScreen: React.FC<AIStudioScreenProps> = ({ onBack }) => {
+const AIStudioScreen: React.FC<AIStudioScreenProps> = ({ onBack, onOpenPhotoEditor, onOpenVideoEditor }) => {
   const en = getLang() === "en";
   const rtl = isRTL();
 
-  const [activeTab, setActiveTab] = useState<"all" | "image" | "video" | "audio">("all");
+  const [activeTab, setActiveTab] = useState<"all" | "creator" | "image" | "video" | "audio">("all");
+  const [showFluxCreator, setShowFluxCreator] = useState(false);
   const [deviceProfile, setDeviceProfile] = useState<DeviceResourceProfile | null>(null);
 
   // Tool modal state
@@ -523,7 +527,7 @@ const AIStudioScreen: React.FC<AIStudioScreenProps> = ({ onBack }) => {
 
       {/* Device Runtime Profile Status Card */}
       {deviceProfile && (
-        <div className="mb-6 rounded-2xl bg-card border border-border p-3.5 flex items-center justify-between shadow-sm animate-fade-in">
+        <div className="mb-4 rounded-2xl bg-card border border-border p-3.5 flex items-center justify-between shadow-sm animate-fade-in">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
               {deviceProfile.isAndroid ? (
@@ -554,14 +558,62 @@ const AIStudioScreen: React.FC<AIStudioScreenProps> = ({ onBack }) => {
         </div>
       )}
 
+      {/* Featured AI Image Creator (FLUX.1) Hero Banner */}
+      <div className="mb-6 rounded-3xl bg-gradient-to-r from-purple-950/80 via-indigo-900/60 to-slate-900/80 border border-purple-500/40 p-5 shadow-xl relative overflow-hidden group">
+        <div className="absolute -right-10 -bottom-10 w-48 h-48 rounded-full bg-purple-500/15 blur-3xl pointer-events-none" />
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 relative z-10">
+          <div className="flex items-start gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-purple-600 via-pink-500 to-amber-400 flex items-center justify-center shadow-lg shadow-purple-500/30 flex-shrink-0">
+              <Sparkles className="w-6 h-6 text-white animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 font-extrabold text-[10px] tracking-wider uppercase border border-amber-400/30">
+                  {en ? "Featured Feature" : "الميزة الأساسية الجديدة"}
+                </span>
+                <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-extrabold text-[10px] tracking-wider uppercase border border-purple-500/30">
+                  FLUX.1 Engine
+                </span>
+              </div>
+              <h2 className="font-heading text-base sm:text-lg font-bold text-white mt-1">
+                {en ? "AI Image Creator (FLUX.1)" : "صانع الصور الذكي (FLUX.1 AI Creator)"}
+              </h2>
+              <p className="text-xs text-purple-200/80 max-w-lg mt-0.5">
+                {en
+                  ? "Generate hyperrealistic artwork, designs & portraits via official Black Forest Labs FLUX.1 API"
+                  : "توليد صور وديكورات وبورتريهات فائقة الجودة بدقة متناهية باستخدام محرك FLUX.1 الرسمي"}
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => {
+              playSfx("pop");
+              setShowFluxCreator(true);
+            }}
+            className="w-full sm:w-auto px-5 py-3 rounded-2xl bg-gradient-to-r from-purple-500 via-pink-500 to-amber-500 hover:from-purple-600 hover:to-amber-600 text-white font-extrabold text-xs shadow-lg shadow-purple-500/25 flex items-center justify-center gap-2 transition-transform active:scale-95 whitespace-nowrap"
+          >
+            <Wand2 className="w-4 h-4 text-amber-100" />
+            <span>{en ? "Launch FLUX Creator" : "افتح صانع الصور FLUX.1"}</span>
+          </button>
+        </div>
+      </div>
+
       {/* Category Tabs Filter */}
       <div className="flex items-center gap-2 mb-6 overflow-x-auto no-scrollbar pb-1">
         {[
           { id: "all", labelAr: "الكل", labelEn: "All Tools", count: AI_STUDIO_TOOLS.length },
           {
+            id: "creator",
+            labelAr: "صانع FLUX.1",
+            labelEn: "FLUX.1 Creator",
+            icon: Sparkles,
+            count: 1,
+          },
+          {
             id: "image",
-            labelAr: "صور AI",
-            labelEn: "AI Image",
+            labelAr: "معالجة الصور",
+            labelEn: "Photo Polish",
             icon: ImageIcon,
             count: AI_STUDIO_TOOLS.filter((t) => t.category === "image").length,
           },
@@ -609,9 +661,24 @@ const AIStudioScreen: React.FC<AIStudioScreenProps> = ({ onBack }) => {
         })}
       </div>
 
+      {/* Show FLUX.1 Creator inline if tab selected or modal overlay if button clicked */}
+      {(showFluxCreator || activeTab === "creator") && (
+        <div className="mb-8 animate-fade-in">
+          <FluxImageCreator
+            onClose={() => {
+              setShowFluxCreator(false);
+              if (activeTab === "creator") setActiveTab("all");
+            }}
+            onOpenPhotoEditor={onOpenPhotoEditor}
+            onOpenVideoEditor={onOpenVideoEditor}
+          />
+        </div>
+      )}
+
       {/* Tools Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-        {filteredTools.map((tool) => {
+      {activeTab !== "creator" && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+          {filteredTools.map((tool) => {
           const IconComponent = tool.icon;
           return (
             <div
@@ -667,7 +734,8 @@ const AIStudioScreen: React.FC<AIStudioScreenProps> = ({ onBack }) => {
             </div>
           );
         })}
-      </div>
+        </div>
+      )}
 
       {/* Tool Execution Dialog Modal */}
       {selectedTool && (

@@ -376,7 +376,13 @@ const Index = () => {
         {activeTab === "home" && (
           <HomeScreen onNavigate={setActiveTab} onStartEditor={handleOpenEditor} session={session} newProject={newProject} />
         )}
-        {activeTab === "aistudio" && <AIStudioScreen onBack={() => setActiveTab("home")} />}
+        {activeTab === "aistudio" && (
+          <AIStudioScreen
+            onBack={() => setActiveTab("home")}
+            onOpenPhotoEditor={() => setShowPhotoEditor(true)}
+            onOpenVideoEditor={() => handleOpenEditor()}
+          />
+        )}
         {activeTab === "templates" && (
           <TemplatesScreen
             onStartEditor={handleOpenEditor}
