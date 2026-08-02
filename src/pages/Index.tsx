@@ -15,6 +15,7 @@ const CameraScreen = lazy(() => import("@/components/CameraScreen"));
 const PhotoEditorScreen = lazy(() => import("@/components/PhotoEditorScreen"));
 const ProjectsScreen = lazy(() => import("@/components/ProjectsScreen"));
 const SettingsScreen = lazy(() => import("@/components/SettingsScreen"));
+const AIStudioScreen = lazy(() => import("@/components/AIStudioScreen"));
 const EditorScreen = lazy(() => import("@/components/EditorScreen"));
 const TemplateUseScreen = lazy(() => import("@/components/TemplateUseScreen"));
 const SmartTemplateQuickEditor = lazy(() => import("@/components/SmartTemplateQuickEditor"));
@@ -375,6 +376,7 @@ const Index = () => {
         {activeTab === "home" && (
           <HomeScreen onNavigate={setActiveTab} onStartEditor={handleOpenEditor} session={session} newProject={newProject} />
         )}
+        {activeTab === "aistudio" && <AIStudioScreen onBack={() => setActiveTab("home")} />}
         {activeTab === "templates" && (
           <TemplatesScreen
             onStartEditor={handleOpenEditor}

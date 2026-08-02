@@ -40,11 +40,15 @@ const PromoBanner = ({ onNavigate, onStartEditor, newProject, en }: { onNavigate
         </div>
         <h2 className="font-heading text-xl font-bold text-white mb-1">{en ? "Create viral videos in seconds" : "اصنع فيديوهات فيرالية بثواني"}</h2>
         <p className="text-xs text-blue-200/80 mb-4 leading-relaxed">{en ? "AI auto-selects best moments, applies color grading, syncs cuts to music" : "الذكاء الاصطناعي يختار أفضل اللحظات، يطبق الألوان، ويقطع على الإيقاع"}</p>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <MediaPicker accept="both" onBeforePick={newProject} onPicked={onStartEditor}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white text-gray-900 font-bold text-xs active:scale-95 transition-transform">
             <Plus className="w-4 h-4" />{en ? "New Project" : "مشروع جديد"}
           </MediaPicker>
+          <button onClick={() => onNavigate("aistudio")}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground font-bold text-xs shadow-md active:scale-95 transition-transform">
+            <Sparkles className="w-4 h-4" />{en ? "AI Studio" : "استوديو AI"}
+          </button>
           <button onClick={() => onNavigate("templates")}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 text-white font-bold text-xs backdrop-blur-sm border border-white/20 active:scale-95 transition-transform">
             <Wand2 className="w-4 h-4" />{en ? "Templates" : "قوالب"}

@@ -1,6 +1,7 @@
 // Lightweight i18n for Vireon AI — full bilingual AR/EN
 const ar: Record<string, string> = {
   "nav.home": "الرئيسية",
+  "nav.aistudio": "استوديو AI",
   "nav.templates": "قوالب",
   "nav.camera": "كاميرا",
   "nav.projects": "مشاريعي",
@@ -381,6 +382,7 @@ const ar: Record<string, string> = {
 
 const en: Record<string, string> = {
   "nav.home": "Home",
+  "nav.aistudio": "AI Studio",
   "nav.templates": "Templates",
   "nav.camera": "Camera",
   "nav.projects": "Projects",

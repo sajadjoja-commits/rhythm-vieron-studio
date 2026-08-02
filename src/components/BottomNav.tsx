@@ -1,4 +1,4 @@
-import { Home, Clapperboard, Camera, FolderOpen, Settings, Plus } from "lucide-react";
+import { Home, Sparkles, Clapperboard, Camera, FolderOpen, Settings, Plus } from "lucide-react";
 import { t } from "@/lib/i18n";
 import { playSfx } from "@/lib/soundFx";
 
@@ -10,10 +10,10 @@ interface BottomNavProps {
 
 const tabs = [
   { id: "home", icon: Home, labelKey: "nav.home" },
-  { id: "templates", icon: Clapperboard, labelKey: "nav.templates" },
+  { id: "aistudio", icon: Sparkles, labelKey: "nav.aistudio" },
   { id: "camera", icon: null, labelKey: "" }, // placeholder for center plus
+  { id: "templates", icon: Clapperboard, labelKey: "nav.templates" },
   { id: "projects", icon: FolderOpen, labelKey: "nav.projects" },
-  { id: "settings", icon: Settings, labelKey: "nav.settings" },
 ];
 
 const BottomNav = ({ active, onNavigate, onPlusClick }: BottomNavProps) => {
