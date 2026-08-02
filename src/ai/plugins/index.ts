@@ -1,11 +1,13 @@
 import { AudioEnhancementPlugin } from "./AudioEnhancementPlugin";
 import { ImageEnhancementPlugin } from "./ImageEnhancementPlugin";
+import { VideoEnhancementPlugin } from "./VideoEnhancementPlugin";
 import { AIPlugin } from "./types";
 
 export * from "./types";
 export { BasePlugin } from "./BasePlugin";
 export { AudioEnhancementPlugin } from "./AudioEnhancementPlugin";
 export { ImageEnhancementPlugin } from "./ImageEnhancementPlugin";
+export { VideoEnhancementPlugin } from "./VideoEnhancementPlugin";
 
 export class AIPluginRegistry {
   private static instance: AIPluginRegistry;
@@ -28,6 +30,9 @@ export class AIPluginRegistry {
 
     const imageEnhance = new ImageEnhancementPlugin();
     this.registerPlugin(imageEnhance);
+
+    const videoEnhance = new VideoEnhancementPlugin();
+    this.registerPlugin(videoEnhance);
   }
 
 

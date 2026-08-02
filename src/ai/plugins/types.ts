@@ -16,6 +16,57 @@ export interface AIPlugin {
   ): Promise<AIResponse<TResult>>;
 }
 
+// ---------------- Video Enhancement & Processing Types ----------------
+
+export type VideoActionType =
+  | "video-upscale"
+  | "video-denoise"
+  | "video-bg-removal"
+  | "video-stabilize"
+  | "frame-interpolation"
+  | "video-object-remove"
+  | "auto-color-enhance"
+  | "composite-video-enhance";
+
+export type VideoUpscaleEngine = "Real-ESRGAN-Video" | "Gemini-VideoSuperRes";
+export type VideoInterpolationEngine = "RIFE-v4.6" | "Motion-Flow";
+export type VideoMattingEngine = "RobustVideoMatting" | "MODNet-Video" | "Gemini-VideoMatting";
+export type VideoDenoiseEngine = "FastDVDnet" | "NAFNet-Video" | "Canvas-SpatialDenoise";
+export type VideoInpaintEngine = "LaMa-Video" | "ProPainter";
+
+export interface AIVideoPayload {
+  videoBase64OrUrl: string;
+  mimeType?: string;
+  action?: VideoActionType;
+  upscaleFactor?: 2 | 4;
+  targetFps?: 30 | 60 | 120;
+  denoiseIntensity?: number; // 0.0 to 1.0
+  stabilizeIntensity?: number; // 0.0 to 1.0
+  maskBase64OrUrl?: string; // For object removal
+  preserveAudio?: boolean;
+  preferredEngine?: string;
+}
+
+export interface AIVideoResult {
+  outputVideoBase64OrUrl: string;
+  mimeType: string;
+  width: number;
+  height: number;
+  durationSeconds: number;
+  fps: number;
+  processingType: VideoActionType;
+  appliedEngine: string;
+  executionTimeMs: number;
+  qualityMetrics?: {
+    originalWidth?: number;
+    originalHeight?: number;
+    originalFps?: number;
+    totalFramesProcessed?: number;
+    isLocalExecution?: boolean;
+  };
+  error?: string;
+}
+
 // ---------------- Image Enhancement & AI Image Processing Types ----------------
 
 export type ImageActionType =
