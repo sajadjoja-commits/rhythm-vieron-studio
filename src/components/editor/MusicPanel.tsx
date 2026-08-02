@@ -13,6 +13,7 @@ interface Props {
   open: boolean;
   onClose: () => void;
   currentTime: number;
+  onOpenDeviceLibrary?: () => void;
 }
 
 const ALL_FX_OPTIONS: { id: AudioFxType; label: string; labelEn: string; icon: string; descAr: string; descEn: string }[] = [
@@ -31,7 +32,7 @@ const ALL_FX_OPTIONS: { id: AudioFxType; label: string; labelEn: string; icon: s
   { id: "telephone", label: "هاتف قديم", labelEn: "Telephone", icon: "📞", descAr: "تصفية صوت المكالمات", descEn: "Vintage phone call" },
 ];
 
-const MusicPanel = ({ open, onClose, currentTime }: Props) => {
+const MusicPanel = ({ open, onClose, currentTime, onOpenDeviceLibrary }: Props) => {
   const { media, audioTracks, addAudioTrack, updateAudioTrack, splitClipsAtBeats, audioBeats, setAudioBeats, videoMuted, setVideoMuted, videoVolume, setVideoVolume, videoAudioFx, setVideoAudioFx, totalDuration } = useMedia();
   const [tab, setTab] = useState<"music" | "sfx" | "fx" | "beat">("music");
   const fileRef = useRef<HTMLInputElement>(null);
@@ -339,7 +340,7 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
 
             <button
               disabled={busy}
-              onClick={onUploadClick}
+              onClick={() => onOpenDeviceLibrary?.()}
               className="w-full flex items-center gap-2 p-3 rounded-xl bg-card border border-dashed border-primary/50"
             >
               <Upload className="w-4 h-4 text-primary" />

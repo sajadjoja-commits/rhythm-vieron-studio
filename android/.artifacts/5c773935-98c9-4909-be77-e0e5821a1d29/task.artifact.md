@@ -1,6 +1,6 @@
-- [ ] Implement `getGalleryAssets` in `VireonMediaPlugin.java` (Direct MediaStore query)
-- [ ] Implement `getAudioAssets` in `VireonMediaPlugin.java` (Full device audio search)
-- [ ] Enhance `CustomGallery.tsx` UI with glassmorphism and smooth animations
-- [ ] Connect `CustomGallery.tsx` to the new Native Java Bridge
-- [ ] Enhance `MusicLibrary.tsx` UI and connect to Native Java Bridge
-- [ ] Verify full file visibility and build stability
+- [ ] Connect `MusicPanel.tsx` to the custom `MusicLibrary`
+- [ ] Implement file loading logic in `MusicLibrary` for the editor
+- [ ] Ensure `MediaPicker` correctly triggers the native `CustomGallery`
+- [ ] Add loading suspension for smoother library transitions
+- [ ] Final verification of editor integrity
+- [ ] Commit and push changes

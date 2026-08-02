@@ -37,6 +37,7 @@ import { VireonLogo } from "@/components/VireonLogo";
 
 interface EditorScreenProps {
   onBack: () => void;
+  onOpenMusicLibrary?: () => void;
 }
 
 const aspectRatios = [
@@ -59,7 +60,7 @@ type Tool = "transition" | "caption" | "music" | "filter" | "vfx" | "ratio" | "o
 // Which timeline track is focused — determines which handles are visible
 type FocusedTrack = "video" | "caption" | "audio" | "filter" | "vfx" | "overlay" | null;
 
-const EditorScreen = ({ onBack }: EditorScreenProps) => {
+const EditorScreen = ({ onBack, onOpenMusicLibrary }: EditorScreenProps) => {
   const {
     media = [], clips = [], totalDuration, getMediaById, resolveTimelineTime,
     audioTracks = [], videoMuted, videoVolume, videoAudioFx, projectName, setProjectName,
@@ -1479,7 +1480,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
         {tool === "cover" && <CoverPicker open={tool === "cover"} onClose={() => setTool(null)} videoRef={videoRef as React.RefObject<HTMLVideoElement>} />}
         {tool === "transition" && <TransitionPanel open={tool === "transition"} clipId={transitionClipId} onClose={() => setTool(null)} />}
         {tool === "caption" && <CaptionPanel open={tool === "caption"} onClose={() => setTool(null)} currentTime={currentTime} />}
-        {tool === "music" && <MusicPanel open={tool === "music"} onClose={() => setTool(null)} currentTime={currentTime} />}
+        {tool === "music" && <MusicPanel open={tool === "music"} onClose={() => setTool(null)} currentTime={currentTime} onOpenDeviceLibrary={onOpenMusicLibrary} />}
         {tool === "filter" && <FilterPanel open={tool === "filter"} onClose={() => setTool(null)} currentTime={currentTime} />}
         {tool === "vfx" && <VfxPanel open={tool === "vfx"} onClose={() => setTool(null)} currentTime={currentTime} />}
         {tool === "overlay" && <OverlayPanel open={tool === "overlay"} onClose={() => setTool(null)} currentTime={currentTime} />}

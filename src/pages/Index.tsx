@@ -42,7 +42,44 @@ const Index = () => {
   const [activeSmartTemplate, setActiveSmartTemplate] = useState<any | null>(null);
   const [showGallery, setShowGallery] = useState<{ open: boolean; type: "image" | "video" | "both" }>({ open: false, type: "both" });
   const [showMusicLibrary, setShowMusicLibrary] = useState(false);
-  const { newProject } = useMedia();
+  const { newProject, addAudioTrack } = useMedia();
+
+  const handleAddMusic = async (url: string, name: string) => {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const file = new File([blob], name, { type: blob.type });
+
+      const dur = await getAudioDuration(url);
+      addAudioTrack({
+        name: name,
+        url: url,
+        file: file,
+        start: currentTime,
+        offset: 0,
+        duration: dur,
+        sourceDuration: dur,
+        volume: 0.8,
+        muted: false,
+        fx: "none",
+        color: "#a855f7",
+        kind: "music",
+      });
+      toast.success(isRTL() ? "تمت إضافة الموسيقى بنجاح" : "Music added successfully");
+      setShowMusicLibrary(false);
+    } catch (e) {
+      console.error("Error adding music to editor:", e);
+      toast.error(isRTL() ? "فشل إضافة الملف الصوتي" : "Failed to add audio file");
+    }
+  };
+
+  const getAudioDuration = (url: string): Promise<number> =>
+    new Promise((res) => {
+      const a = new Audio();
+      a.src = url;
+      a.onloadedmetadata = () => res(a.duration || 0);
+      a.onerror = () => res(0);
+    });
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -351,6 +388,7 @@ const Index = () => {
       <div className="dark">
         <Suspense fallback={<ScreenLoader />}>
           <EditorScreen
+            onOpenMusicLibrary={() => setShowMusicLibrary(true)}
             onBack={() => {
               if (window.history.state?.isEditor) {
                 window.history.back();
@@ -362,6 +400,15 @@ const Index = () => {
             }}
           />
         </Suspense>
+
+        {showMusicLibrary && (
+          <Suspense fallback={<ScreenLoader />}>
+            <MusicLibrary
+              onClose={() => setShowMusicLibrary(false)}
+              onAdd={handleAddMusic}
+            />
+          </Suspense>
+        )}
       </div>
     );
   }
@@ -446,15 +493,7 @@ const Index = () => {
             type={showGallery.type}
             onClose={() => setShowGallery({ ...showGallery, open: false })}
             onSelect={(files) => {
-              // Handle selection
-            }}
-          />
-        )}
-        {showMusicLibrary && (
-          <MusicLibrary
-            onClose={() => setShowMusicLibrary(false)}
-            onAdd={(url, name) => {
-              // Handle add to editor
+              // Selection is handled inside CustomGallery now
             }}
           />
         )}
