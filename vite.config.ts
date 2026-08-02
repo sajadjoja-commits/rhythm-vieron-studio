@@ -11,6 +11,14 @@ export default defineConfig(({ mode }) => ({
     hmr: {
       overlay: false,
     },
+    proxy: {
+      "/api/bfl": {
+        target: "https://api.bfl.ml",
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/api\/bfl/, "/v1"),
+        secure: false,
+      },
+    },
   },
   plugins: [
     react(),
