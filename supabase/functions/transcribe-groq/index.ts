@@ -16,7 +16,7 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { audioBase64, mimeType, language } = await req.json();
+    const { audioBase64, mimeType, language, prompt } = await req.json();
     if (!audioBase64) {
       return new Response(JSON.stringify({ error: "audioBase64 is required" }), {
         status: 400,
@@ -44,10 +44,15 @@ serve(async (req) => {
     const filename = mimeType?.includes("wav") ? "audio.wav" : "audio.mp3";
 
     // Build the multipart form-data payload for Groq API
+    const defaultArabicPrompt =
+      "يرجى تفريغ الصوت بدقة عالية: حافظ على اللهجة العربية المستخدمة كما هي دون تصحيحها إلى الفصحى، لا تترجم أي كلام، اكتب الأرقام بالشكل الصحيح، أضف علامات الترقيم المناسبة (نقطة، فاصلة، علامة استفهام)، ولا تحذف أي تكرار مقصود في الكلام.";
+
     const formData = new FormData();
     formData.append("file", audioBlob, filename);
     formData.append("model", "whisper-large-v3");
     formData.append("response_format", "verbose_json");
+    formData.append("temperature", "0");
+    formData.append("prompt", prompt || defaultArabicPrompt);
     
     if (language) {
       formData.append("language", language);

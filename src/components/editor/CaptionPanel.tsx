@@ -3,7 +3,7 @@ import { useMedia, Caption, CaptionAnimation, CaptionTemplate } from "@/context/
 import { useAdGate } from "@/context/AdGateContext";
 import { X, Plus, Trash2, Type, Languages, Sparkles, Loader2, Palette, Eye, EyeOff, Check, Music, AlertTriangle, CheckCircle2, RotateCw, RefreshCw, Search, Layers, Sliders, Zap, BookOpen, Radio, Youtube, Instagram, MapPin, Quote, Star, Flame, Award } from "lucide-react";
 import { toast } from "sonner";
-import { extractAudioBase64 } from "@/lib/audioExtract";
+import { extractAudioBase64, extractAudioInChunks, mergeChunkResults, TranscribedSegment } from "@/lib/audioExtract";
 import { transcribeWithGroq } from "@/lib/groqTranscribe";
 import { analyzeAudioTrack } from "@/lib/beatDetector";
 import { getLang } from "@/lib/i18n";
@@ -680,24 +680,45 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
     }, 100);
 
     try {
-      // 1. Extract audio from media file or audio track
+      // 1. Extract audio (or chunks if > 60s) from media file
       const targetFile = mediaItem?.file;
       if (!targetFile) {
         throw new Error(en ? "Source media file unavailable" : "ملف الوسائط المصدر غير متوفر");
       }
 
-      const { base64 } = await extractAudioBase64(targetFile);
+      setExtractMsg(en ? "Preparing audio..." : "جارٍ تجهيز الصوت...");
+      const { totalDuration: audioLen, chunks } = await extractAudioInChunks(targetFile, 25, 2);
       
       currentPhase = "processing";
 
-      // 2. Transcribe speech cleanly via Groq AI edge function
-      const items = await transcribeWithGroq(base64, captionStyle.language);
+      let mergedItems: TranscribedSegment[] = [];
+
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        if (chunks.length > 1) {
+          const chunkMsg = en
+            ? `Transcribing chunk ${i + 1} of ${chunks.length}...`
+            : `جاري تفريغ الجزء ${i + 1} من ${chunks.length}...`;
+          setExtractMsg(chunkMsg);
+        } else {
+          setExtractMsg(en ? "Extracting speech..." : "جاري استخراج الكلام...");
+        }
+
+        const currentPct = Math.round(((i + 0.2) / chunks.length) * 100);
+        setExtractProgress(currentPct);
+
+        const chunkItems = await transcribeWithGroq(chunk.base64, captionStyle.language);
+        mergedItems = mergeChunkResults(mergedItems, chunkItems, chunk.start);
+
+        const completedPct = Math.round(((i + 1) / chunks.length) * 100);
+        setExtractProgress(completedPct);
+      }
 
       currentPhase = "done";
       progressVal = 100;
       setExtractProgress(100);
 
-      if (items.length === 0) {
+      if (mergedItems.length === 0) {
         clearInterval(interval);
         toast.error(en ? "No speech detected in media" : "لم يتم العثور على كلام في المقطع");
         setExtracting(false);
@@ -706,18 +727,22 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
         return;
       }
 
-      const newCaps: Caption[] = items.map((c: any) => ({
+      const newCaps: Caption[] = mergedItems.map((c) => ({
         id: uid(),
         start: Math.max(0, Number(c.start) || 0),
-        end: Math.min(totalDuration, Number(c.end) || 0),
+        end: Math.min(totalDuration || audioLen, Number(c.end) || 0),
         text: String(c.text || "").trim(),
-        confidence: typeof c.confidence === "number" ? c.confidence : (c.text?.trim().length < 3 ? 0.62 : 0.92),
+        confidence: 0.92,
         animation: captionStyle.animation,
       }));
 
       setCaptions((prev) => [...prev, ...newCaps].sort((a, b) => a.start - b.start));
       playSfx("success");
-      toast.success(en ? `Extracted ${newCaps.length} captions successfully` : `تم استخراج ${newCaps.length} كابشن بنجاح`);
+      toast.success(
+        en
+          ? `Extracted ${newCaps.length} captions successfully${chunks.length > 1 ? ` across ${chunks.length} parts` : ""}`
+          : `تم استخراج ${newCaps.length} كابشن بنجاح${chunks.length > 1 ? ` عبر ${chunks.length} أجزاء` : ""}`
+      );
 
       // Jump to list tab and focus first caption text field automatically for fast editing
       setTab("list");
