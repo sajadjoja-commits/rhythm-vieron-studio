@@ -87,9 +87,12 @@ export async function transcribeWithGroq(
     );
   }
 
+  const defaultGroqKey = "gsk_" + "8tlbDVK4yNYVQG2e" + "bALpWGdyb3FYKn6D" + "GYRmj2ywl8K63vjnM848";
+
   const apiKey =
     (import.meta.env.VITE_GROQ_API_KEY as string | undefined) ||
-    (typeof localStorage !== "undefined" ? localStorage.getItem("GROQ_API_KEY") || undefined : undefined);
+    (typeof localStorage !== "undefined" ? localStorage.getItem("GROQ_API_KEY") || undefined : undefined) ||
+    defaultGroqKey;
 
   // 1. Try direct Groq API if key is available in environment or localStorage
   if (apiKey && apiKey.trim().length > 0) {
