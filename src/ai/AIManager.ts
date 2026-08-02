@@ -24,6 +24,7 @@ import {
 import { GroqProvider } from "./providers/remote/GroqProvider";
 import { SupabaseEdgeProvider } from "./providers/remote/SupabaseEdgeProvider";
 import { GeminiProvider } from "./providers/remote/GeminiProvider";
+import { FluxProvider } from "./providers/remote/FluxProvider";
 import { LocalAudioFilter } from "./providers/local/LocalAudioFilter";
 
 // Tasks
@@ -66,11 +67,13 @@ export class AIManager {
     const groq = new GroqProvider(this.keyManager);
     const edge = new SupabaseEdgeProvider(this.keyManager);
     const gemini = new GeminiProvider(this.keyManager);
+    const flux = new FluxProvider(this.keyManager);
     const localAudio = new LocalAudioFilter(this.modelLoader);
 
     this.registerProvider(groq);
     this.registerProvider(edge);
     this.registerProvider(gemini);
+    this.registerProvider(flux);
     this.registerProvider(localAudio);
   }
 

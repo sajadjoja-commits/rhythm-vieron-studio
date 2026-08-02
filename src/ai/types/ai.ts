@@ -100,17 +100,58 @@ export interface EnhanceMediaResult {
   enhancedUrlOrBase64: string;
 }
 
-// 5. Image Generation
+// 5. Image Generation (FLUX.1 & AI Image Generators)
+export type FluxMode = "text-to-image" | "image-to-image" | "inpainting" | "outpainting";
+export type FluxOutputFormat = "jpeg" | "png" | "webp";
+export type FluxModel = "flux-pro-1.1" | "flux-dev" | "flux-pro" | "flux-pro-1.1-ultra" | "flux-pro-1.0-fill" | "flux-schnell";
+
 export interface ImageGenerationPayload {
   prompt: string;
-  aspectRatio?: string;
   negativePrompt?: string;
+  width?: number;
+  height?: number;
+  imageSize?: { width: number; height: number } | string;
+  aspectRatio?: string; // e.g. "1:1", "16:9", "9:16", "4:3", "3:4", "21:9", "9:21"
+  seed?: number;
+  guidance?: number; // guidance_scale (e.g. 1.5 - 10)
+  steps?: number; // num_inference_steps (e.g. 1 - 50)
+  safetyMode?: number | string; // safety_tolerance (0-6)
+  outputFormat?: FluxOutputFormat;
+  mode?: FluxMode;
+  image?: string; // base64 or URL for img2img / inpaint
+  mask?: string; // base64 or URL for inpaint / outpaint
+  promptUpsampling?: boolean;
+  model?: FluxModel;
   style?: string;
 }
+
+export interface FluxTaskPayload extends ImageGenerationPayload {}
 
 export interface ImageGenerationResult {
   imageUrl: string;
   mimeType?: string;
+  width?: number;
+  height?: number;
+  seed?: number;
+  requestId?: string;
+  providerUsed?: string;
+  executionTimeMs?: number;
+  metadata?: Record<string, any>;
+}
+
+export interface FluxImageResult extends ImageGenerationResult {
+  outputImageBase64OrUrl: string;
+  mimeType: string;
+  width: number;
+  height: number;
+  processingType: string;
+  appliedEngine: string;
+  executionTimeMs: number;
+  status?: string;
+  qualityMetrics?: {
+    isLocalExecution?: boolean;
+    seed?: number;
+  };
 }
 
 // 6. Translation

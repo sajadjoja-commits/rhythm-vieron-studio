@@ -11,8 +11,11 @@ export class KeyManager {
   private initDefaultKeys(): void {
     // Obfuscated default fallbacks if applicable
     const defaultGroq = "gsk_" + "8tlbDVK4yNYVQG2e" + "bALpWGdyb3FYKn6D" + "GYRmj2ywl8K63vjnM848";
+    const defaultFlux = "bfl_IDSuznU4PFIMSukS1Ii1VwGUBxQnNb94";
 
     this.customKeys.set("groq_default", defaultGroq);
+    this.customKeys.set("flux_default", defaultFlux);
+    this.customKeys.set("bfl_default", defaultFlux);
   }
 
   /**

@@ -15,6 +15,7 @@ export * from "./runtime/types";
 export { KeyManager } from "./keyManager/KeyManager";
 export { AICache } from "./cache/AICache";
 export { LocalModelLoader } from "./providers/local/LocalModelLoader";
+export { FluxProvider } from "./providers/remote/FluxProvider";
 export * from "./plugins";
 export * from "./agent";
 
