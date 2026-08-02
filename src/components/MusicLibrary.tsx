@@ -53,6 +53,9 @@ const MusicLibrary = ({ onClose, onAdd }: MusicLibraryProps) => {
     }
 
     if (waveformRef.current) {
+      // Ensure the URL is converted for the webview to access native media
+      const webUrl = url.startsWith('content://') ? Capacitor.convertFileSrc(url) : url;
+
       wavesurfer.current = WaveSurfer.create({
         container: waveformRef.current,
         waveColor: '#3b3b3b',
@@ -64,7 +67,7 @@ const MusicLibrary = ({ onClose, onAdd }: MusicLibraryProps) => {
         height: 60,
       });
 
-      wavesurfer.current.load(url);
+      wavesurfer.current.load(webUrl);
       wavesurfer.current.on('play', () => setIsPlaying(true));
       wavesurfer.current.on('pause', () => setIsPlaying(false));
       wavesurfer.current.play();

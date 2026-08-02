@@ -1,40 +1,41 @@
-# Final Deep Integration: Native Media Suite
+# Fix Audio Playback, Waveforms, and Gradle Performance
 
-The user wants to ensure the custom-designed gallery and music library are active and deeply integrated with the Android OS using Native code (Java), while explicitly requesting that the editor remains untouched and safe. I will connect the refined "Vieron" UI to the native Java bridge built earlier.
+I will address the issues with the music library (playback and waveforms) and optimize the project configuration by resolving deprecated Gradle settings and enabling performance improvements.
 
 ## User Review Required
 
-> [!CAUTION]
-> **Safety First:** I will NOT modify the core editing engine. I will only update how the "Upload" buttons trigger. Instead of opening a hidden file browser, they will open our custom native-powered UI.
-> **Language Note:** The user mentioned "Rest". I am assuming they meant **React**, which is the current UI framework. It is perfect for this task because it allows us to build a rich, animated interface on top of native Android data.
+> [!IMPORTANT]
+> I am updating the `MusicLibrary` to correctly handle Android `content://` URIs for audio playback and waveform generation. I am also cleaning up the `gradle.properties` file to remove deprecated warnings and enable build-time optimizations.
 
 ## Proposed Changes
 
-### Integration Logic (Safe Path)
+### Audio & Music Library
 
-#### [MODIFY] [Index.tsx](file:///D:/rhythm-vieron-studio/src/pages/Index.tsx)
-- Ensure the state management for `showGallery` and `showMusicLibrary` is robust.
-- Ensure the `Suspense` wrapper handles loading states gracefully.
+#### [MODIFY] [MusicLibrary.tsx](file:///D:/rhythm-vieron-studio/src/components/MusicLibrary.tsx)
+- Use `Capacitor.convertFileSrc()` for all native audio URLs before passing them to `wavesurfer.js`. This allows the webview to correctly stream and visualize the local files.
+- Ensure the `wavesurfer` instance is properly cleaned up and re-initialized when switching songs.
 
-#### [MODIFY] [MusicPanel.tsx](file:///D:/rhythm-vieron-studio/src/components/editor/MusicPanel.tsx)
-- Replace the `fileRef` hidden input logic with a call to open the new `MusicLibrary` component.
-- Ensure the `onAdd` callback from the `MusicLibrary` correctly adds the track to the `MediaContext` timeline, preserving all editor features.
+### Build & Performance Optimization
 
-#### [MODIFY] [MediaPicker.tsx](file:///D:/rhythm-vieron-studio/src/components/MediaPicker.tsx)
-- Completely replace the HTML `input` logic with the `CustomGallery` trigger.
-- Pass the selected `File` objects back to the `MediaContext` exactly as before, ensuring the editor receives the data in the format it expects.
+#### [MODIFY] [gradle.properties](file:///D:/rhythm-vieron-studio/android/gradle.properties)
+- **Remove Deprecated Settings:**
+    - `android.enableAppCompileTimeRClass`
+    - `android.r8.optimizedResourceShrinking`
+    - `android.defaults.buildfeatures.resvalues`
+- **Enable Performance Flags:**
+    - Add `android.dependency.excludeLibraryComponentsFromConstraints=true` to speed up project importing and dependency resolution.
+- **Clean Up:** Remove redundant/commented-out entries.
 
-### UI Polish
-
-#### [MODIFY] [CustomGallery.tsx](file:///D:/rhythm-vieron-studio/src/components/CustomGallery.tsx)
-- Implement a more aggressive "Scanning" indicator.
-- Ensure images are cropped into squares in the grid for a more "Gallery-like" feel.
-- Add a "Safe Zone" at the bottom for Android navigation bars.
+#### [MODIFY] [capacitor-cordova-android-plugins/build.gradle](file:///D:/rhythm-vieron-studio/android/capacitor-cordova-android-plugins/build.gradle)
+- Ensure `flatDir` is removed (re-verifying after the user's warning).
 
 ## Verification Plan
 
+### Automated Tests
+- Run `./gradlew :app:assembleDebug` to ensure no build warnings or errors.
+
 ### Manual Verification
-1.  **Open Editor** -> Click **Audio** -> Click **Upload Music**. The new `MusicLibrary` should slide up.
-2.  **Pick Song** -> Verify the waveform moves. Click **+**. The song should appear on the timeline.
-3.  **Click Add Video/Photo** -> The `CustomGallery` should open. Select multiple files. Click **Done**. They should appear in the editor.
-4.  **Hardware Back Button** -> Should close these libraries one by one without exiting the app.
+1.  **Music Library:** Open the library, click a song.
+    - The waveform should appear immediately and start moving.
+    - Audio should play through the speakers.
+2.  **Performance:** Verify the build process feels snappier.

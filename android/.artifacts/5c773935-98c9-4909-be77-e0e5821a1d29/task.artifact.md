@@ -1,6 +1,5 @@
-- [ ] Connect `MusicPanel.tsx` to the custom `MusicLibrary`
-- [ ] Implement file loading logic in `MusicLibrary` for the editor
-- [ ] Ensure `MediaPicker` correctly triggers the native `CustomGallery`
-- [ ] Add loading suspension for smoother library transitions
-- [ ] Final verification of editor integrity
-- [ ] Commit and push changes
+- [ ] Fix audio playback and waveforms in `MusicLibrary.tsx`
+- [ ] Clean up deprecated settings in `gradle.properties`
+- [ ] Enable dependency resolution performance flags
+- [ ] Verify `flatDir` is absent in all build files
+- [ ] Build and verify results
