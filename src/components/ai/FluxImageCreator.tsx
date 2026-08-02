@@ -151,17 +151,17 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
           const res = response.data;
           results.push(res);
 
-          // Save into AIHistoryManager
-          aiRuntime.historyManager.addHistoryItem({
-            id: `hist_flux_${Date.now()}_${i}`,
-            taskType: "image-generation",
-            providerUsed: response.providerUsed || "flux",
-            inputSummary: finalPrompt.slice(0, 80),
-            resultSummary: `FLUX.1 Image ${res.width || 1024}x${res.height || 1024}`,
-            outputMediaUrl: res.outputImageBase64OrUrl,
-            timestamp: Date.now(),
-            executionTimeMs: res.executionTimeMs || 2500,
-          });
+          // Save into AIHistoryManager using recordJob
+          aiRuntime.historyManager.recordJob(
+            "image-generation",
+            response.providerUsed || "flux",
+            res.executionTimeMs || 2500,
+            `hash_flux_${Date.now()}_${i}`,
+            true,
+            finalPrompt.slice(0, 80),
+            `FLUX.1 Image ${res.width || 1024}x${res.height || 1024}`,
+            res
+          );
         } else {
           throw new Error(response.error?.message || (en ? "FLUX.1 Generation Failed" : "فشل توليد الصورة"));
         }

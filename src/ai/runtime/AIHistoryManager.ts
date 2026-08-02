@@ -69,6 +69,44 @@ export class AIHistoryManager {
   }
 
   /**
+   * Compatibility wrapper for legacy addHistoryItem calls
+   */
+  public addHistoryItem(item: {
+    id?: string;
+    taskType: AITaskType;
+    providerUsed?: string;
+    durationMs?: number;
+    executionTimeMs?: number;
+    inputHash?: string;
+    inputSummary?: string;
+    payloadSummary?: string;
+    resultSummary?: string;
+    resultData?: any;
+    outputMediaUrl?: string;
+    success?: boolean;
+  }): AIHistoryRecord {
+    const taskType = item.taskType;
+    const providerUsed = item.providerUsed || "flux";
+    const durationMs = item.durationMs ?? item.executionTimeMs ?? 0;
+    const inputHash = item.inputHash || item.inputSummary || `hash_${Date.now()}`;
+    const success = item.success !== undefined ? item.success : true;
+    const payloadSummary = item.payloadSummary || item.inputSummary;
+    const resultSummary = item.resultSummary;
+    const resultData = item.resultData || (item.outputMediaUrl ? { outputImageBase64OrUrl: item.outputMediaUrl } : undefined);
+
+    return this.recordJob(
+      taskType,
+      providerUsed,
+      durationMs,
+      inputHash,
+      success,
+      payloadSummary,
+      resultSummary,
+      resultData
+    );
+  }
+
+  /**
    * Look up previously executed result for matching task and inputHash
    */
   public findMatch(taskType: AITaskType, inputHash: string): AIHistoryRecord | undefined {
