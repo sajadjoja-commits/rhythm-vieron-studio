@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
-import { Media, PhotoResponse } from "@capacitor-community/media";
-import { X, Check, Image as ImageIcon, Video as VideoIcon, Loader2, Search, RefreshCw } from "lucide-react";
-import { Capacitor } from "@capacitor/core";
+import { X, Check, Image as ImageIcon, Video as VideoIcon, Loader2, RefreshCw, Layers } from "lucide-react";
+import { Capacitor, registerPlugin } from "@capacitor/core";
 import { Filesystem } from "@capacitor/filesystem";
 import { t, isRTL } from "@/lib/i18n";
 import { useMedia } from "@/context/MediaContext";
+
+const VireonMedia = registerPlugin<any>("VireonMedia");
 
 interface CustomGalleryProps {
   onClose: () => void;
@@ -25,65 +26,21 @@ const CustomGallery = ({ onClose, onSelect, type = "both" }: CustomGalleryProps)
   const loadAssets = async () => {
     if (!Capacitor.isNativePlatform()) {
       setLoading(false);
+      setAssets([
+        { identifier: 'd1', name: 'Demo 1', path: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe', mimeType: 'image/jpeg' },
+        { identifier: 'd2', name: 'Demo 2', path: 'https://images.unsplash.com/photo-1611162617474-5b21e879e113', mimeType: 'image/jpeg' },
+      ]);
       return;
     }
 
     try {
       setLoading(true);
-      console.log("[Vieron Gallery] Requesting permissions...");
+      console.log("[Vieron Native] Fetching gallery assets...");
 
-      const perm = await Media.requestPermissions();
-      const isGranted = perm.photos === 'granted' || perm.photos === 'limited';
-
-      if (!isGranted) {
-        console.error("[Vieron Gallery] Permission denied:", perm.photos);
-        setLoading(false);
-        return;
-      }
-
-      console.log("[Vieron Gallery] Fetching media...");
-
-      // Strategy 1: Fetch from all media store
-      let response = await Media.getMedias({
-        quantity: 1000,
-        types: type === "both" ? ["photos", "videos"] : type === "image" ? ["photos"] : ["videos"],
-      });
-
-      let allMedias = response.medias || [];
-      console.log(`[Vieron Gallery] Found ${allMedias.length} items in global query`);
-
-      // Strategy 2: If empty, iterate through albums (Fallback for some devices)
-      if (allMedias.length === 0) {
-        console.log("[Vieron Gallery] Global query empty, trying album-by-album...");
-        const albumsResponse = await Media.getAlbums();
-        console.log(`[Vieron Gallery] Found ${albumsResponse.albums?.length || 0} albums`);
-
-        for (const album of albumsResponse.albums) {
-          try {
-            const albumMedias = await Media.getMedias({
-              albumIdentifier: album.identifier,
-              quantity: 100,
-              types: type === "both" ? ["photos", "videos"] : type === "image" ? ["photos"] : ["videos"],
-            });
-            if (albumMedias.medias?.length > 0) {
-              allMedias = [...allMedias, ...albumMedias.medias];
-            }
-          } catch (e) {
-            console.warn(`[Vieron Gallery] Failed to fetch from album ${album.name}`);
-          }
-        }
-      }
-
-      // De-duplicate and filter
-      const uniqueMedias = Array.from(new Map(allMedias.map(m => [m.identifier, m])).values());
-      const validMedias = uniqueMedias
-        .filter(m => m.path || m.identifier)
-        .sort((a: any, b: any) => (b.creationDate || 0) - (a.creationDate || 0));
-
-      console.log(`[Vieron Gallery] Final count: ${validMedias.length}`);
-      setAssets(validMedias);
+      const response = await VireonMedia.getGalleryAssets({ type });
+      setAssets(response.assets || []);
     } catch (err) {
-      console.error("[Vieron Gallery] Error loading gallery:", err);
+      console.error("[Vieron Native] Gallery Error:", err);
     } finally {
       setLoading(false);
     }
@@ -104,18 +61,21 @@ const CustomGallery = ({ onClose, onSelect, type = "both" }: CustomGalleryProps)
       const files: File[] = [];
 
       for (const asset of selectedAssets) {
-        // Read file as base64 and convert to blob
-        const fileData = await Filesystem.readFile({
-          path: asset.path,
-        });
+        try {
+          const fileData = await Filesystem.readFile({
+            path: asset.path,
+          });
 
-        const response = await fetch(`data:${asset.mimeType};base64,${fileData.data}`);
-        const blob = await response.blob();
-        const file = new File([blob], asset.name || `media_${Date.now()}`, { type: asset.mimeType });
-        files.push(file);
+          const response = await fetch(`data:${asset.mimeType};base64,${fileData.data}`);
+          const blob = await response.blob();
+          const file = new File([blob], asset.name || `vieron_${Date.now()}`, { type: asset.mimeType });
+          files.push(file);
+        } catch (e) {
+          console.error(`Failed to read file: ${asset.path}`, e);
+        }
       }
 
-      onSelect(files);
+      if (files.length > 0) onSelect(files);
     } catch (err) {
       console.error("Error processing selection:", err);
     } finally {
@@ -125,74 +85,65 @@ const CustomGallery = ({ onClose, onSelect, type = "both" }: CustomGalleryProps)
   };
 
   return (
-    <div className="fixed inset-0 z-[100] bg-background flex flex-col animate-in fade-in slide-in-from-bottom duration-300">
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-border/50 glass sticky top-0 z-10">
-        <div className="flex items-center gap-2">
-          <button onClick={onClose} className="p-2 rounded-xl hover:bg-secondary/80 transition-colors">
-            <X className="w-6 h-6 text-foreground" />
+    <div className="fixed inset-0 z-[100] bg-zinc-950 flex flex-col animate-in fade-in slide-in-from-bottom duration-500">
+      {/* Glossy Header */}
+      <div className="flex items-center justify-between p-4 border-b border-white/5 bg-zinc-900/40 backdrop-blur-2xl sticky top-0 z-20">
+        <div className="flex items-center gap-3">
+          <button onClick={onClose} className="p-2.5 rounded-2xl bg-white/5 hover:bg-white/10 transition-all">
+            <X className="w-6 h-6 text-white" />
           </button>
-          <button onClick={loadAssets} className="p-2 rounded-xl hover:bg-secondary/80 transition-colors">
-            <RefreshCw className={`w-5 h-5 text-foreground ${loading ? 'animate-spin' : ''}`} />
+          <div>
+            <h2 className="text-base font-heading font-extrabold text-white uppercase tracking-tight">
+              {type === "image" ? t("gallery.photos") : type === "video" ? t("gallery.videos") : t("gallery.title")}
+            </h2>
+            <p className="text-[10px] text-primary font-bold">{assets.length} FILES FOUND</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button onClick={loadAssets} className="p-2.5 rounded-2xl bg-white/5 hover:bg-white/10 transition-all">
+            <RefreshCw className={`w-5 h-5 text-white/70 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+          <button
+            onClick={handleDone}
+            disabled={selectedIds.length === 0 || loading}
+            className="px-6 py-2.5 rounded-2xl gradient-primary text-white font-black text-sm disabled:opacity-30 transition-all active:scale-95"
+          >
+            {t("common.done").toUpperCase()}
           </button>
         </div>
-        <h2 className="text-lg font-heading font-bold text-foreground">
-          {type === "image" ? t("gallery.photos") : type === "video" ? t("gallery.videos") : t("gallery.title")}
-        </h2>
-        <button
-          onClick={handleDone}
-          disabled={selectedIds.length === 0}
-          className="px-5 py-2 rounded-xl gradient-primary text-primary-foreground font-bold disabled:opacity-50 disabled:grayscale transition-all active:scale-95 shadow-lg shadow-primary/20"
-        >
-          {t("common.done")} ({selectedIds.length})
-        </button>
       </div>
 
       {/* Grid */}
-      <div className="flex-1 overflow-y-auto p-1 bg-zinc-950/50">
-        {loading ? (
-          <div className="h-full w-full flex items-center justify-center">
-            <Loader2 className="w-8 h-8 text-primary animate-spin" />
+      <div className="flex-1 overflow-y-auto p-1 bg-zinc-950">
+        {loading && assets.length === 0 ? (
+          <div className="h-full w-full flex flex-col items-center justify-center gap-4">
+            <Loader2 className="w-10 h-10 text-primary animate-spin" />
+            <p className="text-xs font-bold text-white/40 tracking-widest animate-pulse">ACCESSING DEVICE STORAGE...</p>
           </div>
         ) : assets.length > 0 ? (
           <div className="grid grid-cols-3 gap-1">
             {assets.map((asset) => (
               <div
                 key={asset.identifier}
-                className="relative aspect-square group cursor-pointer overflow-hidden bg-secondary/20"
+                className="relative aspect-square group cursor-pointer overflow-hidden bg-zinc-900"
                 onClick={() => toggleSelection(asset)}
               >
                 <img
-                  src={Capacitor.convertFileSrc(asset.path || asset.identifier)}
-                  alt={asset.name}
-                  className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 ${selectedIds.includes(asset.identifier) ? 'opacity-60 scale-95' : 'opacity-100'}`}
+                  src={Capacitor.convertFileSrc(asset.path)}
+                  alt=""
+                  className={`w-full h-full object-cover transition-all duration-500 ${selectedIds.includes(asset.identifier) ? 'opacity-40 scale-90 saturate-0' : 'opacity-100 group-hover:scale-110'}`}
                   loading="lazy"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    target.style.display = 'none';
-                    // Show icon placeholder on error
-                    const parent = target.parentElement;
-                    if (parent) {
-                       parent.classList.add('flex', 'items-center', 'justify-center');
-                    }
-                  }}
                 />
 
-                {/* Fallback Text if Image fails */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
-                   <span className="text-[8px] text-white bg-black/40 px-1 rounded truncate max-w-[80%]">{asset.name}</span>
+                <div className={`absolute top-2 right-2 w-7 h-7 rounded-xl border-2 flex items-center justify-center transition-all ${selectedIds.includes(asset.identifier) ? 'bg-primary border-primary scale-100 shadow-lg shadow-primary/40' : 'bg-black/40 border-white/20 scale-75 opacity-0 group-hover:opacity-100'}`}>
+                  {selectedIds.includes(asset.identifier) && <Check className="w-4 h-4 text-white stroke-[3px]" />}
                 </div>
 
-                {/* Selection Overlay */}
-                <div className={`absolute top-2 right-2 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${selectedIds.includes(asset.identifier) ? 'bg-primary border-primary scale-110' : 'bg-black/20 border-white/50'}`}>
-                  {selectedIds.includes(asset.identifier) && <Check className="w-4 h-4 text-white" />}
-                </div>
-
-                {/* Video Indicator */}
                 {asset.duration > 0 && (
-                  <div className="absolute bottom-2 left-2 flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/60 backdrop-blur-md">
+                  <div className="absolute bottom-2 left-2 flex items-center gap-1 px-2 py-0.5 rounded-lg bg-black/60 backdrop-blur-md border border-white/10">
                     <VideoIcon className="w-3 h-3 text-white" />
-                    <span className="text-[10px] font-bold text-white">
+                    <span className="text-[10px] font-black text-white">
                       {Math.floor(asset.duration / 60)}:{(asset.duration % 60).toString().padStart(2, '0')}
                     </span>
                   </div>
@@ -202,17 +153,14 @@ const CustomGallery = ({ onClose, onSelect, type = "both" }: CustomGalleryProps)
           </div>
         ) : (
           <div className="h-full w-full flex flex-col items-center justify-center text-muted-foreground p-10 text-center">
-            <ImageIcon className="w-12 h-12 mb-4 opacity-20" />
-            <p className="text-sm font-medium mb-4">{t("gallery.empty")}</p>
+            <ImageIcon className="w-16 h-16 mb-4 opacity-10" />
+            <h3 className="text-white font-bold mb-2 uppercase">{t("gallery.empty")}</h3>
             <button
               onClick={loadAssets}
-              className="px-6 py-2.5 rounded-xl bg-secondary text-foreground text-sm font-semibold hover:bg-secondary/70 transition-all active:scale-95"
+              className="mt-4 px-8 py-3 rounded-2xl bg-white text-black text-xs font-black uppercase tracking-widest active:scale-95 transition-all"
             >
               {t("gallery.retry")}
             </button>
-            {!Capacitor.isNativePlatform() && (
-              <p className="text-xs mt-4 opacity-60">Gallery view is optimized for Android devices</p>
-            )}
           </div>
         )}
       </div>
