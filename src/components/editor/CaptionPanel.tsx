@@ -640,8 +640,8 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
     // Check internet connection
     if (typeof navigator !== "undefined" && !navigator.onLine) {
       const offlineMsg = en
-        ? "Internet connection required for speech recognition via Groq AI."
-        : "تنبيه: يلزم وجود اتصال بالإنترنت لاستخراج الكلام عبر Groq AI.";
+        ? "Internet connection required for speech recognition."
+        : "تنبيه: يلزم وجود اتصال بالإنترنت لاستخراج الكلام.";
       setExtractError(offlineMsg);
       toast.error(offlineMsg);
       return;
@@ -658,7 +658,7 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
     setExtractError(null);
     setExtracting(true);
     setExtractProgress(0);
-    const cleanMsg = en ? "Transcribing speech via Groq AI (whisper-large-v3)..." : "جاري استخراج الكلام عبر Groq AI (whisper-large-v3)...";
+    const cleanMsg = en ? "Extracting speech..." : "جاري استخراج الكلام...";
     setExtractMsg(cleanMsg);
 
     let progressVal = 0;
@@ -762,7 +762,7 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
     }
 
     setRegeneratingId(capId);
-    toast.info(en ? "Re-transcribing segment via Groq AI..." : "جارٍ إعادة استخراج المقطع المحدّد عبر Groq AI...");
+    toast.info(en ? "Re-transcribing segment..." : "جارٍ إعادة استخراج المقطع المحدّد...");
 
     try {
       const { base64 } = await extractAudioBase64(videoItem.file, start, end);
@@ -969,7 +969,7 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
                 <span>{Math.round(extractProgress)}%</span>
               </div>
               <span className="text-[11px] font-bold text-white/95 font-sans mt-0.5 truncate max-w-full text-center">
-                {extractMsg || (en ? "Transcribing speech via Groq AI (whisper-large-v3)..." : "جاري استخراج الكلام عبر Groq AI (whisper-large-v3)...")}
+                {extractMsg || (en ? "Extracting speech..." : "جاري استخراج الكلام...")}
               </span>
             </div>
           </div>
@@ -996,7 +996,7 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
           >
             <Sparkles className="w-4 h-4 text-white animate-pulse" />
             <span className="tracking-wide">
-              {en ? "Auto-Extract Speech (Groq AI)" : "استخراج تلقائي للكلام (Groq AI)"}
+              {en ? "Auto-Extract Speech" : "استخراج تلقائي للكلام"}
             </span>
           </button>
         )}
