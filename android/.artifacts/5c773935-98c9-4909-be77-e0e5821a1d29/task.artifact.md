@@ -1,6 +1,6 @@
-- [ ] Implement runtime permission requests in `CustomGallery.tsx`
-- [ ] Connect `CustomGallery.tsx` to real device media using `@capacitor-community/media`
-- [ ] Implement recursive folder scanning in `MusicLibrary.tsx` using `@capacitor/filesystem`
-- [ ] Add `requestLegacyExternalStorage` to `AndroidManifest.xml` for maximum compatibility
-- [ ] Perform full build and sync
-- [ ] Git commit and push updates
+- [ ] Implement `getGalleryAssets` in `VireonMediaPlugin.java` (Direct MediaStore query)
+- [ ] Implement `getAudioAssets` in `VireonMediaPlugin.java` (Full device audio search)
+- [ ] Enhance `CustomGallery.tsx` UI with glassmorphism and smooth animations
+- [ ] Connect `CustomGallery.tsx` to the new Native Java Bridge
+- [ ] Enhance `MusicLibrary.tsx` UI and connect to Native Java Bridge
+- [ ] Verify full file visibility and build stability
