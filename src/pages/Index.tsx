@@ -16,6 +16,7 @@ const PhotoEditorScreen = lazy(() => import("@/components/PhotoEditorScreen"));
 const ProjectsScreen = lazy(() => import("@/components/ProjectsScreen"));
 const SettingsScreen = lazy(() => import("@/components/SettingsScreen"));
 const AIStudioScreen = lazy(() => import("@/components/AIStudioScreen"));
+const AIImageStudio = lazy(() => import("@/components/AIImageStudio"));
 const EditorScreen = lazy(() => import("@/components/EditorScreen"));
 const TemplateUseScreen = lazy(() => import("@/components/TemplateUseScreen"));
 const SmartTemplateQuickEditor = lazy(() => import("@/components/SmartTemplateQuickEditor"));
@@ -31,6 +32,7 @@ const ScreenLoader = () => (
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState("home");
+  const [showAIImageStudio, setShowAIImageStudio] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
   const [showPlusMenu, setShowPlusMenu] = useState(false);
   const [showPhotoEditor, setShowPhotoEditor] = useState(false);
@@ -73,6 +75,11 @@ const Index = () => {
         return;
       }
 
+      if (showAIImageStudio) {
+        setShowAIImageStudio(false);
+        return;
+      }
+
       if (activeTab !== "home") {
         setActiveTab("home");
         window.history.pushState({ isHome: true }, "");
@@ -96,7 +103,7 @@ const Index = () => {
 
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [showEditor, showPhotoEditor, showPlusMenu, activeTab, lastBackClick]);
+  }, [showEditor, showPhotoEditor, showPlusMenu, showAIImageStudio, activeTab, lastBackClick]);
 
   useEffect(() => {
     const saved = (safeStorage.getItem("vireon:theme") as "dark" | "light" | "auto") || "dark";
@@ -110,6 +117,7 @@ const Index = () => {
       import("@/components/SettingsScreen");
       import("@/components/EditorScreen");
       import("@/components/PhotoEditorScreen");
+      import("@/components/AIImageStudio");
     };
 
     if ("requestIdleCallback" in window) window.requestIdleCallback(prefetchScreens);
@@ -354,6 +362,16 @@ const Index = () => {
     );
   }
 
+  if (showAIImageStudio) {
+    return (
+      <div className="dark">
+        <Suspense fallback={<ScreenLoader />}>
+          <AIImageStudio onClose={() => setShowAIImageStudio(false)} />
+        </Suspense>
+      </div>
+    );
+  }
+
   if (showPhotoEditor) {
     return (
       <Suspense fallback={<ScreenLoader />}>
@@ -374,7 +392,7 @@ const Index = () => {
     <div className="min-h-screen bg-background select-none" dir={isRTL() ? "rtl" : "ltr"}>
       <Suspense fallback={<ScreenLoader />}>
         {activeTab === "home" && (
-          <HomeScreen onNavigate={setActiveTab} onStartEditor={handleOpenEditor} session={session} newProject={newProject} />
+          <HomeScreen onNavigate={setActiveTab} onStartEditor={handleOpenEditor} session={session} newProject={newProject} onOpenAIImageStudio={() => setShowAIImageStudio(true)} />
         )}
         {activeTab === "aistudio" && (
           <AIStudioScreen
