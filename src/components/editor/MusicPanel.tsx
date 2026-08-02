@@ -8,6 +8,7 @@ import { BUILTIN_SFX, buildBuiltinSfx, BuiltinSfxName } from "@/lib/audioFx";
 import { BUILTIN_TRACKS, BuiltinTrack } from "@/lib/builtinMusic";
 import { getLang } from "@/lib/i18n";
 import { playSfx } from "@/lib/soundFx";
+import { AIToolsPanel } from "@/components/editor/AIToolsPanel";
 
 interface Props {
   open: boolean;
@@ -33,7 +34,7 @@ const ALL_FX_OPTIONS: { id: AudioFxType; label: string; labelEn: string; icon: s
 
 const MusicPanel = ({ open, onClose, currentTime }: Props) => {
   const { media, audioTracks, addAudioTrack, updateAudioTrack, splitClipsAtBeats, audioBeats, setAudioBeats, videoMuted, setVideoMuted, videoVolume, setVideoVolume, videoAudioFx, setVideoAudioFx, totalDuration } = useMedia();
-  const [tab, setTab] = useState<"music" | "sfx" | "fx" | "beat">("music");
+  const [tab, setTab] = useState<"music" | "sfx" | "fx" | "beat" | "ai">("music");
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [beatProgress, setBeatProgress] = useState(0);
@@ -296,6 +297,7 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
       {/* tabs */}
       <div className="flex gap-1 p-2 border-b border-border overflow-x-auto no-scrollbar">
         {[
+          { id: "ai", label: en ? "AI Audio" : "أدوات AI", Icon: Sparkles },
           { id: "music", label: en ? "Music" : "موسيقى", Icon: Music2 },
           { id: "sfx", label: en ? "SFX" : "مؤثرات", Icon: Sparkles },
           { id: "fx", label: en ? "Voice Changer" : "تغيير الصوت", Icon: Wand2 },
@@ -315,6 +317,32 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
       </div>
 
       <div className="p-3 max-h-[40vh] overflow-y-auto">
+        {tab === "ai" && (
+          <AIToolsPanel
+            open={tab === "ai"}
+            onClose={() => setTab("music")}
+            mediaType="audio"
+            currentMediaUrlOrBase64={audioTracks[0]?.url || undefined}
+            onApplyResult={(resData) => {
+              if (resData?.outputAudioBase64OrUrl) {
+                addAudioTrack({
+                  name: en ? "AI Processed Audio" : "صوت معالج بالذكاء الاصطناعي",
+                  url: resData.outputAudioBase64OrUrl,
+                  start: currentTime,
+                  offset: 0,
+                  duration: totalDuration || 10,
+                  sourceDuration: totalDuration || 10,
+                  volume: 1.0,
+                  muted: false,
+                  fx: "none",
+                  color: "#8b5cf6",
+                  kind: "music",
+                });
+                toast.success(en ? "Added AI Audio Track!" : "تمت إضافة مسار الصوت المعالج بالذكاء الاصطناعي!");
+              }
+            }}
+          />
+        )}
         {tab === "music" && (
           <div className="space-y-2">
             {audioTracks.length > 0 && (

@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { t, getLang } from "@/lib/i18n";
+import { AIToolsPanel } from "@/components/editor/AIToolsPanel";
 
 interface PhotoEditorScreenProps {
   onClose: () => void;
@@ -123,7 +124,7 @@ const PhotoEditorScreen = ({ onClose }: PhotoEditorScreenProps) => {
   const [blurVal, setBlurVal] = useState(0);
   const [hueVal, setHueVal] = useState(0);
 
-  const [tab, setTab] = useState<"crop" | "filters" | "adjust" | "vfx" | "text" | "stickers" | "layers">("crop");
+  const [tab, setTab] = useState<"crop" | "filters" | "adjust" | "vfx" | "text" | "stickers" | "layers" | "ai">("crop");
   const [exporting, setExporting] = useState(false);
 
   // Crop & Scale states
@@ -990,6 +991,7 @@ const PhotoEditorScreen = ({ onClose }: PhotoEditorScreenProps) => {
           {/* Main Controls Tabs Bar */}
           <div className="flex items-center justify-around py-2 border-b border-white/5 overflow-x-auto no-scrollbar scroll-smooth px-3 bg-[#0d121c]">
             {[
+              { id: "ai", icon: Sparkles, label: en ? "AI Tools" : "أدوات AI" },
               { id: "crop", icon: Crop, label: en ? "Size & Crop" : "القص والأبعاد" },
               { id: "filters", icon: Sliders, label: en ? "Filters" : "الفلاتر السينمائية" },
               { id: "adjust", icon: Sliders, label: en ? "Tune Color" : "الضبط والحرارة" },
@@ -1629,6 +1631,22 @@ const PhotoEditorScreen = ({ onClose }: PhotoEditorScreenProps) => {
                   </div>
                 )}
               </div>
+            )}
+            {/* AI TOOLS PANEL */}
+            {tab === "ai" && (
+              <AIToolsPanel
+                open={tab === "ai"}
+                onClose={() => setTab("crop")}
+                mediaType="image"
+                currentMediaUrlOrBase64={imgUrl || undefined}
+                onApplyResult={(resData) => {
+                  if (resData?.outputImageBase64OrUrl) {
+                    setImgUrl(resData.outputImageBase64OrUrl);
+                  } else if (typeof resData === "string") {
+                    setImgUrl(resData);
+                  }
+                }}
+              />
             )}
           </div>
         </div>

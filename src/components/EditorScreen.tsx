@@ -29,6 +29,7 @@ import ExportDialog from "@/components/editor/ExportDialog";
 import PublishTemplateDialog from "@/components/editor/PublishTemplateDialog";
 import RatioPanel from "@/components/editor/RatioPanel";
 import CropOverlay from "@/components/editor/CropOverlay";
+import { AIToolsPanel } from "@/components/editor/AIToolsPanel";
 import { toast } from "sonner";
 import { attachFxChain } from "@/lib/audioFx";
 import { analyzeBeats, getAudioContext } from "@/lib/audioAnalysis";
@@ -54,7 +55,7 @@ const aspectRatios = [
   { label: "5:4", w: 5, h: 4 },
 ];
 
-type Tool = "transition" | "caption" | "music" | "filter" | "vfx" | "ratio" | "overlay" | "speed" | "cover" | null;
+type Tool = "transition" | "caption" | "music" | "filter" | "vfx" | "ratio" | "overlay" | "speed" | "cover" | "ai" | null;
 
 // Which timeline track is focused — determines which handles are visible
 type FocusedTrack = "video" | "caption" | "audio" | "filter" | "vfx" | "overlay" | null;
@@ -1067,6 +1068,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
   };
 
   const tools = [
+    { id: "ai", icon: Sparkles, label: getLang() === "ar" ? "أدوات AI" : "AI Tools" },
     { id: "cut", icon: Scissors, label: t("tool.cut") },
     { id: "smart-cut", icon: Zap, label: t("tool.smartCut") },
     { id: "delete", icon: Trash2, label: getLang() === "ar" ? "حذف سريع" : "Quick Delete" },
@@ -1090,6 +1092,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     if (id === "cut") { handleManualCut(); }
     else if (id === "smart-cut") { setFocusedTrack("video"); setShowSmartCut(true); }
     else if (id === "delete") { handleDeleteItem(); }
+    else if (id === "ai") { setTool(tool === "ai" ? null : "ai"); setFocusedTrack("video"); }
     else if (id === "keyframe") { setTool(tool === "keyframe" ? null : "keyframe"); setFocusedTrack("video"); }
     else if (id === "speed") { setTool(tool === "speed" ? null : "speed"); setFocusedTrack("video"); }
     else if (id === "cover") { setTool(tool === "cover" ? null : "cover"); }
@@ -1514,6 +1517,20 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
         </div>
 
         {/* Panels — pop from bottom */}
+        {tool === "ai" && (
+          <AIToolsPanel
+            open={tool === "ai"}
+            onClose={() => setTool(null)}
+            mediaType="video"
+            currentMediaUrlOrBase64={resolved?.clip?.url || undefined}
+            onApplyResult={(resData) => {
+              if (resData?.outputVideoBase64OrUrl && resolved?.clip) {
+                // updateClip if available or toast completion
+                toast.success(getLang() === "ar" ? "تم تحديث فيديو المقطع بالنتيجة الذكية!" : "Updated video clip with AI result!");
+              }
+            }}
+          />
+        )}
         {tool === "speed" && <SpeedPanel open={tool === "speed"} onClose={() => setTool(null)} currentTime={currentTime} />}
         {tool === "cover" && <CoverPicker open={tool === "cover"} onClose={() => setTool(null)} videoRef={videoRef as React.RefObject<HTMLVideoElement>} />}
         {tool === "transition" && <TransitionPanel open={tool === "transition"} clipId={transitionClipId} onClose={() => setTool(null)} />}
