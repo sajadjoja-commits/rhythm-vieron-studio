@@ -14,7 +14,84 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          display_name: string | null
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          id: string
+          updated_at?: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      projects: {
+        Row: {
+          audio_tracks_json: Json | null
+          caption_style_json: Json | null
+          captions_json: Json | null
+          clips_json: Json | null
+          cover_image: string | null
+          created_at: string
+          duration: number
+          export_preset: string | null
+          filters_json: Json | null
+          id: string
+          name: string
+          project_data: Json | null
+          updated_at: string
+          user_id: string
+          vfx_json: Json | null
+        }
+        Insert: {
+          audio_tracks_json?: Json | null
+          caption_style_json?: Json | null
+          captions_json?: Json | null
+          clips_json?: Json | null
+          cover_image?: string | null
+          created_at?: string
+          duration?: number
+          export_preset?: string | null
+          filters_json?: Json | null
+          id?: string
+          name: string
+          project_data?: Json | null
+          updated_at?: string
+          user_id?: string
+          vfx_json?: Json | null
+        }
+        Update: {
+          audio_tracks_json?: Json | null
+          caption_style_json?: Json | null
+          captions_json?: Json | null
+          clips_json?: Json | null
+          cover_image?: string | null
+          created_at?: string
+          duration?: number
+          export_preset?: string | null
+          filters_json?: Json | null
+          id?: string
+          name?: string
+          project_data?: Json | null
+          updated_at?: string
+          user_id?: string
+          vfx_json?: Json | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
