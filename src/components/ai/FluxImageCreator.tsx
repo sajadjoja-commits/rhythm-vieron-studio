@@ -595,7 +595,7 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
           {/* Generate Button */}
           <button
             type="button"
-            onClick={handleGenerate}
+            onClick={() => handleGenerate()}
             disabled={isGenerating || !prompt.trim()}
             className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-purple-600 via-pink-600 to-amber-500 text-white font-extrabold text-xs shadow-xl shadow-purple-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 active:scale-98 transition-all"
           >
@@ -613,17 +613,17 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
           </button>
         </div>
 
-        {/* Right Column: Output Preview & Actions */}
-        <div className="lg:col-span-5 flex flex-col justify-between">
+        {/* Left/Main Column: Large Output Preview & Actions */}
+        <div className="lg:col-span-7 flex flex-col lg:order-1">
           <div className="flex flex-col h-full">
             <h3 className="text-xs font-bold text-foreground mb-2 flex items-center gap-1.5">
               <ImageIcon className="w-3.5 h-3.5 text-purple-400" />
-              <span>{en ? "Generated Output & Canvas" : "نتيجة التوليد والأنشطة"}</span>
+              <span>{en ? "Preview Canvas" : "مساحة المعاينة"}</span>
             </h3>
 
             {/* Progress Display */}
             {isGenerating && (
-              <div className="flex-1 min-h-[260px] rounded-2xl bg-secondary/40 border border-border p-6 flex flex-col items-center justify-center text-center animate-pulse">
+              <div className="min-h-[380px] lg:min-h-[520px] rounded-3xl bg-secondary/40 border border-border p-6 flex flex-col items-center justify-center text-center">
                 <div className="w-16 h-16 rounded-full bg-purple-500/10 border border-purple-500/30 flex items-center justify-center mb-4">
                   <RefreshCw className="w-8 h-8 text-purple-400 animate-spin" />
                 </div>
@@ -633,40 +633,55 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
                 <p className="text-[11px] text-muted-foreground mb-4">
                   {en ? "Black Forest Labs FLUX.1 Neural Engine" : "معالجة عصبونية فائقة الجودة من Black Forest Labs"}
                 </p>
-
-                {/* Progress Bar */}
-                <div className="w-full max-w-xs h-2 rounded-full bg-background overflow-hidden border border-border">
+                <div className="w-full max-w-sm h-2.5 rounded-full bg-background overflow-hidden border border-border">
                   <div
                     className="h-full bg-gradient-to-r from-purple-500 to-amber-400 transition-all duration-300"
                     style={{ width: `${progressPercent}%` }}
                   />
                 </div>
-                <span className="text-[10px] font-mono font-bold text-purple-400 mt-2">{progressPercent}%</span>
+                <span className="text-[11px] font-mono font-bold text-purple-400 mt-2">{progressPercent}%</span>
               </div>
             )}
 
             {/* Result Image View */}
             {!isGenerating && activeResult && (
-              <div className="flex-1 flex flex-col justify-between space-y-3">
-                <div className="relative rounded-2xl overflow-hidden border border-border bg-black/60 min-h-[260px] max-h-[380px] flex items-center justify-center group shadow-inner">
+              <div className="flex flex-col space-y-3">
+                <div className="relative rounded-3xl overflow-hidden border border-border bg-black/70 min-h-[380px] lg:min-h-[520px] flex items-center justify-center shadow-inner">
                   <img
                     src={activeResult.outputImageBase64OrUrl}
-                    alt="FLUX Generated"
-                    className="max-h-[380px] w-full object-contain"
+                    alt={en ? "FLUX generated image" : "صورة مولدة بواسطة FLUX"}
+                    className="max-h-[520px] w-full object-contain"
                   />
-                  <div className="absolute top-3 right-3 px-2 py-1 rounded-lg bg-black/60 backdrop-blur-md text-[10px] font-mono text-white border border-white/20">
+                  <div className="absolute top-3 left-3 px-2 py-1 rounded-lg bg-black/60 backdrop-blur-md text-[10px] font-mono text-white border border-white/20">
                     {activeResult.width}x{activeResult.height} • {activeResult.executionTimeMs}ms
                   </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      toggleFavorite({
+                        url: activeResult.outputImageBase64OrUrl,
+                        prompt: prompt.trim(),
+                        width: activeResult.width,
+                        height: activeResult.height,
+                        createdAt: Date.now(),
+                      })
+                    }
+                    className="absolute top-3 right-3 p-2 rounded-xl bg-black/60 backdrop-blur-md border border-white/20 text-white hover:bg-black/80 transition-colors"
+                  >
+                    <Star
+                      className={`w-4 h-4 ${isFavorite(activeResult.outputImageBase64OrUrl) ? "fill-amber-400 text-amber-400" : ""}`}
+                    />
+                  </button>
                 </div>
 
-                {/* Multiple Results Thumbnail Picker */}
+                {/* Current batch thumbnails */}
                 {generatedResults.length > 1 && (
-                  <div className="flex gap-2 justify-center">
+                  <div className="flex gap-2 justify-center flex-wrap">
                     {generatedResults.map((res, idx) => (
                       <button
                         key={idx}
                         onClick={() => setActiveResultIndex(idx)}
-                        className={`w-12 h-12 rounded-xl overflow-hidden border-2 transition-all ${
+                        className={`w-14 h-14 rounded-xl overflow-hidden border-2 transition-all ${
                           activeResultIndex === idx ? "border-purple-500 scale-105" : "border-transparent opacity-60"
                         }`}
                       >
@@ -677,7 +692,7 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
                 )}
 
                 {/* Action Buttons Panel */}
-                <div className="space-y-2 pt-2">
+                <div className="space-y-2 pt-1">
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
@@ -685,7 +700,7 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
                       className="py-2.5 px-3 rounded-xl bg-blue-600/20 border border-blue-500/40 hover:bg-blue-600/30 text-blue-300 font-bold text-[11px] flex items-center justify-center gap-1.5 transition-colors"
                     >
                       <Scissors className="w-3.5 h-3.5" />
-                      <span>{en ? "Use in Photo Editor" : "محرر الصور"}</span>
+                      <span>{en ? "Use in Photo Editor" : "استخدام في محرر الصور"}</span>
                     </button>
 
                     <button
@@ -694,11 +709,31 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
                       className="py-2.5 px-3 rounded-xl bg-purple-600/20 border border-purple-500/40 hover:bg-purple-600/30 text-purple-300 font-bold text-[11px] flex items-center justify-center gap-1.5 transition-colors"
                     >
                       <Video className="w-3.5 h-3.5" />
-                      <span>{en ? "Use in Video Editor" : "محرر الفيديو"}</span>
+                      <span>{en ? "Use in Video Editor" : "استخدام في محرر الفيديو"}</span>
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleGenerate({ count: 1 })}
+                      className="py-2.5 px-2.5 rounded-xl bg-purple-500/10 border border-purple-500/30 hover:bg-purple-500/20 text-purple-300 font-bold text-[11px] flex items-center justify-center gap-1.5 transition-colors"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>{en ? "Regenerate" : "إعادة التوليد"}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleGenerate({ count: Math.max(2, batchCount), forceRandomSeed: true })}
+                      className="py-2.5 px-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-amber-300 font-bold text-[11px] flex items-center justify-center gap-1.5 transition-colors"
+                    >
+                      <Layers className="w-3.5 h-3.5" />
+                      <span>{en ? "Variations" : "تنويعات"}</span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       onClick={() => handleDownload(activeResult.outputImageBase64OrUrl)}
@@ -716,15 +751,6 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
                       <Share2 className="w-3.5 h-3.5" />
                       <span>{en ? "Share" : "مشاركة"}</span>
                     </button>
-
-                    <button
-                      type="button"
-                      onClick={handleGenerate}
-                      className="py-2 px-2.5 rounded-xl bg-purple-500/10 border border-purple-500/30 hover:bg-purple-500/20 text-purple-300 font-semibold text-[11px] flex items-center justify-center gap-1 transition-colors"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      <span>{en ? "Retry" : "إعادة"}</span>
-                    </button>
                   </div>
                 </div>
               </div>
@@ -732,7 +758,7 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
 
             {/* Empty State placeholder */}
             {!isGenerating && !activeResult && (
-              <div className="flex-1 min-h-[260px] rounded-2xl border-2 border-dashed border-border bg-secondary/20 p-6 flex flex-col items-center justify-center text-center">
+              <div className="min-h-[380px] lg:min-h-[520px] rounded-3xl border-2 border-dashed border-border bg-secondary/20 p-6 flex flex-col items-center justify-center text-center">
                 <div className="w-14 h-14 rounded-2xl bg-purple-500/10 flex items-center justify-center mb-3">
                   <Sparkles className="w-7 h-7 text-purple-400" />
                 </div>
@@ -741,14 +767,103 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
                 </h4>
                 <p className="text-[10px] text-muted-foreground max-w-xs">
                   {en
-                    ? "Enter your text prompt on the left and hit generate to synthesize high-resolution images instantly."
-                    : "اكتب وصف الصورة في الخانة اليسرى واضغط زر التوليد لبدء الإنتاج الفوري."}
+                    ? "Write your prompt and hit generate to synthesize high-resolution images instantly."
+                    : "اكتب وصف الصورة ثم اضغط زر التوليد لإنتاج صور عالية الدقة فوراً."}
                 </p>
               </div>
             )}
+
+            {/* Gallery: Recent / History / Favorites */}
+            <div className="mt-5 pt-4 border-t border-border/60">
+              <div className="flex items-center gap-1.5 mb-3">
+                {([
+                  { id: "recent", labelEn: "Recent Images", labelAr: "الصور الأخيرة", icon: Clock, count: history.slice(0, 8).length },
+                  { id: "history", labelEn: "History", labelAr: "السجل", icon: History, count: history.length },
+                  { id: "favorites", labelEn: "Favorites", labelAr: "المفضلة", icon: Star, count: favorites.length },
+                ] as const).map((tab) => {
+                  const TabIcon = tab.icon;
+                  const active = galleryTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => {
+                        playSfx("click");
+                        setGalleryTab(tab.id);
+                      }}
+                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition-all ${
+                        active
+                          ? "bg-purple-600 text-white border-purple-400"
+                          : "bg-secondary/40 border-border text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <TabIcon className="w-3.5 h-3.5" />
+                      <span>{en ? tab.labelEn : tab.labelAr}</span>
+                      <span className={`px-1.5 rounded-full text-[9px] ${active ? "bg-white/20" : "bg-background"}`}>
+                        {tab.count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {galleryItems.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground py-4 text-center">
+                  {en ? "Nothing here yet — generate your first image." : "لا توجد صور بعد — ابدأ بتوليد أول صورة."}
+                </p>
+              ) : (
+                <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                  {galleryItems.map((item) => (
+                    <div key={`${item.url}-${item.createdAt}`} className="relative group">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          playSfx("click");
+                          setGeneratedResults([
+                            {
+                              outputImageBase64OrUrl: item.url,
+                              width: item.width,
+                              height: item.height,
+                              executionTimeMs: 0,
+                            } as FluxImageResult,
+                          ]);
+                          setActiveResultIndex(0);
+                          if (item.prompt) setPrompt(item.prompt);
+                        }}
+                        className="w-full aspect-square rounded-xl overflow-hidden border border-border hover:border-purple-500 transition-all"
+                        title={item.prompt}
+                      >
+                        <img src={item.url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => toggleFavorite(item)}
+                        className="absolute top-1 right-1 p-1 rounded-lg bg-black/60 backdrop-blur-sm border border-white/20"
+                      >
+                        <Star className={`w-3 h-3 ${isFavorite(item.url) ? "fill-amber-400 text-amber-400" : "text-white"}`} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {galleryTab !== "favorites" && history.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    playSfx("click");
+                    setHistory([]);
+                  }}
+                  className="mt-3 text-[10px] text-muted-foreground hover:text-destructive underline"
+                >
+                  {en ? "Clear history" : "مسح السجل"}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
     </div>
   );
 };
+
