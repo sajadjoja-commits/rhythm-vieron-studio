@@ -130,7 +130,7 @@ const CustomGallery = ({ onClose, onSelect, type = "both" }: CustomGalleryProps)
                 onClick={() => toggleSelection(asset)}
               >
                 <img
-                  src={Capacitor.convertFileSrc(asset.path)}
+                  src={asset.thumbnail || Capacitor.convertFileSrc(asset.path)}
                   alt=""
                   className={`w-full h-full object-cover transition-all duration-500 ${selectedIds.includes(asset.identifier) ? 'opacity-40 scale-90 saturate-0' : 'opacity-100 group-hover:scale-110'}`}
                   loading="lazy"

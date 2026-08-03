@@ -13,7 +13,7 @@ interface Props {
   open: boolean;
   onClose: () => void;
   currentTime: number;
-  onOpenDeviceLibrary?: () => void;
+  onOpenDeviceLibrary?: (time: number) => void;
 }
 
 const ALL_FX_OPTIONS: { id: AudioFxType; label: string; labelEn: string; icon: string; descAr: string; descEn: string }[] = [
@@ -340,7 +340,7 @@ const MusicPanel = ({ open, onClose, currentTime, onOpenDeviceLibrary }: Props) 
 
             <button
               disabled={busy}
-              onClick={() => onOpenDeviceLibrary?.()}
+              onClick={onUploadClick}
               className="w-full flex items-center gap-2 p-3 rounded-xl bg-card border border-dashed border-primary/50"
             >
               <Upload className="w-4 h-4 text-primary" />

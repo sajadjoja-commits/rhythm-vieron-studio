@@ -1,6 +1,5 @@
-import { useRef, ReactNode, useState, lazy, Suspense } from "react";
+import { useRef, ReactNode } from "react";
 import { useMedia } from "@/context/MediaContext";
-import CustomGallery from "./CustomGallery";
 
 interface MediaPickerProps {
   accept?: "video" | "image" | "both";
@@ -21,18 +20,24 @@ const MediaPicker = ({
   className,
   children,
 }: MediaPickerProps) => {
-  const [showGallery, setShowGallery] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   const { addFiles } = useMedia();
+
+  const acceptAttr =
+    accept === "video" ? "video/*" : accept === "image" ? "image/*" : "video/*,image/*";
 
   const handleClick = () => {
     onBeforePick?.();
-    setShowGallery(true);
+    inputRef.current?.click();
   };
 
-  const handleSelect = async (files: FileList | File[]) => {
-    const items = await addFiles(files);
-    if (items.length > 0) onPicked?.();
-    setShowGallery(false);
+  const handleChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      const items = await addFiles(files);
+      if (items.length > 0) onPicked?.();
+    }
+    if (inputRef.current) inputRef.current.value = "";
   };
 
   return (
@@ -40,14 +45,15 @@ const MediaPicker = ({
       <button type="button" className={className} onClick={handleClick}>
         {children}
       </button>
-
-      {showGallery && (
-        <CustomGallery
-          type={accept}
-          onClose={() => setShowGallery(false)}
-          onSelect={handleSelect}
-        />
-      )}
+      <input
+        ref={inputRef}
+        type="file"
+        accept={acceptAttr}
+        multiple={multiple}
+        {...(capture ? { capture: "environment" as any } : {})}
+        onChange={handleChange}
+        className="hidden"
+      />
     </>
   );
 };

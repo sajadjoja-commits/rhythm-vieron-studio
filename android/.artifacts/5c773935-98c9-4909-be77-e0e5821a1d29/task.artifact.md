@@ -1,5 +1,8 @@
-- [ ] Fix audio playback and waveforms in `MusicLibrary.tsx`
-- [ ] Clean up deprecated settings in `gradle.properties`
-- [ ] Enable dependency resolution performance flags
-- [ ] Verify `flatDir` is absent in all build files
-- [ ] Build and verify results
+- [ ] Restore default HTML5 file picker in `MediaPicker.tsx`
+- [ ] Restore default file upload logic in `MusicPanel.tsx`
+- [ ] Cleanup `Index.tsx` navigation and states
+- [ ] Fix all deprecated Gradle property warnings
+- [ ] Ensure `img.png` is the only brand asset and correctly scaled
+- [ ] Delete redundant custom gallery and music library files
+- [ ] Final verification of audio/waveform/thumbnails in editor
+- [ ] Commit and push updates

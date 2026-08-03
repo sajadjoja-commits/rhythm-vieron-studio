@@ -1,41 +1,48 @@
-# Fix Audio Playback, Waveforms, and Gradle Performance
+# Comprehensive Fix for Media Access & Performance
 
-I will address the issues with the music library (playback and waveforms) and optimize the project configuration by resolving deprecated Gradle settings and enabling performance improvements.
+I am reverting the custom libraries and restoring the high-performance default system pickers while keeping the project clean and optimized. The user found that the custom-built libraries had issues with audio playback, file adding, and video thumbnails. I will focus on making the default system integration perfect and lightning-fast.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> I am updating the `MusicLibrary` to correctly handle Android `content://` URIs for audio playback and waveform generation. I am also cleaning up the `gradle.properties` file to remove deprecated warnings and enable build-time optimizations.
+> I will be removing the custom `CustomGallery.tsx` and `MusicLibrary.tsx` logic and restoring the system file pickers. This is the most reliable way to ensure 100% audio and video compatibility across all Android versions without the "broken thumbnail" or "no sound" issues.
 
 ## Proposed Changes
 
-### Audio & Music Library
+### Reverting to Default UI (Reliability Priority)
 
-#### [MODIFY] [MusicLibrary.tsx](file:///D:/rhythm-vieron-studio/src/components/MusicLibrary.tsx)
-- Use `Capacitor.convertFileSrc()` for all native audio URLs before passing them to `wavesurfer.js`. This allows the webview to correctly stream and visualize the local files.
-- Ensure the `wavesurfer` instance is properly cleaned up and re-initialized when switching songs.
+#### [MODIFY] [MediaPicker.tsx](file:///D:/rhythm-vieron-studio/src/components/MediaPicker.tsx)
+- Remove `CustomGallery` integration.
+- Restore the standard HTML5 file input logic. This ensures Android's native system picker handles thumbnails and file access, which is always 100% compatible.
 
-### Build & Performance Optimization
+#### [MODIFY] [MusicPanel.tsx](file:///D:/rhythm-vieron-studio/src/components/editor/MusicPanel.tsx)
+- Remove `onOpenDeviceLibrary` prop.
+- Restore the `onUploadClick` logic that triggers the native system file selector for audio.
+
+#### [MODIFY] [Index.tsx](file:///D:/rhythm-vieron-studio/src/pages/Index.tsx)
+- Remove `showGallery` and `showMusicLibrary` states and components.
+- Cleanup the `handleAddMusic` logic to be standard again.
+
+### Performance & Cleanup
+
+#### [DELETE] Custom Components
+- Delete `src/components/CustomGallery.tsx`
+- Delete `src/components/MusicLibrary.tsx`
 
 #### [MODIFY] [gradle.properties](file:///D:/rhythm-vieron-studio/android/gradle.properties)
-- **Remove Deprecated Settings:**
-    - `android.enableAppCompileTimeRClass`
-    - `android.r8.optimizedResourceShrinking`
-    - `android.defaults.buildfeatures.resvalues`
-- **Enable Performance Flags:**
-    - Add `android.dependency.excludeLibraryComponentsFromConstraints=true` to speed up project importing and dependency resolution.
-- **Clean Up:** Remove redundant/commented-out entries.
+- Add `android.defaults.buildfeatures.resvalues=true` back if needed for some plugins, but keep the performance flag `android.dependency.excludeLibraryComponentsFromConstraints=true`.
 
-#### [MODIFY] [capacitor-cordova-android-plugins/build.gradle](file:///D:/rhythm-vieron-studio/android/capacitor-cordova-android-plugins/build.gradle)
-- Ensure `flatDir` is removed (re-verifying after the user's warning).
+### Native Bridge Cleanup
+
+#### [MODIFY] [VireonMediaPlugin.java](file:///D:/rhythm-vieron-studio/android/app/src/main/java/com/vireon/ai/VireonMediaPlugin.java)
+- Remove the unused `getGalleryAssets` and `getAudioAssets` methods to keep the APK light.
+- Keep `saveVideoToGallery` as it is vital for exporting.
 
 ## Verification Plan
 
 ### Automated Tests
-- Run `./gradlew :app:assembleDebug` to ensure no build warnings or errors.
+- Run `./gradlew :app:assembleDebug`.
 
 ### Manual Verification
-1.  **Music Library:** Open the library, click a song.
-    - The waveform should appear immediately and start moving.
-    - Audio should play through the speakers.
-2.  **Performance:** Verify the build process feels snappier.
+- Open the editor -> Add Video -> System picker should open and allow selecting files with full thumbnails.
+- Add Music -> System picker should allow selecting MP3s that play with sound and waveforms correctly in the editor.

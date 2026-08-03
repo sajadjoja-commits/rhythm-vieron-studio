@@ -10,6 +10,7 @@ import { safeStorage } from "@/lib/safeStorage";
 import AuthScreen from "@/components/AuthScreen";
 import { App } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
+import { Filesystem } from "@capacitor/filesystem";
 
 const HomeScreen = lazy(() => import("@/components/HomeScreen"));
 const TemplatesScreen = lazy(() => import("@/components/TemplatesScreen"));
@@ -42,44 +43,7 @@ const Index = () => {
   const [activeSmartTemplate, setActiveSmartTemplate] = useState<any | null>(null);
   const [showGallery, setShowGallery] = useState<{ open: boolean; type: "image" | "video" | "both" }>({ open: false, type: "both" });
   const [showMusicLibrary, setShowMusicLibrary] = useState(false);
-  const { newProject, addAudioTrack } = useMedia();
-
-  const handleAddMusic = async (url: string, name: string) => {
-    try {
-      const response = await fetch(url);
-      const blob = await response.blob();
-      const file = new File([blob], name, { type: blob.type });
-
-      const dur = await getAudioDuration(url);
-      addAudioTrack({
-        name: name,
-        url: url,
-        file: file,
-        start: currentTime,
-        offset: 0,
-        duration: dur,
-        sourceDuration: dur,
-        volume: 0.8,
-        muted: false,
-        fx: "none",
-        color: "#a855f7",
-        kind: "music",
-      });
-      toast.success(isRTL() ? "تمت إضافة الموسيقى بنجاح" : "Music added successfully");
-      setShowMusicLibrary(false);
-    } catch (e) {
-      console.error("Error adding music to editor:", e);
-      toast.error(isRTL() ? "فشل إضافة الملف الصوتي" : "Failed to add audio file");
-    }
-  };
-
-  const getAudioDuration = (url: string): Promise<number> =>
-    new Promise((res) => {
-      const a = new Audio();
-      a.src = url;
-      a.onloadedmetadata = () => res(a.duration || 0);
-      a.onerror = () => res(0);
-    });
+  const { newProject } = useMedia();
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -388,7 +352,10 @@ const Index = () => {
       <div className="dark">
         <Suspense fallback={<ScreenLoader />}>
           <EditorScreen
-            onOpenMusicLibrary={() => setShowMusicLibrary(true)}
+            onOpenMusicLibrary={(time) => {
+              setMusicTargetTime(time || 0);
+              setShowMusicLibrary(true);
+            }}
             onBack={() => {
               if (window.history.state?.isEditor) {
                 window.history.back();
@@ -486,18 +453,6 @@ const Index = () => {
       </Suspense>
 
       <BottomNav active={activeTab} onNavigate={handleTabChange} onPlusClick={handlePlusClick} />
-
-      <Suspense fallback={null}>
-        {showGallery.open && (
-          <CustomGallery
-            type={showGallery.type}
-            onClose={() => setShowGallery({ ...showGallery, open: false })}
-            onSelect={(files) => {
-              // Selection is handled inside CustomGallery now
-            }}
-          />
-        )}
-      </Suspense>
 
       {showPlusMenu && (
         <div className="fixed inset-0 z-[55] bg-black/60 flex items-end" onClick={() => setShowPlusMenu(false)}>
