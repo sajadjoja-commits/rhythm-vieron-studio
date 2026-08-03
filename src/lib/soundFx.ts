@@ -1,7 +1,8 @@
 // Global UI and Video sound-effects library for Vireon AI.
-export type SfxName = 
-  | "click" | "success" | "error" | "pop" | "swipe" | "applause" 
-  | "whoosh" | "camera-shutter" | "glitch" | "sparkle" | "heartbeat" | "notification";
+// All files AI-generated with ElevenLabs Sound Effects.
+export type SfxName =
+  | "click" | "success" | "error" | "pop" | "swipe" | "applause"
+  | "whoosh" | "camera-shutter" | "transition" | "page-turn" | "sparkle" | "notification";
 
 export const SFX_PATHS: Record<SfxName, string> = {
   click: "/audio/sfx/click.mp3",
@@ -12,11 +13,12 @@ export const SFX_PATHS: Record<SfxName, string> = {
   applause: "/audio/sfx/applause.mp3",
   whoosh: "/audio/sfx/whoosh.mp3",
   "camera-shutter": "/audio/sfx/shutter.mp3",
-  glitch: "/audio/sfx/glitch.mp3",
+  transition: "/audio/sfx/transition.mp3",
+  "page-turn": "/audio/sfx/page-turn.mp3",
   sparkle: "/audio/sfx/sparkle.mp3",
-  heartbeat: "/audio/sfx/heartbeat.mp3",
   notification: "/audio/sfx/notification.mp3",
 };
+
 
 const LS_KEY = "vireon:sfxEnabled";
 const VOL_KEY = "vireon:sfxVolume";

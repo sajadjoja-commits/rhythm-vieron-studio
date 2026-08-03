@@ -1,4 +1,5 @@
-// Built-in royalty-free background music library for Vireon AI.
+// Built-in AI-generated background music library for Vireon AI.
+// Generated with ElevenLabs — 22s loopable instrumental beds.
 export interface BuiltinTrack {
   id: string;
   title: string;
@@ -6,7 +7,8 @@ export interface BuiltinTrack {
   artist: string;
   url: string;
   bpm: number;
-  genre: "electronic" | "acoustic" | "cinematic" | "hiphop" | "lofi" | "rock";
+  duration?: number;
+  genre: "electronic" | "acoustic" | "cinematic" | "corporate" | "playful";
   color: string;
 }
 
@@ -15,60 +17,55 @@ export const BUILTIN_TRACKS: BuiltinTrack[] = [
     id: "upbeat",
     title: "إيقاع حماسي",
     titleEn: "Upbeat Energy",
-    artist: "Vireon Studio",
+    artist: "Vireon AI",
     url: "/audio/music/upbeat.mp3",
     bpm: 128,
+    duration: 22,
     genre: "electronic",
     color: "#a855f7",
   },
   {
-    id: "chill",
-    title: "استرخاء هادئ",
-    titleEn: "Chill Vibes",
-    artist: "Vireon Studio",
-    url: "/audio/music/chill.mp3",
-    bpm: 90,
+    id: "calm",
+    title: "أجواء هادئة",
+    titleEn: "Calm Ambient",
+    artist: "Vireon AI",
+    url: "/audio/music/calm.mp3",
+    bpm: 80,
+    duration: 22,
     genre: "acoustic",
     color: "#10b981",
   },
   {
     id: "cinematic",
     title: "سينمائي ملحمي",
-    titleEn: "Cinematic Rise",
-    artist: "Vireon Studio",
+    titleEn: "Cinematic Drama",
+    artist: "Vireon AI",
     url: "/audio/music/cinematic.mp3",
     bpm: 70,
+    duration: 22,
     genre: "cinematic",
     color: "#3b82f6",
   },
   {
-    id: "hiphop-urban",
-    title: "هيب هوب عصري",
-    titleEn: "Urban Flow",
+    id: "corporate",
+    title: "احترافي نظيف",
+    titleEn: "Corporate Clean",
     artist: "Vireon AI",
-    url: "/audio/music/urban.mp3",
-    bpm: 95,
-    genre: "hiphop",
+    url: "/audio/music/corporate.mp3",
+    bpm: 105,
+    duration: 22,
+    genre: "corporate",
+    color: "#0ea5e9",
+  },
+  {
+    id: "playful",
+    title: "مرح وممتع",
+    titleEn: "Fun & Playful",
+    artist: "Vireon AI",
+    url: "/audio/music/playful.mp3",
+    bpm: 115,
+    duration: 22,
+    genre: "playful",
     color: "#f59e0b",
   },
-  {
-    id: "lofi-study",
-    title: "لو-فاي للدراسة",
-    titleEn: "Lofi Focus",
-    artist: "Vireon AI",
-    url: "/audio/music/lofi.mp3",
-    bpm: 80,
-    genre: "lofi",
-    color: "#ec4899",
-  },
-  {
-    id: "rock-action",
-    title: "روك الأكشن",
-    titleEn: "Action Rock",
-    artist: "Vireon AI",
-    url: "/audio/music/rock.mp3",
-    bpm: 140,
-    genre: "rock",
-    color: "#ef4444",
-  }
 ];
