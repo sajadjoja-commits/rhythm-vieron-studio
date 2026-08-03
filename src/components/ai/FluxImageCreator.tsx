@@ -61,6 +61,34 @@ const PROMPT_SUGGESTIONS = [
   { textEn: "A cozy aesthetic cafe interior with warm morning light streaming through large windows", textAr: "مقهى دافئ وهادئ تشرق فيه أشعة الشمس عبر النوافذ الكبيرة" },
 ];
 
+interface HistoryEntry {
+  url: string;
+  prompt: string;
+  width?: number;
+  height?: number;
+  createdAt: number;
+}
+
+const HISTORY_KEY = "vireon:flux:history";
+const FAV_KEY = "vireon:flux:favorites";
+
+const readStore = (key: string): HistoryEntry[] => {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as HistoryEntry[]) : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeStore = (key: string, value: HistoryEntry[]) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value.slice(0, 60)));
+  } catch {
+    /* quota ignored */
+  }
+};
+
 export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
   onClose,
   onOpenPhotoEditor,
@@ -90,6 +118,35 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
   const [progressStage, setProgressStage] = useState("");
   const [generatedResults, setGeneratedResults] = useState<FluxImageResult[]>([]);
   const [activeResultIndex, setActiveResultIndex] = useState<number>(0);
+
+  // History / Favorites (persisted locally)
+  const [history, setHistory] = useState<HistoryEntry[]>(() => readStore(HISTORY_KEY));
+  const [favorites, setFavorites] = useState<HistoryEntry[]>(() => readStore(FAV_KEY));
+  const [galleryTab, setGalleryTab] = useState<"recent" | "history" | "favorites">("recent");
+
+  useEffect(() => writeStore(HISTORY_KEY, history), [history]);
+  useEffect(() => writeStore(FAV_KEY, favorites), [favorites]);
+
+  const isFavorite = (url: string) => favorites.some((f) => f.url === url);
+
+  const toggleFavorite = (entry: HistoryEntry) => {
+    playSfx("click");
+    setFavorites((prev) =>
+      prev.some((f) => f.url === entry.url) ? prev.filter((f) => f.url !== entry.url) : [entry, ...prev].slice(0, 60)
+    );
+  };
+
+  const pushHistory = (results: FluxImageResult[], usedPrompt: string) => {
+    const entries: HistoryEntry[] = results.map((r) => ({
+      url: r.outputImageBase64OrUrl,
+      prompt: usedPrompt,
+      width: r.width,
+      height: r.height,
+      createdAt: Date.now(),
+    }));
+    setHistory((prev) => [...entries, ...prev].slice(0, 60));
+  };
+
 
   // Handle generation via AI Runtime & AIManager -> FluxProvider
   const handleGenerate = async () => {
