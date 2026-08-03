@@ -12,7 +12,6 @@ interface HomeScreenProps {
   onStartEditor: () => void;
   session?: any;
   newProject: () => void;
-  onOpenAIImageStudio: () => void;
 }
 
 const FEATURES = [
@@ -24,7 +23,7 @@ const FEATURES = [
   { icon: Wand2, label: "كابشن AI", labelEn: "AI Captions", color: "#06b6d4", bg: "rgba(6,182,212,0.12)" },
 ];
 
-const PromoBanner = ({ onNavigate, onStartEditor, newProject, en, onOpenAIImageStudio }: { onNavigate: (t: string) => void; onStartEditor: () => void; newProject: () => void; en: boolean; onOpenAIImageStudio: () => void; }) => {
+const PromoBanner = ({ onNavigate, onStartEditor, newProject, en }: { onNavigate: (t: string) => void; onStartEditor: () => void; newProject: () => void; en: boolean; }) => {
   return (
     <div className="relative rounded-2xl overflow-hidden mb-6 animate-fade-in" style={{
       background: "linear-gradient(135deg, #0f172a 0%, #1e3a8a 40%, #3730a3 70%, #6d28d9 100%)",
@@ -54,17 +53,13 @@ const PromoBanner = ({ onNavigate, onStartEditor, newProject, en, onOpenAIImageS
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 text-white font-bold text-xs backdrop-blur-sm border border-white/20 active:scale-95 transition-transform">
             <Wand2 className="w-4 h-4" />{en ? "Templates" : "قوالب"}
           </button>
-          <button onClick={onOpenAIImageStudio}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary/10 text-primary font-bold text-xs shadow-md active:scale-95 transition-transform">
-            <Image className="w-4 h-4" />{en ? "AI Image Studio" : "استوديو صور AI"}
-          </button>
         </div>
       </div>
     </div>
   );
 };
 
-const HomeScreen = ({ onNavigate, onStartEditor, session, newProject, onOpenAIImageStudio }: HomeScreenProps) => {
+const HomeScreen = ({ onNavigate, onStartEditor, session, newProject }: HomeScreenProps) => {
   const en = getLang() === "en";
   const { listProjects, loadProject } = useMedia();
   const { showInstallEntry } = useInstallPrompt();
@@ -111,7 +106,7 @@ const HomeScreen = ({ onNavigate, onStartEditor, session, newProject, onOpenAIIm
 
       {userName && <p className="text-sm text-muted-foreground mb-4 animate-fade-in">{en ? `Welcome back, ${userName.split(" ")[0]}` : `مرحباً بعودتك، ${userName.split(" ")[0]}`}</p>}
 
-      <PromoBanner onNavigate={onNavigate} onStartEditor={onStartEditor} newProject={newProject} en={en} onOpenAIImageStudio={onOpenAIImageStudio} />
+      <PromoBanner onNavigate={onNavigate} onStartEditor={onStartEditor} newProject={newProject} en={en} />
 
       <div className="grid grid-cols-3 gap-3 mb-6 animate-fade-in" style={{ animationDelay: "0.1s" }}>
         <MediaPicker accept="video" onBeforePick={newProject} onPicked={onStartEditor}
