@@ -19,6 +19,10 @@ import {
   X,
   Plus,
   ArrowRight,
+  Star,
+  Clock,
+  History,
+
 } from "lucide-react";
 import { toast } from "sonner";
 import { aiRuntime } from "@/ai/runtime/AIRuntime";
@@ -203,7 +207,7 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
           },
           {
             executionMode: "remote",
-            preferredProvider: "flux",
+            preferredProviderId: "flux",
           }
         );
 
