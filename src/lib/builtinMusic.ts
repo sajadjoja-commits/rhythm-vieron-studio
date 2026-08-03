@@ -7,7 +7,7 @@ export interface BuiltinTrack {
   artist: string;
   url: string;
   bpm: number;
-  duration: number;
+  duration?: number;
   genre: "electronic" | "acoustic" | "cinematic" | "corporate" | "playful";
   color: string;
 }
