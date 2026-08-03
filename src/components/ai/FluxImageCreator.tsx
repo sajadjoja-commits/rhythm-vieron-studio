@@ -326,8 +326,11 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
 
   const activeResult = generatedResults[activeResultIndex];
 
+  const galleryItems: HistoryEntry[] =
+    galleryTab === "favorites" ? favorites : galleryTab === "recent" ? history.slice(0, 8) : history;
+
   return (
-    <div className="w-full max-w-4xl mx-auto rounded-3xl bg-card border border-border/80 p-5 shadow-2xl animate-fade-in" dir={rtl ? "rtl" : "ltr"}>
+    <div className="w-full max-w-6xl mx-auto rounded-3xl bg-card border border-border/80 p-5 shadow-2xl animate-fade-in" dir={rtl ? "rtl" : "ltr"}>
       {/* Panel Header */}
       <div className="flex items-center justify-between pb-4 mb-4 border-b border-border/60">
         <div className="flex items-center gap-3">
