@@ -62,3 +62,17 @@ export async function saveVideoToGallery(blob: Blob, fileName: string = 'vireon_
     throw error;
   }
 }
+
+/**
+ * Gets a video thumbnail natively on Android/iOS
+ */
+export async function getNativeVideoThumbnail(path: string, timeMs: number = 1000, width: number = 200): Promise<string | null> {
+  if (!Capacitor.isNativePlatform()) return null;
+  try {
+    const result = await VireonMedia.getVideoThumbnail({ path, timeMs, width });
+    return result?.value || null;
+  } catch (err) {
+    console.warn("Native thumbnail capture error:", err);
+    return null;
+  }
+}

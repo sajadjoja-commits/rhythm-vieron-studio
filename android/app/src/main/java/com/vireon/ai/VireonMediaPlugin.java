@@ -9,12 +9,62 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.OutputStream;
+import android.graphics.Bitmap;
+import android.media.MediaMetadataRetriever;
+import android.util.Base64;
 
 @CapacitorPlugin(name = "VireonMedia")
 public class VireonMediaPlugin extends Plugin {
+
+    @PluginMethod
+    public void getVideoThumbnail(PluginCall call) {
+        String videoPath = call.getString("path");
+        int timeMs = call.getInt("timeMs", 1000);
+        int width = call.getInt("width", 200);
+
+        if (videoPath == null || videoPath.isEmpty()) {
+            call.reject("Path is missing");
+            return;
+        }
+
+        if (videoPath.startsWith("file://")) {
+            videoPath = videoPath.substring(7);
+        }
+
+        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+        try {
+            retriever.setDataSource(videoPath);
+            // MediaMetadataRetriever takes time in microseconds
+            Bitmap bitmap = retriever.getFrameAtTime(timeMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+            
+            if (bitmap != null) {
+                // Resize for efficiency if needed
+                if (width > 0 && width < bitmap.getWidth()) {
+                    int height = (int) (bitmap.getHeight() * ((float) width / bitmap.getWidth()));
+                    bitmap = Bitmap.createScaledBitmap(bitmap, width, height, true);
+                }
+
+                ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 80, byteArrayOutputStream);
+                byte[] byteArray = byteArrayOutputStream.toByteArray();
+                String encoded = Base64.encodeToString(byteArray, Base64.NO_WRAP);
+
+                JSObject ret = new JSObject();
+                ret.put("value", "data:image/jpeg;base64," + encoded);
+                call.resolve(ret);
+            } else {
+                call.reject("Could not capture frame");
+            }
+        } catch (Exception e) {
+            call.reject("Error capturing thumbnail: " + e.getMessage());
+        } finally {
+            try { retriever.release(); } catch (Exception ignored) {}
+        }
+    }
 
     @PluginMethod
     public void saveVideoToGallery(PluginCall call) {

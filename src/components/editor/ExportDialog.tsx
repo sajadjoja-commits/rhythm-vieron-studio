@@ -305,10 +305,6 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
     return aspectRatios[activeRatio] || aspectRatios[0];
   }, [activeRatio, trueVideoDimensions]);
 
-  // Perimeter draw offset
-  const PERIM = 1000;
-  const dashOffset = useMemo(() => PERIM * (1 - progress), [progress]);
-
   useEffect(() => {
     if (open) {
       if (exportedVideoUrl) {
@@ -1685,19 +1681,15 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
                     <span className="text-xs">{t("export.noCover")}</span>
                   </div>
                 )}
+
+                {/* Unified Progress Bar below or on top of cover */}
                 {(exporting || (exportedVideoUrl && progress >= 1)) && (
-                  <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
-                    <rect
-                      x="1" y="1" width="98" height="98" rx="4"
-                      fill="none"
-                      stroke="hsl(var(--primary))"
-                      strokeWidth="2.5"
-                      pathLength={1000}
-                      strokeDasharray={1000}
-                      strokeDashoffset={dashOffset}
-                      style={{ transition: "stroke-dashoffset 150ms linear", filter: "drop-shadow(0 0 8px hsl(var(--primary)))" }}
+                  <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-black/40 backdrop-blur-sm z-30">
+                    <div
+                      className="h-full gradient-primary shadow-[0_0_10px_rgba(59,130,246,0.5)] transition-all duration-150 ease-linear"
+                      style={{ width: `${progress * 100}%` }}
                     />
-                  </svg>
+                  </div>
                 )}
 
                 {/* Centered Real Export Progress Overlay */}

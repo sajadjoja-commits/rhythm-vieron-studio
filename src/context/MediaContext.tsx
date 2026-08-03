@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { t } from "@/lib/i18n";
 import { triggerHapticTick } from "@/lib/haptics";
+import { Capacitor } from "@capacitor/core";
 
 export type MediaType = "video" | "image";
 
@@ -14,6 +15,7 @@ export interface MediaItem {
   size: number;
   duration: number;
   file: File;
+  thumbnail?: string;
 }
 
 export type TransitionType = "none" | "fade" | "slide" | "zoom" | "wipe" | "blur" | "dissolve" | "glitch" | "spin" | "flash" | "shutter" | "iris" | "split" | "mosaic" | "ripple" | "radar" | "whip-pan" | "zoom-blur" | "glitch-slice" | "page-flip";
@@ -433,7 +435,8 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
           setVideoAudioFx(proj.videoAudioFx || "none");
           setCaptions(proj.captions || []);
           setCaptionStyle(proj.captionStyle || captionStyle);
-          setCoverImage(proj.coverImage || null);
+          const restoredCover = proj.coverFileKey ? await idbGet<Blob>(STORE_FILES, proj.coverFileKey) : null;
+          setCoverImage(restoredCover ? URL.createObjectURL(restoredCover) : (proj.coverImage || null));
           const restoredMedia: MediaItem[] = [];
           for (const m of proj.media || []) {
             const blob = await idbGet<Blob>(STORE_FILES, m.fileKey);
@@ -495,9 +498,18 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
         }
         const effectiveCover = coverImage || (media.length > 0 ? media[0].url : null);
 
+        let coverFileKey = null;
+        if (coverImage && coverImage.startsWith("data:image")) {
+          coverFileKey = `cover:${projectId}`;
+          const res = await fetch(coverImage);
+          const blob = await res.blob();
+          await idbPut(STORE_FILES, coverFileKey, blob);
+        }
+
         const payload = {
           id: projectId, name: projectName, updatedAt: Date.now(),
-          exportPreset, videoMuted, videoVolume, videoAudioFx, captions, captionStyle, coverImage: effectiveCover, clips,
+          exportPreset, videoMuted, videoVolume, videoAudioFx, captions, captionStyle,
+          coverImage: effectiveCover, coverFileKey, clips,
           filters, vfx,
           overlays: overlays.map((o) => ({ id: o.id, start: o.start, end: o.end, x: o.x, y: o.y, scale: o.scale, opacity: o.opacity, rotation: o.rotation, blend: o.blend, brightness: o.brightness, name: o.name, type: o.type, fileKey: o.file ? `overlay:${o.id}` : null, url: o.file ? null : o.url })),
           media: media.map((m) => ({ id: m.id, name: m.name, type: m.type, size: m.size, duration: m.duration, mime: m.file.type, fileKey: `media:${m.id}` })),
@@ -543,22 +555,37 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
   const addFiles = useCallback(async (files: FileList | File[]) => {
     const arr = Array.from(files);
     const valid = arr.filter((f) => f.type.startsWith("video/") || f.type.startsWith("image/"));
-    if (valid.length === 0) { toast.error(t("toast.selectValidFiles")); return []; }
-    const items: MediaItem[] = valid.map((file) => {
-      const type: MediaType = file.type.startsWith("video/") ? "video" : "image";
-      return { id: uid(), url: URL.createObjectURL(file), type, name: file.name, size: file.size, file, duration: type === "video" ? 0 : 5 };
-    });
+    if (valid.length === 0) {
+      toast.error(t("toast.selectValidFiles"));
+      return [];
+    }
+
+    const items: MediaItem[] = await Promise.all(
+      valid.map(async (file) => {
+        const type: MediaType = file.type.startsWith("video/") ? "video" : "image";
+        let duration = type === "video" ? 0 : 5;
+        if (type === "video") {
+          duration = await getVideoDuration(file) || 5;
+        }
+        return {
+          id: uid(),
+          url: URL.createObjectURL(file),
+          type,
+          name: file.name,
+          size: file.size,
+          file,
+          duration,
+        };
+      })
+    );
+
     setMedia((prev) => [...prev, ...items]);
-    setClips((prev) => [...prev, ...items.map<Clip>((m) => ({ id: uid(), mediaId: m.id, in: 0, out: m.duration || 5 }))]);
+    setClips((prev) => [
+      ...prev,
+      ...items.map<Clip>((m) => ({ id: uid(), mediaId: m.id, in: 0, out: m.duration })),
+    ]);
+
     toast.success(t("toast.mediaUploaded", { n: items.length }));
-    items.forEach((m) => {
-      if (m.type !== "video") return;
-      getVideoDuration(m.file).then((d) => {
-        const dur = d || 5;
-        setMedia((prev) => prev.map((x) => (x.id === m.id ? { ...x, duration: dur } : x)));
-        setClips((prev) => prev.map((c) => c.mediaId === m.id && c.in === 0 && (c.out === 5 || c.out === 0) ? { ...c, out: dur } : c));
-      });
-    });
     return items;
   }, []);
 

@@ -25,6 +25,7 @@ import VfxPanel from "@/components/editor/VfxPanel";
 import OverlayTimeline from "@/components/editor/OverlayTimeline";
 import OverlayPanel from "@/components/editor/OverlayPanel";
 import InteractiveOverlay from "@/components/editor/InteractiveOverlay";
+import AIToolsPanel from "@/components/editor/AIToolsPanel";
 import ExportDialog from "@/components/editor/ExportDialog";
 import PublishTemplateDialog from "@/components/editor/PublishTemplateDialog";
 import RatioPanel from "@/components/editor/RatioPanel";
@@ -55,7 +56,7 @@ const aspectRatios = [
   { label: "5:4", w: 5, h: 4 },
 ];
 
-type Tool = "transition" | "caption" | "music" | "filter" | "vfx" | "ratio" | "overlay" | "speed" | "cover" | null;
+type Tool = "transition" | "caption" | "music" | "filter" | "vfx" | "ratio" | "overlay" | "speed" | "cover" | "ai-tools" | null;
 
 // Which timeline track is focused — determines which handles are visible
 type FocusedTrack = "video" | "caption" | "audio" | "filter" | "vfx" | "overlay" | null;
@@ -1031,6 +1032,7 @@ const EditorScreen = ({ onBack, onOpenMusicLibrary }: EditorScreenProps) => {
   const tools = [
     { id: "cut", icon: Scissors, label: t("tool.cut") },
     { id: "smart-cut", icon: Zap, label: t("tool.smartCut") },
+    { id: "ai-tools", icon: Sparkles, label: isRTL() ? "أدوات AI" : "AI Tools" },
     { id: "delete", icon: Trash2, label: getLang() === "ar" ? "حذف سريع" : "Quick Delete" },
     { id: "speed", icon: Gauge, label: t("tool.speed") },
     { id: "transition", icon: Wand2, label: t("tool.transition") },
@@ -1051,6 +1053,7 @@ const EditorScreen = ({ onBack, onOpenMusicLibrary }: EditorScreenProps) => {
   const onToolClick = (id: string) => {
     if (id === "cut") { handleManualCut(); }
     else if (id === "smart-cut") { setFocusedTrack("video"); setShowSmartCut(true); }
+    else if (id === "ai-tools") { setTool("ai-tools"); }
     else if (id === "delete") { handleDeleteItem(); }
     else if (id === "keyframe") { setTool(tool === "keyframe" ? null : "keyframe"); setFocusedTrack("video"); }
     else if (id === "speed") { setTool(tool === "speed" ? null : "speed"); setFocusedTrack("video"); }
@@ -1484,6 +1487,7 @@ const EditorScreen = ({ onBack, onOpenMusicLibrary }: EditorScreenProps) => {
         {tool === "filter" && <FilterPanel open={tool === "filter"} onClose={() => setTool(null)} currentTime={currentTime} />}
         {tool === "vfx" && <VfxPanel open={tool === "vfx"} onClose={() => setTool(null)} currentTime={currentTime} />}
         {tool === "overlay" && <OverlayPanel open={tool === "overlay"} onClose={() => setTool(null)} currentTime={currentTime} />}
+        {tool === "ai-tools" && <AIToolsPanel open={tool === "ai-tools"} onClose={() => setTool(null)} />}
         {tool === "ratio" && (
           <RatioPanel
             open={tool === "ratio"}

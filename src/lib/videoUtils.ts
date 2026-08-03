@@ -1,3 +1,6 @@
+import { getNativeVideoThumbnail } from "@/services/NativeService";
+import { Capacitor } from "@capacitor/core";
+
 // Generate thumbnails along a video — uses a single reusable element
 // and waits for both `seeked` and a paint frame so even mobile webkit produces
 // non-blank frames. Caches the rendered data URLs in memory by url+range+count.
@@ -82,6 +85,8 @@ export async function generateThumbnails(
         return finish([]);
       }
 
+      const isAndroid = Capacitor.getPlatform() === 'android';
+
       for (let i = 0; i < count; i++) {
         // Time-slicing delay to yield control back to the browser/WebView main thread
         await new Promise<void>((r) => {
@@ -93,6 +98,17 @@ export async function generateThumbnails(
         });
 
         const t = inSec + (dur * (i + 0.5)) / count;
+
+        // Try Native Fallback for Android if it's a native path or we are struggling with canvas
+        if (isAndroid && (videoUrl.startsWith('file://') || videoUrl.startsWith('content://'))) {
+           const nativeThumb = await getNativeVideoThumbnail(videoUrl, Math.round(t * 1000), width);
+           if (nativeThumb) {
+             thumbs.push(nativeThumb);
+             if (onProgress) onProgress([...thumbs]);
+             continue; // Skip canvas capture for this frame
+           }
+        }
+
         await new Promise<void>((res) => {
           let done = false;
           const cleanup = () => {
@@ -104,10 +120,22 @@ export async function generateThumbnails(
             requestAnimationFrame(() => {
               try {
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                thumbs.push(canvas.toDataURL("image/jpeg", 0.85));
-                if (onProgress) {
-                  onProgress([...thumbs]);
+                const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+
+                // On some Android WebViews, toDataURL might return a tiny or blank image if the video is still decoding
+                if (dataUrl.length < 500 && isAndroid) {
+                   // If it failed, try native fallback once more even if path is web (using current decoder time)
+                   getNativeVideoThumbnail(videoUrl, Math.round(t * 1000), width).then(nt => {
+                     if (nt) thumbs.push(nt);
+                     else thumbs.push(dataUrl);
+                     if (onProgress) onProgress([...thumbs]);
+                     cleanup();
+                   });
+                   return;
                 }
+
+                thumbs.push(dataUrl);
+                if (onProgress) onProgress([...thumbs]);
               } catch {}
               cleanup();
             });

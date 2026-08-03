@@ -1,5 +1,5 @@
 // Vision & Detection Engine for Vireon AI Studio (Face & Hand Analysis)
-import { FilesetResolver, FaceDetector, HandLandmarker } from "@mediapipe/tasks-vision";
+import { FilesetResolver, FaceDetector, HandLandmarker, ImageSegmenter } from "@mediapipe/tasks-vision";
 
 export interface VisionFrameAnalysis {
   faceCount: number;
@@ -17,6 +17,7 @@ export interface SegmentVisionScore {
 
 let faceDetectorInstance: FaceDetector | null = null;
 let handLandmarkerInstance: HandLandmarker | null = null;
+let imageSegmenterInstance: ImageSegmenter | null = null;
 let detectorInitPromise: Promise<void> | null = null;
 let isDetectorAvailable = true;
 
@@ -76,6 +77,28 @@ async function initVisionTasks(): Promise<void> {
             runningMode: "IMAGE",
             numHands: 2,
             minHandDetectionConfidence: 0.4
+          });
+        }
+
+        // Initialize Image Segmenter
+        try {
+          imageSegmenterInstance = await ImageSegmenter.createFromOptions(vision, {
+            baseOptions: {
+              modelAssetPath: "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/1/selfie_segmenter.tflite",
+              delegate: "GPU"
+            },
+            runningMode: "IMAGE",
+            outputCategoryMask: true,
+            outputConfidenceMasks: false
+          });
+        } catch {
+           imageSegmenterInstance = await ImageSegmenter.createFromOptions(vision, {
+            baseOptions: {
+              modelAssetPath: "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/1/selfie_segmenter.tflite"
+            },
+            runningMode: "IMAGE",
+            outputCategoryMask: true,
+            outputConfidenceMasks: false
           });
         }
       })();
@@ -144,6 +167,40 @@ export async function analyzeFrameVision(canvas: HTMLCanvasElement): Promise<Vis
   }
 
   return fallbackCanvasVisionAnalysis(canvas);
+}
+
+/**
+ * Removes background from a canvas/image using MediaPipe
+ */
+export async function removeBackgroundLocal(canvas: HTMLCanvasElement): Promise<Blob | null> {
+  try {
+    await initVisionTasks();
+    if (!imageSegmenterInstance) return null;
+
+    const result = imageSegmenterInstance.segment(canvas);
+    const mask = result.categoryMask;
+    if (!mask) return null;
+
+    const { width, height } = canvas;
+    const ctx = canvas.getContext("2d")!;
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const data = imageData.data;
+
+    const maskData = mask.getAsUint8Array();
+
+    for (let i = 0; i < maskData.length; i++) {
+        // In selfie segmenter, index 0 is background, index 1 is person
+        if (maskData[i] === 0) {
+            data[i * 4 + 3] = 0; // Set alpha to 0 for background
+        }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+    return new Promise(res => canvas.toBlob(res, "image/png"));
+  } catch (e) {
+    console.error("Local background removal failed:", e);
+    return null;
+  }
 }
 
 /**

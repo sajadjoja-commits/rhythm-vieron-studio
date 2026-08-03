@@ -170,7 +170,9 @@ const TemplatesScreen = ({ onStartEditor, onSelectPublishedTemplate, onSelectSma
     duration: number,
     musicType: string,
     musicFile: File | null,
-    musicName: string
+    musicName: string,
+    passedMedia?: MediaItem[],
+    passedClips?: Clip[]
   ) => {
     // Stop any preview music
     if (audioRef.current) {
@@ -193,8 +195,9 @@ const TemplatesScreen = ({ onStartEditor, onSelectPublishedTemplate, onSelectSma
     const progressInterval = setInterval(() => setAnalysisProgress((p) => Math.min(p + 0.05, 0.95)), 150);
     
     try {
-      // Small delay to ensure any file reading asynchronous states have completed
-      await new Promise((resolve) => setTimeout(resolve, 800));
+      // Use passed media/clips or fallback to context
+      const targetMedia = passedMedia || media;
+      const targetClips = passedClips || clips;
 
       let musicUrl: string | undefined;
       if (musicType === "custom-device" && musicFile) {
@@ -203,7 +206,7 @@ const TemplatesScreen = ({ onStartEditor, onSelectPublishedTemplate, onSelectSma
         musicUrl = BUILTIN_TRACKS.find((t) => t.id === musicType)?.url;
       }
 
-      const result = await runAutoMontage(media, customizedTpl, clips, musicUrl);
+      const result = await runAutoMontage(targetMedia, customizedTpl, targetClips, musicUrl);
       if (result.clips.length > 0) {
         setClips(result.clips);
         setFilters(result.filters);
@@ -320,7 +323,20 @@ const TemplatesScreen = ({ onStartEditor, onSelectPublishedTemplate, onSelectSma
     const files = e.target.files;
     if (files && files.length > 0) {
       const items = await addFiles(files);
-      if (items.length === 0) {
+      if (items.length > 0 && pendingConfigRef.current) {
+        const config = pendingConfigRef.current;
+        pendingConfigRef.current = null;
+
+        // Construct the clips that were just added
+        const newClips: Clip[] = items.map(m => ({
+          id: `initial-${m.id}`,
+          mediaId: m.id,
+          in: 0,
+          out: m.duration
+        }));
+
+        void runTemplate(config.tpl, config.customDuration, config.customMusic, config.customMusicFile, config.customMusicName, items, newClips);
+      } else if (items.length === 0) {
         pendingConfigRef.current = null;
         setSelectedTplForConfig(null);
       }
