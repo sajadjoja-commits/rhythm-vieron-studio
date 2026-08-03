@@ -361,7 +361,7 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
       {/* Main Grid: Left Controls, Right Preview */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Form Inputs */}
-        <div className="lg:col-span-7 space-y-4">
+        <div className="lg:col-span-5 space-y-4 lg:order-2">
           {/* Prompt Input Box */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
