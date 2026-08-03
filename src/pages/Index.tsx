@@ -1,4 +1,4 @@
-import { useEffect, useState, lazy, Suspense } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import BottomNav from "@/components/BottomNav";
 import { useMedia } from "@/context/MediaContext";
@@ -366,31 +366,27 @@ const Index = () => {
   if (showEditor) {
     return (
       <div className="dark">
-        <Suspense fallback={<ScreenLoader />}>
-          <EditorScreen
-            onOpenMusicLibrary={(time) => {
-              setMusicTargetTime(time || 0);
-              setShowMusicLibrary(true);
-            }}
-            onBack={() => {
-              if (window.history.state?.isEditor) {
-                window.history.back();
-              } else {
-                setShowEditor(false);
-                const saved = (safeStorage.getItem("vireon:theme") as "dark" | "light" | "auto") || "dark";
-                applyThemeToDOM(saved);
-              }
-            }}
-          />
-        </Suspense>
+        <EditorScreen
+          onOpenMusicLibrary={(time) => {
+            setMusicTargetTime(time || 0);
+            setShowMusicLibrary(true);
+          }}
+          onBack={() => {
+            if (window.history.state?.isEditor) {
+              window.history.back();
+            } else {
+              setShowEditor(false);
+              const saved = (safeStorage.getItem("vireon:theme") as "dark" | "light" | "auto") || "dark";
+              applyThemeToDOM(saved);
+            }
+          }}
+        />
 
         {showMusicLibrary && (
-          <Suspense fallback={<ScreenLoader />}>
-            <MusicLibrary
-              onClose={() => setShowMusicLibrary(false)}
-              onAdd={handleAddMusic}
-            />
-          </Suspense>
+          <MusicLibrary
+            onClose={() => setShowMusicLibrary(false)}
+            onAdd={handleAddMusic}
+          />
         )}
       </div>
     );
@@ -399,16 +395,14 @@ const Index = () => {
   if (activeSmartTemplate) {
     return (
       <div className="dark">
-        <Suspense fallback={<ScreenLoader />}>
-          <SmartTemplateQuickEditor
-            initialTemplate={activeSmartTemplate}
-            onBack={() => setActiveSmartTemplate(null)}
-            onOpenFullEditor={() => {
-              setActiveSmartTemplate(null);
-              handleOpenEditor();
-            }}
-          />
-        </Suspense>
+        <SmartTemplateQuickEditor
+          initialTemplate={activeSmartTemplate}
+          onBack={() => setActiveSmartTemplate(null)}
+          onOpenFullEditor={() => {
+            setActiveSmartTemplate(null);
+            handleOpenEditor();
+          }}
+        />
       </div>
     );
   }
@@ -416,57 +410,51 @@ const Index = () => {
   if (activeTemplateObj || activeTemplateId) {
     return (
       <div className="dark">
-        <Suspense fallback={<ScreenLoader />}>
-          <TemplateUseScreen
-            templateObj={activeTemplateObj}
-            templateId={activeTemplateId || undefined}
-            onBack={() => {
-              setActiveTemplateObj(null);
-              setActiveTemplateId(null);
-              const url = new URL(window.location.href);
-              url.searchParams.delete("templateId");
-              url.searchParams.delete("template");
-              window.history.replaceState({}, "", url.toString());
-            }}
-          />
-        </Suspense>
+        <TemplateUseScreen
+          templateObj={activeTemplateObj}
+          templateId={activeTemplateId || undefined}
+          onBack={() => {
+            setActiveTemplateObj(null);
+            setActiveTemplateId(null);
+            const url = new URL(window.location.href);
+            url.searchParams.delete("templateId");
+            url.searchParams.delete("template");
+            window.history.replaceState({}, "", url.toString());
+          }}
+        />
       </div>
     );
   }
 
   if (showPhotoEditor) {
     return (
-      <Suspense fallback={<ScreenLoader />}>
-        <PhotoEditorScreen
-          onClose={() => {
-            if (window.history.state?.isPhotoEditor) {
-              window.history.back();
-            } else {
-              setShowPhotoEditor(false);
-            }
-          }}
-        />
-      </Suspense>
+      <PhotoEditorScreen
+        onClose={() => {
+          if (window.history.state?.isPhotoEditor) {
+            window.history.back();
+          } else {
+            setShowPhotoEditor(false);
+          }
+        }}
+      />
     );
   }
 
   return (
     <div className="min-h-screen bg-background select-none" dir={isRTL() ? "rtl" : "ltr"}>
-      <Suspense fallback={<ScreenLoader />}>
-        {activeTab === "home" && (
-          <HomeScreen onNavigate={handleTabChange} onStartEditor={handleOpenEditor} session={session} newProject={newProject} />
-        )}
-        {activeTab === "templates" && (
-          <TemplatesScreen
-            onStartEditor={handleOpenEditor}
-            onSelectPublishedTemplate={handleSelectTemplate}
-            onSelectSmartTemplateQuick={handleSelectSmartTemplate}
-          />
-        )}
-        {activeTab === "camera" && <CameraScreen />}
-        {activeTab === "projects" && <ProjectsScreen onStartEditor={handleStartEditorKeep} />}
-        {activeTab === "settings" && <SettingsScreen session={session} isGuest={isGuest} onLogout={handleLogout} />}
-      </Suspense>
+      {activeTab === "home" && (
+        <HomeScreen onNavigate={handleTabChange} onStartEditor={handleOpenEditor} session={session} newProject={newProject} />
+      )}
+      {activeTab === "templates" && (
+        <TemplatesScreen
+          onStartEditor={handleOpenEditor}
+          onSelectPublishedTemplate={handleSelectTemplate}
+          onSelectSmartTemplateQuick={handleSelectSmartTemplate}
+        />
+      )}
+      {activeTab === "camera" && <CameraScreen />}
+      {activeTab === "projects" && <ProjectsScreen onStartEditor={handleStartEditorKeep} />}
+      {activeTab === "settings" && <SettingsScreen session={session} isGuest={isGuest} onLogout={handleLogout} />}
 
       <BottomNav active={activeTab} onNavigate={handleTabChange} onPlusClick={handlePlusClick} />
 
