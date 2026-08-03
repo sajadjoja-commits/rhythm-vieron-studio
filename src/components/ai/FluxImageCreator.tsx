@@ -149,11 +149,13 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
 
 
   // Handle generation via AI Runtime & AIManager -> FluxProvider
-  const handleGenerate = async () => {
+  const handleGenerate = async (opts?: { count?: number; forceRandomSeed?: boolean }) => {
     if (!prompt.trim()) {
       toast.error(en ? "Please enter a descriptive prompt first" : "يرجى كتابة وصف الصورة أولاً");
       return;
     }
+
+    const count = opts?.count ?? batchCount;
 
     playSfx("pop");
     setIsGenerating(true);
@@ -174,16 +176,17 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
     try {
       const results: FluxImageResult[] = [];
 
-      for (let i = 0; i < batchCount; i++) {
-        const stepProgress = Math.round(15 + (i / batchCount) * 75);
+      for (let i = 0; i < count; i++) {
+        const stepProgress = Math.round(15 + (i / count) * 75);
         aiRuntime.progressManager.updateProgress(
           jobId,
           stepProgress,
-          en ? `Generating Image ${i + 1} of ${batchCount}...` : `جاري توليد الصورة ${i + 1} من ${batchCount}...`,
+          en ? `Generating Image ${i + 1} of ${count}...` : `جاري توليد الصورة ${i + 1} من ${count}...`,
           "processing"
         );
 
-        const currentSeedNum = seed ? parseInt(seed, 10) + i : Math.floor(Math.random() * 1000000);
+        const currentSeedNum =
+          seed && !opts?.forceRandomSeed ? parseInt(seed, 10) + i : Math.floor(Math.random() * 1000000);
 
         const response = await aiRuntime.runTask<ImageGenerationPayload, FluxImageResult>(
           "image-generation",
@@ -199,7 +202,7 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
             seed: currentSeedNum,
           },
           {
-            executionMode: "cloud",
+            executionMode: "remote",
             preferredProvider: "flux",
           }
         );
@@ -227,6 +230,8 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
       aiRuntime.progressManager.updateProgress(jobId, 100, en ? "Generation Completed!" : "تم التوليد بنجاح!", "completed");
       setGeneratedResults(results);
       setActiveResultIndex(0);
+      pushHistory(results, prompt.trim());
+      setGalleryTab("recent");
       playSfx("success");
       toast.success(en ? `Successfully created ${results.length} FLUX.1 image(s)!` : `تم توليد ${results.length} صورة بنجاح!`);
     } catch (err: any) {
@@ -237,6 +242,7 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
       setIsGenerating(false);
     }
   };
+
 
   // Helper to store generated image to App Media Library
   const saveToMediaLibrary = async (imageUrl: string, name: string = "FLUX_AI_Image.png") => {
