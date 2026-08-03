@@ -10,19 +10,17 @@ import { safeStorage } from "@/lib/safeStorage";
 import AuthScreen from "@/components/AuthScreen";
 import { App } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
-import { Filesystem } from "@capacitor/filesystem";
 
-const HomeScreen = lazy(() => import("@/components/HomeScreen"));
-const TemplatesScreen = lazy(() => import("@/components/TemplatesScreen"));
-const CameraScreen = lazy(() => import("@/components/CameraScreen"));
-const PhotoEditorScreen = lazy(() => import("@/components/PhotoEditorScreen"));
-const ProjectsScreen = lazy(() => import("@/components/ProjectsScreen"));
-const SettingsScreen = lazy(() => import("@/components/SettingsScreen"));
-const EditorScreen = lazy(() => import("@/components/EditorScreen"));
-const TemplateUseScreen = lazy(() => import("@/components/TemplateUseScreen"));
-const SmartTemplateQuickEditor = lazy(() => import("@/components/SmartTemplateQuickEditor"));
-const CustomGallery = lazy(() => import("@/components/CustomGallery"));
-const MusicLibrary = lazy(() => import("@/components/MusicLibrary"));
+import HomeScreen from "@/components/HomeScreen";
+import TemplatesScreen from "@/components/TemplatesScreen";
+import CameraScreen from "@/components/CameraScreen";
+import PhotoEditorScreen from "@/components/PhotoEditorScreen";
+import ProjectsScreen from "@/components/ProjectsScreen";
+import SettingsScreen from "@/components/SettingsScreen";
+import EditorScreen from "@/components/EditorScreen";
+import TemplateUseScreen from "@/components/TemplateUseScreen";
+import SmartTemplateQuickEditor from "@/components/SmartTemplateQuickEditor";
+import MusicLibrary from "@/components/MusicLibrary";
 
 const ScreenLoader = () => (
   <div className="min-h-[100dvh] w-full flex flex-col items-center justify-center bg-background text-foreground animate-pulse">
@@ -43,7 +41,25 @@ const Index = () => {
   const [activeSmartTemplate, setActiveSmartTemplate] = useState<any | null>(null);
   const [showGallery, setShowGallery] = useState<{ open: boolean; type: "image" | "video" | "both" }>({ open: false, type: "both" });
   const [showMusicLibrary, setShowMusicLibrary] = useState(false);
-  const { newProject } = useMedia();
+  const [musicTargetTime, setMusicTargetTime] = useState(0);
+  const { newProject, addAudioTrack } = useMedia();
+
+  const handleAddMusic = (track: any) => {
+    addAudioTrack({
+      name: track.title || track.name,
+      url: track.url,
+      start: musicTargetTime,
+      offset: 0,
+      duration: 30,
+      sourceDuration: 180,
+      volume: 0.8,
+      muted: false,
+      fx: "none",
+      color: track.color || "#ec4899",
+      kind: "music",
+    });
+    setShowMusicLibrary(false);
+  };
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
