@@ -1,6 +1,6 @@
 import { createRoot } from "react-dom/client";
-import App from "./App.tsx";
-import ErrorBoundary from "./components/ErrorBoundary.tsx";
+import App from "./App";
+import ErrorBoundary from "./components/ErrorBoundary";
 import "./index.css";
 import { applyLangToDOM } from "./lib/i18n";
 import { preloadSfx } from "./lib/soundFx";
