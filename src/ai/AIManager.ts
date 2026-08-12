@@ -26,6 +26,7 @@ import { SupabaseEdgeProvider } from "./providers/remote/SupabaseEdgeProvider";
 import { GeminiProvider } from "./providers/remote/GeminiProvider";
 import { FluxProvider } from "./providers/remote/FluxProvider";
 import { LocalAudioFilter } from "./providers/local/LocalAudioFilter";
+import { LocalPluginProvider } from "./providers/local/LocalPluginProvider";
 
 // Tasks
 import { BaseTask } from "./tasks/BaseTask";
@@ -69,12 +70,14 @@ export class AIManager {
     const gemini = new GeminiProvider(this.keyManager);
     const flux = new FluxProvider(this.keyManager);
     const localAudio = new LocalAudioFilter(this.modelLoader);
+    const localPlugins = new LocalPluginProvider();
 
     this.registerProvider(groq);
     this.registerProvider(edge);
     this.registerProvider(gemini);
     this.registerProvider(flux);
     this.registerProvider(localAudio);
+    this.registerProvider(localPlugins);
   }
 
   private registerDefaultTasks(): void {

@@ -40,6 +40,7 @@ export interface AITaskOptions {
   timeoutMs?: number;
   language?: string;
   signal?: AbortSignal;
+  jobId?: string;
 }
 
 // ---------------- Task Payloads & Results ----------------

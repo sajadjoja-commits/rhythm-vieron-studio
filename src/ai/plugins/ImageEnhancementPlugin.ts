@@ -7,12 +7,15 @@ import {
 import { AICapability, AIJobOptions } from "../runtime/types";
 import { AIResponse } from "../types/ai";
 import { aiRuntime } from "../runtime/AIRuntime";
+import { RMBG2ModelEngine } from "../engines/RMBG2ModelEngine";
 
 export class ImageEnhancementPlugin extends BasePlugin {
   public id = "plugin-image-enhancement";
   public name = "Professional AI Image Processing Plugin (RMBG-2.0, Real-ESRGAN, GFPGAN, LaMa, SCUNet)";
   public version = "1.0.0";
   public description = "AI Image Background Removal, Real-ESRGAN Upscaling, GFPGAN Face Enhancement, LaMa Object Removal & SCUNet Denoise";
+
+  private rmbgEngine: RMBG2ModelEngine | null = null;
 
   public capabilities: AICapability[] = [
     {
@@ -145,7 +148,7 @@ export class ImageEnhancementPlugin extends BasePlugin {
 
       switch (action) {
         case "remove-background":
-          result = await this.runBackgroundRemoval(imgPayload, isLocal);
+          result = await this.runBackgroundRemoval(imgPayload, isLocal, options);
           break;
 
         case "upscale":
@@ -188,31 +191,59 @@ export class ImageEnhancementPlugin extends BasePlugin {
   // ---------------- Core Action Handlers ----------------
 
   /**
-   * RMBG-2.0 / Bria RMBG Background Removal
+   * RMBG-2.0 / Bria RMBG Background Removal (Real Local AI Implementation)
    */
-  private async runBackgroundRemoval(payload: AIImagePayload, isLocal: boolean): Promise<AIImageResult> {
-    const engine = payload.preferredEngine || "RMBG-2.0";
+  private async runBackgroundRemoval(payload: AIImagePayload, isLocal: boolean, options?: AIJobOptions): Promise<AIImageResult> {
+    const engineName = payload.preferredEngine || "RMBG-2.0";
 
     if (isLocal) {
-      const { output, width, height } = await this.applyCanvasBgRemoval(payload.imageBase64OrUrl);
-      return {
-        outputImageBase64OrUrl: output,
-        mimeType: "image/png",
-        width,
-        height,
-        processingType: "remove-background",
-        appliedEngine: `${engine} (Local WebAssembly / WebGL)`,
-        executionTimeMs: 0,
-        qualityMetrics: {
-          originalWidth: width,
-          originalHeight: height,
-          isLocalExecution: true,
-        },
-      };
+      console.log(`[ImageEnhancementPlugin] Starting Real Local AI Background Removal using ${engineName}`);
+
+      try {
+        // Lazy initialize RMBG-2.0 Engine
+        if (!this.rmbgEngine) {
+            this.rmbgEngine = new RMBG2ModelEngine(aiRuntime.progressManager, (options as any)?.jobId);
+        }
+
+        // 1. Initialize / Load Model (Real Local AI)
+        await this.rmbgEngine.initialize();
+
+        // 2. Preprocess
+        const inputs = await this.rmbgEngine.preprocess(payload.imageBase64OrUrl);
+
+        // 3. Inference
+        const output = await this.rmbgEngine.infer(inputs);
+
+        // 4. Postprocess & Create PNG
+        const outputImage = await this.rmbgEngine.postprocess(output, payload.imageBase64OrUrl);
+
+        // 5. Get dimensions
+        const dimensions = await this.getImageDimensions(outputImage);
+
+        return {
+          outputImageBase64OrUrl: outputImage,
+          mimeType: "image/png",
+          width: dimensions.width,
+          height: dimensions.height,
+          processingType: "remove-background",
+          appliedEngine: `${engineName} (Local ONNX Inference)`,
+          executionTimeMs: 0,
+          qualityMetrics: {
+            originalWidth: dimensions.width,
+            originalHeight: dimensions.height,
+            isLocalExecution: true,
+          },
+        };
+      } catch (err: any) {
+        console.error("[ImageEnhancementPlugin] Local RMBG-2.0 failed:", err);
+        // User requested: "إذا فشل النموذج الحقيقي: الحالة = FAILED ولا ترجع Success."
+        // We throw here, which will be caught by the execute() method and returned as success: false
+        throw err;
+      }
     }
 
     // Remote fallback via Gemini Vision API
-    const remoteRes = await aiRuntime.aiManager.removeBackground(payload.imageBase64OrUrl, {
+    const remoteRes = await aiRuntime.aiManager.removeBackground(payload.imageBase64OrUrl, false, {
       executionMode: "remote",
     });
 
@@ -382,38 +413,8 @@ export class ImageEnhancementPlugin extends BasePlugin {
   // ---------------- HTML5 Canvas & WebGL DSP Algorithms ----------------
 
   private async applyCanvasBgRemoval(imgSrc: string): Promise<{ output: string; width: number; height: number }> {
-    const img = await this.loadImage(imgSrc);
-    const canvas = document.createElement("canvas");
-    canvas.width = img.width;
-    canvas.height = img.height;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return { output: imgSrc, width: img.width, height: img.height };
-
-    ctx.drawImage(img, 0, 0);
-    const imgData = ctx.getImageData(0, 0, img.width, img.height);
-    const data = imgData.data;
-
-    // RMBG-2.0 edge-aware alpha thresholding
-    const cornerR = (data[0] + data[(img.width - 1) * 4]) / 2;
-    const cornerG = (data[1] + data[(img.width - 1) * 4 + 1]) / 2;
-    const cornerB = (data[2] + data[(img.width - 1) * 4 + 2]) / 2;
-
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-
-      const diff = Math.sqrt((r - cornerR) ** 2 + (g - cornerG) ** 2 + (b - cornerB) ** 2);
-      if (diff < 40) {
-        data[i + 3] = 0; // Set background pixel transparent
-      } else if (diff < 70) {
-        data[i + 3] = Math.round(((diff - 40) / 30) * 255); // Smooth alpha border
-      }
-    }
-
-    ctx.putImageData(imgData, 0, 0);
-    return { output: canvas.toDataURL("image/png"), width: img.width, height: img.height };
+      // Simulation removed as per Phase 1 requirements
+      throw new Error("Local Background Removal Simulation (Canvas) is deprecated. Use RMBG-2.0 Engine.");
   }
 
   private async applyCanvasUpscale(

@@ -27,6 +27,9 @@ export class AIRuntime {
     this.historyManager = new AIHistoryManager();
     this.downloadManager = new AIDownloadManager();
 
+    // Wire up progress manager to model loader
+    this.aiManager.modelLoader.setProgressManager(this.progressManager);
+
     this.jobQueue = new AIJobQueue(this.progressManager, this.resourceManager);
   }
 
@@ -91,6 +94,7 @@ export class AIRuntime {
           preferredProvider: options?.preferredProviderId,
           enableCache: options?.enableCache,
           signal: jobRecord.abortController.signal,
+          jobId: jobId,
         });
 
         return res;

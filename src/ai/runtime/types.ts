@@ -48,6 +48,7 @@ export interface AIJobOptions {
   enableCache?: boolean;
   timeoutMs?: number;
   onProgress?: (progress: AIJobProgress) => void;
+  jobId?: string;
 }
 
 export interface AIJobRecord<TPayload = any, TResult = any> {
