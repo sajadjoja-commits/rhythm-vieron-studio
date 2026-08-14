@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Activity, ChevronDown, ChevronUp, Layers3, Music2, Sparkles, Wand2, X, Zap } from "lucide-react";
+import { Activity, Layers3, Music2, Sparkles, Wand2, X, Zap } from "lucide-react";
 import { useMedia, VfxType } from "@/context/MediaContext";
 import { toast } from "sonner";
 
@@ -27,7 +27,6 @@ export default function EditorEnhancements() {
   const [effectDuration, setEffectDuration] = useState(0.45);
 
   const beatCount = media.audioBeats?.length ?? 0;
-  const current = media.resolveTimelineTime(0);
 
   const usableBeats = useMemo(() => {
     const beats = (media.audioBeats ?? []).filter((b) => Number.isFinite(b) && b >= 0 && b <= media.totalDuration);
@@ -44,29 +43,6 @@ export default function EditorEnhancements() {
     toast.success(`تم ضبط التقطيع على ${usableBeats.length} إيقاع.`);
   };
 
-  const addEdgeEffect = (type: VfxType, edge: "in" | "out") => {
-    const resolved = media.resolveTimelineTime(0);
-    const clip = resolved?.clip ?? media.clips[0];
-    if (!clip) {
-      toast.error("أضف فيديو إلى الـ Timeline أولاً.");
-      return;
-    }
-
-    let cursor = 0;
-    const index = media.clips.findIndex((c) => c.id === clip.id);
-    for (let i = 0; i < Math.max(0, index); i++) {
-      const c = media.clips[i];
-      cursor += Math.max(0, c.out - c.in) / (c.speed && c.speed > 0 ? c.speed : 1);
-    }
-    const clipDuration = Math.max(0, clip.out - clip.in) / (clip.speed && clip.speed > 0 ? clip.speed : 1);
-    const d = clamp(effectDuration, 0.12, Math.min(1.5, Math.max(0.12, clipDuration)));
-    const start = edge === "in" ? cursor : Math.max(cursor, cursor + clipDuration - d);
-    const end = edge === "in" ? Math.min(cursor + clipDuration, cursor + d) : cursor + clipDuration;
-
-    media.addVfx({ id: undefined as never, type, start, end, intensity: 0.8 });
-    toast.success(`${edge === "in" ? "دخول" : "خروج"}: ${type}`);
-  };
-
   const addEffectToAllCuts = (type: VfxType, edge: "in" | "out") => {
     if (!media.clips.length) {
       toast.error("أضف مقاطع إلى الـ Timeline أولاً.");
@@ -76,10 +52,11 @@ export default function EditorEnhancements() {
     let added = 0;
     for (const clip of media.clips) {
       const duration = Math.max(0, clip.out - clip.in) / (clip.speed && clip.speed > 0 ? clip.speed : 1);
-      const d = clamp(effectDuration, 0.12, Math.min(1.5, Math.max(0.12, duration)));
+      if (duration <= 0) continue;
+      const d = clamp(effectDuration, 0.12, Math.min(1.5, duration));
       const start = edge === "in" ? cursor : Math.max(cursor, cursor + duration - d);
       const end = edge === "in" ? Math.min(cursor + duration, cursor + d) : cursor + duration;
-      media.addVfx({ id: undefined as never, type, start, end, intensity: 0.75 });
+      media.addVfx({ type, start, end, intensity: 0.75 });
       cursor += duration;
       added++;
     }
