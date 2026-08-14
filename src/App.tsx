@@ -10,30 +10,41 @@ import { MediaProvider } from "./context/MediaContext";
 import { AdGateProvider } from "./context/AdGateContext";
 import InstallPrompt from "./components/InstallPrompt";
 import UpdateNotifier from "./components/UpdateNotifier";
+import ErrorBoundary from "./components/ErrorBoundary";
+import EditorEnhancements from "./components/editor/EditorEnhancements";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <MediaProvider>
-        <AdGateProvider>
-          <BrowserRouter>
-            <InstallPrompt />
-            <UpdateNotifier />
-            <Routes>
-              <Route path="/" element={<Index />} />
-              <Route path="/reset-password" element={<ResetPassword />} />
-              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </BrowserRouter>
-        </AdGateProvider>
-      </MediaProvider>
-    </TooltipProvider>
-  </QueryClientProvider>
+  <ErrorBoundary>
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <MediaProvider>
+          <AdGateProvider>
+            <BrowserRouter>
+              <InstallPrompt />
+              <UpdateNotifier />
+              <EditorEnhancements />
+              <Routes>
+                <Route path="/" element={<Index />} />
+                <Route path="/reset-password" element={<ResetPassword />} />
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </BrowserRouter>
+          </AdGateProvider>
+        </MediaProvider>
+      </TooltipProvider>
+    </QueryClientProvider>
+  </ErrorBoundary>
 );
 
 export default App;
