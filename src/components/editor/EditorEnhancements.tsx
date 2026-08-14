@@ -3,10 +3,6 @@ import { Activity, Layers3, Music2, Sparkles, Wand2, X, Zap } from "lucide-react
 import { useMedia, VfxType } from "@/context/MediaContext";
 import { toast } from "sonner";
 
-/**
- * Lightweight editor toolkit. It deliberately uses metadata/canvas effects instead
- * of bundled preview images, so the editor does not gain a large asset payload.
- */
 const EFFECTS: Array<{ type: VfxType; label: string; side: "in" | "out" | "both" }> = [
   { type: "light-leak", label: "Light Leak", side: "in" },
   { type: "zoom-pulse", label: "Zoom Pulse", side: "both" },
@@ -26,8 +22,9 @@ export default function EditorEnhancements() {
   const [beatMode, setBeatMode] = useState<"all" | "every2" | "every4">("every2");
   const [effectDuration, setEffectDuration] = useState(0.45);
 
-  const beatCount = media.audioBeats?.length ?? 0;
+  if (typeof window !== "undefined" && window.location.pathname !== "/") return null;
 
+  const beatCount = media.audioBeats?.length ?? 0;
   const usableBeats = useMemo(() => {
     const beats = (media.audioBeats ?? []).filter((b) => Number.isFinite(b) && b >= 0 && b <= media.totalDuration);
     const step = beatMode === "all" ? 1 : beatMode === "every4" ? 4 : 2;
@@ -65,14 +62,8 @@ export default function EditorEnhancements() {
 
   if (!open) {
     return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="fixed bottom-24 right-3 z-[70] flex items-center gap-2 rounded-full border border-white/10 bg-black/80 px-3 py-2 text-xs text-white shadow-xl backdrop-blur-xl"
-        aria-label="Editor enhancements"
-      >
-        <Wand2 className="h-4 w-4" />
-        أدوات ذكية
+      <button type="button" onClick={() => setOpen(true)} className="fixed bottom-24 right-3 z-[70] flex items-center gap-2 rounded-full border border-white/10 bg-black/80 px-3 py-2 text-xs text-white shadow-xl backdrop-blur-xl" aria-label="Editor enhancements">
+        <Wand2 className="h-4 w-4" /> أدوات ذكية
       </button>
     );
   }
@@ -83,23 +74,17 @@ export default function EditorEnhancements() {
         <div className="flex items-center gap-2"><Sparkles className="h-4 w-4" /><b className="text-sm">Editor Toolkit</b></div>
         <button type="button" onClick={() => setOpen(false)} className="rounded-lg p-1 hover:bg-white/10"><X className="h-4 w-4" /></button>
       </div>
-
       <div className="max-h-[65vh] space-y-3 overflow-y-auto p-3">
         <section className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
           <div className="mb-2 flex items-center gap-2"><Music2 className="h-4 w-4" /><span className="text-sm font-semibold">Beat Cut</span><span className="ml-auto text-[10px] text-white/50">{beatCount} beats</span></div>
           <div className="grid grid-cols-3 gap-1.5">
             {(["all", "every2", "every4"] as const).map((mode) => (
-              <button key={mode} type="button" onClick={() => setBeatMode(mode)} className={`rounded-lg px-2 py-2 text-[11px] ${beatMode === mode ? "bg-white text-black" : "bg-white/5 text-white/70"}`}>
-                {mode === "all" ? "كل Beat" : mode === "every2" ? "كل 2" : "كل 4"}
-              </button>
+              <button key={mode} type="button" onClick={() => setBeatMode(mode)} className={`rounded-lg px-2 py-2 text-[11px] ${beatMode === mode ? "bg-white text-black" : "bg-white/5 text-white/70"}`}>{mode === "all" ? "كل Beat" : mode === "every2" ? "كل 2" : "كل 4"}</button>
             ))}
           </div>
-          <button type="button" onClick={splitOnBeats} className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-500 px-3 py-2 text-xs font-semibold hover:bg-indigo-400">
-            <Zap className="h-4 w-4" /> تقطيع ذكي على الإيقاع
-          </button>
+          <button type="button" onClick={splitOnBeats} className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-500 px-3 py-2 text-xs font-semibold hover:bg-indigo-400"><Zap className="h-4 w-4" /> تقطيع ذكي على الإيقاع</button>
           <p className="mt-2 text-[10px] leading-4 text-white/45">يستخدم الإيقاعات المحللة الموجودة أصلاً، بدون تحميل مكتبة صوت إضافية.</p>
         </section>
-
         <section className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
           <div className="mb-2 flex items-center gap-2"><Layers3 className="h-4 w-4" /><span className="text-sm font-semibold">Entrance / Exit FX</span></div>
           <label className="mb-2 block text-[10px] text-white/50">مدة المؤثر: {effectDuration.toFixed(2)}s</label>
@@ -116,7 +101,6 @@ export default function EditorEnhancements() {
             ))}
           </div>
         </section>
-
         <section className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-[10px] leading-4 text-white/50">
           <div className="mb-1 flex items-center gap-1 text-white/80"><Wand2 className="h-3.5 w-3.5" /> بدون Assets ثقيلة</div>
           معاينات الانتقالات والمؤثرات تُرسم بـ Canvas/metadata داخل التطبيق، لذلك لا نضيف صور JPG/PNG لكل مؤثر ولا نكبّر حجم APK.
