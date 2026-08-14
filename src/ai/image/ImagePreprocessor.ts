@@ -49,6 +49,19 @@ export class ImagePreprocessor {
     return ImagePreprocessor.instance;
   }
 
+  private dataUrlToBlob(dataUrl: string): Blob {
+    const parts = dataUrl.split(",");
+    const mimeMatch = parts[0]?.match(/:(.*?);/);
+    const mime = mimeMatch ? mimeMatch[1] : "image/png";
+    const bstr = atob(parts[1] || "");
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new Blob([u8arr], { type: mime });
+  }
+
   /**
    * Load any image input (data URL, blob, file, URL) into an HTMLImageElement or ImageBitmap
    */
@@ -84,32 +97,36 @@ export class ImagePreprocessor {
         if (input instanceof Blob) {
           blob = input;
         } else if (src.startsWith("data:")) {
-          const res = await fetch(src);
-          blob = await res.blob();
+          blob = this.dataUrlToBlob(src);
         } else {
           const res = await fetch(src, { mode: "cors" });
           blob = await res.blob();
         }
         const bitmap = await createImageBitmap(blob);
+        if (isCreatedUrl) this.memoryManager.revokeUrl(src);
         return this.memoryManager.trackBitmap(bitmap);
       }
-    } catch {
-      // Fallback to Image element
+    } catch (e) {
+      // Fallback to Image element if available
     }
 
-    return new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => {
-        if (isCreatedUrl) this.memoryManager.revokeUrl(src);
-        resolve(img);
-      };
-      img.onerror = (err) => {
-        if (isCreatedUrl) this.memoryManager.revokeUrl(src);
-        reject(new Error(`[ImagePreprocessor] Failed to load image from source: ${err}`));
-      };
-      img.src = src;
-    });
+    if (typeof Image !== "undefined") {
+      return new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
+          if (isCreatedUrl) this.memoryManager.revokeUrl(src);
+          resolve(img);
+        };
+        img.onerror = (err) => {
+          if (isCreatedUrl) this.memoryManager.revokeUrl(src);
+          reject(new Error(`[ImagePreprocessor] Failed to load image from source: ${err}`));
+        };
+        img.src = src;
+      });
+    }
+
+    throw new Error("[ImagePreprocessor] Neither createImageBitmap nor Image is available in this environment");
   }
 
   /**

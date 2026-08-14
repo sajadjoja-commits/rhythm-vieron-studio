@@ -35,6 +35,9 @@ export abstract class BaseTask<TPayload = any, TResult = any> {
       candidates.sort((a, b) => (a.type === "local" ? -1 : b.type === "local" ? 1 : 0));
     } else if (mode === "remote" || mode === "cloud") {
       candidates.sort((a, b) => (a.type === "remote" ? -1 : b.type === "remote" ? 1 : 0));
+    } else if (mode === "auto") {
+      // In auto mode, prioritize fast local neural models for low latency and zero external dependency
+      candidates.sort((a, b) => (a.type === "local" ? -1 : b.type === "local" ? 1 : 0));
     }
 
     return candidates;

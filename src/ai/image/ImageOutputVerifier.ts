@@ -141,6 +141,19 @@ export class ImageOutputVerifier {
     };
   }
 
+  private dataUrlToBlob(dataUrl: string): Blob {
+    const parts = dataUrl.split(",");
+    const mimeMatch = parts[0]?.match(/:(.*?);/);
+    const mime = mimeMatch ? mimeMatch[1] : "image/png";
+    const bstr = atob(parts[1] || "");
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new Blob([u8arr], { type: mime });
+  }
+
   private async inspectOutput(
     dataUrl: string,
     width: number,
@@ -152,66 +165,109 @@ export class ImageOutputVerifier {
     averageBrightness: number;
     pixelVariance: number;
   }> {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => {
-        try {
-          const canvas = this.memoryManager.createCanvas(width, height);
-          const ctx = canvas.getContext("2d", { willReadFrequently: true }) as
-            | CanvasRenderingContext2D
-            | OffscreenCanvasRenderingContext2D;
+    let source: ImageBitmap | HTMLImageElement;
 
-          ctx.drawImage(img, 0, 0, width, height);
-          const imageData = ctx.getImageData(0, 0, width, height);
-          this.memoryManager.disposeCanvas(canvas);
-
-          const data = imageData.data;
-          const total = width * height;
-          let transparentCount = 0;
-          let totalBrightness = 0;
-
-          // Sample every 4th pixel for high speed performance
-          const step = Math.max(1, Math.floor(total / 10000));
-          let sampledCount = 0;
-          let sumSquares = 0;
-
-          for (let i = 0; i < total; i += step) {
-            const idx = i * 4;
-            const a = data[idx + 3];
-            const r = data[idx];
-            const g = data[idx + 1];
-            const b = data[idx + 2];
-
-            if (a < 250) {
-              transparentCount++;
-            }
-
-            const brightness = (r + g + b) / (3 * 255);
-            totalBrightness += brightness;
-            sumSquares += brightness * brightness;
-            sampledCount++;
-          }
-
-          const meanBrightness = totalBrightness / Math.max(1, sampledCount);
-          const variance = Math.max(
-            0,
-            sumSquares / Math.max(1, sampledCount) - meanBrightness * meanBrightness
-          );
-
-          resolve({
-            imageData,
-            hasAlpha: transparentCount > 0,
-            transparentPixelRatio: transparentCount / Math.max(1, sampledCount),
-            averageBrightness: meanBrightness,
-            pixelVariance: variance,
-          });
-        } catch (e) {
-          reject(e);
+    if (typeof createImageBitmap === "function") {
+      try {
+        let blob: Blob;
+        if (dataUrl.startsWith("data:")) {
+          blob = this.dataUrlToBlob(dataUrl);
+        } else {
+          const res = await fetch(dataUrl);
+          blob = await res.blob();
         }
+        source = await createImageBitmap(blob);
+      } catch (bitmapErr) {
+        if (typeof Image === "undefined") {
+          throw new Error(`[ImageOutputVerifier] Failed to decode image with createImageBitmap in worker: ${bitmapErr}`);
+        }
+        source = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = (e) => reject(new Error(`Failed to decode output image: ${e}`));
+          img.src = dataUrl;
+        });
+      }
+    } else if (typeof Image !== "undefined") {
+      source = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => resolve(img);
+        img.onerror = (e) => reject(new Error(`Failed to decode output image: ${e}`));
+        img.src = dataUrl;
+      });
+    } else {
+      throw new Error("[ImageOutputVerifier] Neither createImageBitmap nor Image is available in this environment.");
+    }
+
+    try {
+      const canvas = this.memoryManager.createCanvas(width, height);
+      const ctx = canvas.getContext("2d", { willReadFrequently: true }) as
+        | CanvasRenderingContext2D
+        | OffscreenCanvasRenderingContext2D;
+
+      ctx.drawImage(source as any, 0, 0, width, height);
+      const imageData = ctx.getImageData(0, 0, width, height);
+      this.memoryManager.disposeCanvas(canvas);
+
+      if (typeof ImageBitmap !== "undefined" && source instanceof ImageBitmap) {
+        try {
+          source.close();
+        } catch {
+          // Ignore
+        }
+      }
+
+      const data = imageData.data;
+      const total = width * height;
+      let transparentCount = 0;
+      let totalBrightness = 0;
+
+      // Sample every 4th pixel for high speed performance
+      const step = Math.max(1, Math.floor(total / 10000));
+      let sampledCount = 0;
+      let sumSquares = 0;
+
+      for (let i = 0; i < total; i += step) {
+        const idx = i * 4;
+        const a = data[idx + 3];
+        const r = data[idx];
+        const g = data[idx + 1];
+        const b = data[idx + 2];
+
+        if (a < 250) {
+          transparentCount++;
+        }
+
+        const brightness = (r + g + b) / (3 * 255);
+        totalBrightness += brightness;
+        sumSquares += brightness * brightness;
+        sampledCount++;
+      }
+
+      const meanBrightness = totalBrightness / Math.max(1, sampledCount);
+      const variance = Math.max(
+        0,
+        sumSquares / Math.max(1, sampledCount) - meanBrightness * meanBrightness
+      );
+
+      return {
+        imageData,
+        hasAlpha: transparentCount > 0,
+        transparentPixelRatio: transparentCount / Math.max(1, sampledCount),
+        averageBrightness: meanBrightness,
+        pixelVariance: variance,
       };
-      img.onerror = (e) => reject(new Error(`Failed to decode output image: ${e}`));
-      img.src = dataUrl;
-    });
+    } catch (e) {
+      if (typeof ImageBitmap !== "undefined" && source instanceof ImageBitmap) {
+        try {
+          source.close();
+        } catch {
+          // Ignore
+        }
+      }
+      throw e;
+    }
   }
 }
