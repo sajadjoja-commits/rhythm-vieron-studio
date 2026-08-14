@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { extractVideoAudioFile } from "@/lib/extractVideoAudio";
 import { analyzeBeats, analyzeBeatsFromUrl } from "@/lib/audioAnalysis";
 import { BUILTIN_SFX, buildBuiltinSfx, BuiltinSfxName } from "@/lib/audioFx";
-import { BUILTIN_TRACKS, BuiltinTrack, getSavedLibraryTracks, saveLibraryTrack, removeLibraryTrack, getGenreCoverImage, fetchSupabaseMusicTracks } from "@/lib/builtinMusic";
+import { BUILTIN_TRACKS, BuiltinTrack, getSavedLibraryTracks, saveLibraryTrack, removeLibraryTrack, getGenreCoverImage, fetchSupabaseMusicTracks, generateSvgCoverFallback } from "@/lib/builtinMusic";
 import { getLang } from "@/lib/i18n";
 import { playSfx } from "@/lib/soundFx";
 import { AIToolsPanel } from "@/components/editor/AIToolsPanel";
@@ -548,6 +548,10 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
                             src={coverSrc}
                             alt={tr.title}
                             referrerPolicy="no-referrer"
+                            onError={(e) => {
+                              e.currentTarget.onerror = null;
+                              e.currentTarget.src = generateSvgCoverFallback(tr.title, tr.genre);
+                            }}
                             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                           />
 

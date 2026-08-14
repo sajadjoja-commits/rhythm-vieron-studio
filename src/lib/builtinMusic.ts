@@ -14,24 +14,51 @@ export interface BuiltinTrack {
   color: string;
 }
 
-export const DEFAULT_MUSIC_COVER = "/music_album_cover.jpg";
+export const DEFAULT_MUSIC_COVER = "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=300&q=80";
 
 export const GENRE_COVERS: Record<string, string> = {
   arabic: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=300&q=80",
   pop: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=300&q=80",
   electronic: "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&w=300&q=80",
   acoustic: "https://images.unsplash.com/photo-1465847899084-d164df4dedc6?auto=format&fit=crop&w=300&q=80",
-  cinematic: "https://images.unsplash.com/photo-1518972559570-7cc1329b3227?auto=format&fit=crop&w=300&q=80",
+  cinematic: "https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&w=300&q=80",
   hiphop: "https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?auto=format&fit=crop&w=300&q=80",
   lofi: "https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&w=300&q=80",
   rock: "https://images.unsplash.com/photo-1498038432885-c6f3f1b912ee?auto=format&fit=crop&w=300&q=80",
-  other: DEFAULT_MUSIC_COVER,
+  other: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=300&q=80",
 };
 
+export function generateSvgCoverFallback(title: string = "Music Track", genre: string = "cinematic"): string {
+  const colors: Record<string, [string, string]> = {
+    cinematic: ["#1e1b4b", "#3b82f6"],
+    rock: ["#450a0a", "#ef4444"],
+    pop: ["#831843", "#ec4899"],
+    lofi: ["#311042", "#a855f7"],
+    electronic: ["#022c22", "#10b981"],
+    acoustic: ["#14532d", "#84cc16"],
+    arabic: ["#78350f", "#f59e0b"],
+    hiphop: ["#172554", "#6366f1"],
+    other: ["#18181b", "#6366f1"],
+  };
+  const [c1, c2] = colors[genre] || colors.cinematic;
+  const cleanTitle = title.replace(/[<>&"]/g, "").slice(0, 20);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300">
+    <defs>
+      <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="${c1}"/>
+        <stop offset="100%" stop-color="${c2}"/>
+      </linearGradient>
+    </defs>
+    <rect width="300" height="300" rx="24" fill="url(#g)"/>
+    <circle cx="150" cy="150" r="70" fill="white" fill-opacity="0.08" stroke="white" stroke-opacity="0.2" stroke-width="2"/>
+    <circle cx="150" cy="150" r="28" fill="white" fill-opacity="0.15"/>
+    <path d="M142 135v30m16-30v25m-16-25c0-4 16-8 16-8v8" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <text x="150" y="255" fill="white" font-family="system-ui, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill-opacity="0.9">${cleanTitle}</text>
+  </svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
 export function getGenreCoverImage(genre?: string, title?: string): string {
-  if (genre && GENRE_COVERS[genre]) {
-    return GENRE_COVERS[genre];
-  }
   const t = (title || "").toLowerCase();
   if (t.includes("عرب") || t.includes("شرق") || t.includes("عود") || t.includes("طرب") || t.includes("أغني") || t.includes("موسيق")) return GENRE_COVERS.arabic;
   if (t.includes("روك") || t.includes("rock") || t.includes("power") || t.includes("pressure")) return GENRE_COVERS.rock;
@@ -41,7 +68,11 @@ export function getGenreCoverImage(genre?: string, title?: string): string {
   if (t.includes("لوفي") || t.includes("lofi") || t.includes("chill") || t.includes("stillness") || t.includes("dawn") || t.includes("breathing") || t.includes("ambient")) return GENRE_COVERS.lofi;
   if (t.includes("الكترون") || t.includes("dj") || t.includes("dance")) return GENRE_COVERS.electronic;
   if (t.includes("أكوستيك") || t.includes("acoustic") || t.includes("calm") || t.includes("below")) return GENRE_COVERS.acoustic;
-  return DEFAULT_MUSIC_COVER;
+  
+  if (genre && genre !== "other" && GENRE_COVERS[genre]) {
+    return GENRE_COVERS[genre];
+  }
+  return GENRE_COVERS.cinematic || DEFAULT_MUSIC_COVER;
 }
 
 // Real tracks existing in Supabase Storage bucket 'audio' inside folder 'music'
@@ -127,6 +158,14 @@ export async function fetchSupabaseMusicTracks(): Promise<BuiltinTrack[]> {
       fetchedTracks = data
         .filter((file) => file.name && !file.name.startsWith(".") && /\.(mp3|wav|aac|m4a|ogg|flac)$/i.test(file.name))
         .map((file) => {
+          const trackId = `supabase-${file.name}`;
+          const existing = SUPABASE_DEFAULT_TRACKS.find(
+            (def) => def.id.toLowerCase() === trackId.toLowerCase() || def.id.toLowerCase().includes(file.name.toLowerCase())
+          );
+          if (existing) {
+            return existing;
+          }
+
           const cleanName = file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ");
           const formattedTitle = cleanName
             .split(" ")
@@ -134,16 +173,17 @@ export async function fetchSupabaseMusicTracks(): Promise<BuiltinTrack[]> {
             .join(" ");
           
           const publicUrl = supabase.storage.from("audio").getPublicUrl(`music/${file.name}`).data.publicUrl;
+          const coverUrl = getGenreCoverImage("other", formattedTitle);
           
           return {
-            id: `supabase-${file.name}`,
+            id: trackId,
             title: formattedTitle,
             titleEn: formattedTitle,
             artist: "Supabase Music",
             url: publicUrl,
-            coverUrl: getGenreCoverImage("other", formattedTitle),
+            coverUrl,
             bpm: 120,
-            genre: "other",
+            genre: "other" as const,
             color: "#a855f7",
           };
         });
@@ -151,8 +191,8 @@ export async function fetchSupabaseMusicTracks(): Promise<BuiltinTrack[]> {
 
     // Merge SUPABASE_DEFAULT_TRACKS to guarantee all default tracks are present with rich metadata
     const trackMap = new Map<string, BuiltinTrack>();
-    fetchedTracks.forEach((t) => trackMap.set(t.url, t));
-    SUPABASE_DEFAULT_TRACKS.forEach((t) => trackMap.set(t.url, t));
+    SUPABASE_DEFAULT_TRACKS.forEach((t) => trackMap.set(t.id, t));
+    fetchedTracks.forEach((t) => trackMap.set(t.id, t));
 
     return Array.from(trackMap.values());
   } catch (err) {

@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from "react";
 import { Search, Play, Pause, Upload, Music2, Headphones, Guitar, Film, Volume2, Image as ImageIcon, Link, Trash2, Sparkles, Mic, Zap } from "lucide-react";
-import { BUILTIN_TRACKS, BuiltinTrack, getSavedLibraryTracks, saveLibraryTrack, removeLibraryTrack, getGenreCoverImage, fetchSupabaseMusicTracks } from "@/lib/builtinMusic";
+import { BUILTIN_TRACKS, BuiltinTrack, getSavedLibraryTracks, saveLibraryTrack, removeLibraryTrack, getGenreCoverImage, fetchSupabaseMusicTracks, generateSvgCoverFallback } from "@/lib/builtinMusic";
 import { getLang, t } from "@/lib/i18n";
 import { playSfx } from "@/lib/soundFx";
 
@@ -186,7 +186,16 @@ const MusicScreen = () => {
               <div className="flex items-center gap-3">
                 {/* Cover Image + Overlaid Play/Pause button */}
                 <div className="relative w-12 h-12 rounded-xl overflow-hidden bg-secondary border border-border shrink-0 group flex items-center justify-center shadow-inner">
-                  <img src={coverSrc} alt={track.title} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                  <img
+                    src={coverSrc}
+                    alt={track.title}
+                    referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      e.currentTarget.onerror = null;
+                      e.currentTarget.src = generateSvgCoverFallback(track.title, track.genre);
+                    }}
+                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  />
 
                   <button
                     onClick={() => toggle(track)}
