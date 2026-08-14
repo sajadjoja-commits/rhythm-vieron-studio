@@ -1,3 +1,4 @@
+import { describe, it, expect } from "vitest";
 import { RMBG2_MANIFEST } from "../models/manifests/rmbg2.manifest";
 import { RMBG2ModelEngine } from "../models/RMBG2ModelEngine";
 import { ONNXModelLoader } from "../models/ONNXModelLoader";
@@ -64,3 +65,10 @@ export async function runRMBG2VerificationSuite(): Promise<{
     return { success: false, logs };
   }
 }
+
+describe("RMBG-2.0 Verification Suite", () => {
+  it("should pass all RMBG-2.0 integrity and parameter tests", async () => {
+    const result = await runRMBG2VerificationSuite();
+    expect(result.success).toBe(true);
+  });
+});

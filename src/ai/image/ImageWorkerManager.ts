@@ -20,6 +20,10 @@ export class ImageWorkerManager {
   private pendingRequests: Map<
     string,
     {
+      taskType: ImageAITaskType;
+      imageDataUrl: string;
+      maskDataUrl?: string;
+      options?: ImageAIOptions;
       resolve: (res: ImageAIResult) => void;
       reject: (err: any) => void;
       onProgress?: (prog: any) => void;
@@ -51,7 +55,7 @@ export class ImageWorkerManager {
         { type: "module" }
       );
 
-      this.worker.onmessage = (e: MessageEvent<ImageWorkerResponse>) => {
+    this.worker.onmessage = (e: MessageEvent<ImageWorkerResponse>) => {
         const data = e.data;
         if (!data || !data.id) return;
 
@@ -65,7 +69,10 @@ export class ImageWorkerManager {
           pending.resolve(data.result);
         } else if (data.type === "error") {
           this.pendingRequests.delete(data.id);
-          pending.reject(new Error(data.error || "Worker execution failed"));
+          console.warn("[ImageWorkerManager] Worker failed, falling back to direct execution:", data.error);
+          this.executeDirect(pending.taskType, pending.imageDataUrl, pending.maskDataUrl, pending.options)
+            .then(pending.resolve)
+            .catch((err) => pending.reject(new Error(data.error || err?.message || "Execution failed")));
         }
       };
 
@@ -91,11 +98,14 @@ export class ImageWorkerManager {
     const detector = ImageCapabilityDetector.getInstance();
     const capability = await detector.detect();
 
-    // If worker disabled, unsupported, or explicitly bypassed:
+    // MediaPipe tasks (remove-background, face-enhance) require DOM context for FilesetResolver.
+    // If worker disabled, unsupported, or MediaPipe task, execute directly on main thread:
     if (
       !this.isWorkerSupported ||
       !this.worker ||
-      options?.preferWorker === false
+      options?.preferWorker === false ||
+      taskType === "remove-background" ||
+      taskType === "face-enhance"
     ) {
       return this.executeDirect(taskType, imageDataUrl, maskDataUrl, options);
     }
@@ -122,6 +132,10 @@ export class ImageWorkerManager {
 
     return new Promise<ImageAIResult>((resolve, reject) => {
       this.pendingRequests.set(reqId, {
+        taskType,
+        imageDataUrl,
+        maskDataUrl,
+        options,
         resolve,
         reject,
         onProgress: options?.onProgress,

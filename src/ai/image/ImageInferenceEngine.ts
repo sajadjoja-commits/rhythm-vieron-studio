@@ -98,24 +98,52 @@ export class ImageInferenceEngine {
         message: "Loading Google Vision Neural Segmenter...",
       });
 
-      const segmenter = await this.getMediaPipeSegmenter(options);
-      const modelLoadMs = Date.now() - modelStart;
+      let maskData: Float32Array;
+      let maskWidth: number;
+      let maskHeight: number;
+      let modelLoadMs = 0;
+      let inferenceMs = 0;
 
-      // 3. Run Inference
-      options?.onProgress?.({
-        taskId,
-        taskType: "remove-background",
-        stage: "inference",
-        progress: 0.5,
-        message: "Extracting foreground subject with neural segmentation...",
-      });
+      try {
+        const segmenter = await this.getMediaPipeSegmenter(options);
+        modelLoadMs = Date.now() - modelStart;
 
-      const inferStart = Date.now();
-      const segmentResult = segmenter.segment(prepared.canvas as any);
-      const inferenceMs = Date.now() - inferStart;
+        // 3. Run Inference
+        options?.onProgress?.({
+          taskId,
+          taskType: "remove-background",
+          stage: "inference",
+          progress: 0.5,
+          message: "Extracting foreground subject with neural segmentation...",
+        });
 
-      if (!segmentResult || !segmentResult.confidenceMasks || segmentResult.confidenceMasks.length === 0) {
-        throw new Error("[ImageInferenceEngine] Segmentation model returned empty mask");
+        const inferStart = Date.now();
+        const segmentResult = segmenter.segment(prepared.canvas as any);
+        inferenceMs = Date.now() - inferStart;
+
+        if (!segmentResult || !segmentResult.confidenceMasks || segmentResult.confidenceMasks.length === 0) {
+          throw new Error("[ImageInferenceEngine] Segmentation model returned empty mask");
+        }
+
+        const mask = segmentResult.confidenceMasks[0];
+        maskData = mask.getAsFloat32Array();
+        maskWidth = mask.width;
+        maskHeight = mask.height;
+      } catch (segErr) {
+        console.warn("[ImageInferenceEngine] MediaPipe segmentation fallback to local edge saliency:", segErr);
+        options?.onProgress?.({
+          taskId,
+          taskType: "remove-background",
+          stage: "inference",
+          progress: 0.5,
+          message: "Analyzing foreground contours with adaptive saliency...",
+        });
+        const inferStart = Date.now();
+        const saliency = this.generateSaliencyMask(prepared.imageData);
+        maskData = saliency.maskData;
+        maskWidth = saliency.width;
+        maskHeight = saliency.height;
+        inferenceMs = Date.now() - inferStart;
       }
 
       // 4. Postprocessing (Mask refinement, soft alpha, edge feathering)
@@ -128,11 +156,6 @@ export class ImageInferenceEngine {
       });
 
       const postStart = Date.now();
-      const mask = segmentResult.confidenceMasks[0];
-      const maskData = mask.getAsFloat32Array();
-      const maskWidth = mask.width;
-      const maskHeight = mask.height;
-
       const transparentImageData = this.postprocessor.applyMaskToImage(
         prepared.imageData,
         maskData,
@@ -770,7 +793,14 @@ export class ImageInferenceEngine {
   private async getMediaPipeSegmenter(options?: ImageAIOptions): Promise<ImageSegmenter> {
     if (this.segmenterInstance) return this.segmenterInstance;
 
-    const vision = await FilesetResolver.forVisionTasks(MEDIAPIPE_WASM_PATH);
+    let vision;
+    try {
+      vision = await FilesetResolver.forVisionTasks(MEDIAPIPE_WASM_PATH);
+    } catch (cdnErr) {
+      console.warn("[ImageInferenceEngine] jsDelivr failed for MediaPipe WASM, trying unpkg:", cdnErr);
+      vision = await FilesetResolver.forVisionTasks("https://unpkg.com/@mediapipe/tasks-vision@0.10.35/wasm");
+    }
+
     const manifest = OFFICIAL_MODEL_MANIFESTS["mediapipe-selfie-segmenter"];
 
     // Fetch model binary via ModelManager (IndexedDB cache / download)
@@ -792,15 +822,29 @@ export class ImageInferenceEngine {
       options?.signal
     );
 
-    const segmenter = await ImageSegmenter.createFromOptions(vision, {
-      baseOptions: {
-        modelAssetBuffer: new Uint8Array(modelBuffer),
-        delegate: "GPU",
-      },
-      runningMode: "IMAGE",
-      outputCategoryMask: false,
-      outputConfidenceMasks: true,
-    });
+    let segmenter: ImageSegmenter;
+    try {
+      segmenter = await ImageSegmenter.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetBuffer: new Uint8Array(modelBuffer),
+          delegate: "GPU",
+        },
+        runningMode: "IMAGE",
+        outputCategoryMask: false,
+        outputConfidenceMasks: true,
+      });
+    } catch (gpuErr) {
+      console.warn("[ImageInferenceEngine] GPU delegate failed for segmenter, fallback to CPU:", gpuErr);
+      segmenter = await ImageSegmenter.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetBuffer: new Uint8Array(modelBuffer),
+          delegate: "CPU",
+        },
+        runningMode: "IMAGE",
+        outputCategoryMask: false,
+        outputConfidenceMasks: true,
+      });
+    }
 
     this.segmenterInstance = segmenter;
     return segmenter;
@@ -809,18 +853,38 @@ export class ImageInferenceEngine {
   private async getMediaPipeFaceDetector(): Promise<FaceDetector> {
     if (this.faceDetectorInstance) return this.faceDetectorInstance;
 
-    const vision = await FilesetResolver.forVisionTasks(MEDIAPIPE_WASM_PATH);
+    let vision;
+    try {
+      vision = await FilesetResolver.forVisionTasks(MEDIAPIPE_WASM_PATH);
+    } catch (cdnErr) {
+      console.warn("[ImageInferenceEngine] jsDelivr failed for MediaPipe WASM, trying unpkg:", cdnErr);
+      vision = await FilesetResolver.forVisionTasks("https://unpkg.com/@mediapipe/tasks-vision@0.10.35/wasm");
+    }
+
     const manifest = OFFICIAL_MODEL_MANIFESTS["mediapipe-face-detector"];
     const modelBuffer = await this.modelManager.getModelBinary(manifest);
 
-    const detector = await FaceDetector.createFromOptions(vision, {
-      baseOptions: {
-        modelAssetBuffer: new Uint8Array(modelBuffer),
-        delegate: "GPU",
-      },
-      runningMode: "IMAGE",
-      minDetectionConfidence: 0.5,
-    });
+    let detector: FaceDetector;
+    try {
+      detector = await FaceDetector.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetBuffer: new Uint8Array(modelBuffer),
+          delegate: "GPU",
+        },
+        runningMode: "IMAGE",
+        minDetectionConfidence: 0.5,
+      });
+    } catch (gpuErr) {
+      console.warn("[ImageInferenceEngine] GPU delegate failed for face detector, fallback to CPU:", gpuErr);
+      detector = await FaceDetector.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetBuffer: new Uint8Array(modelBuffer),
+          delegate: "CPU",
+        },
+        runningMode: "IMAGE",
+        minDetectionConfidence: 0.5,
+      });
+    }
 
     this.faceDetectorInstance = detector;
     return detector;
@@ -1068,5 +1132,67 @@ export class ImageInferenceEngine {
     }
 
     return out;
+  }
+
+  private generateSaliencyMask(imgData: ImageData): {
+    maskData: Float32Array;
+    width: number;
+    height: number;
+  } {
+    const w = imgData.width;
+    const h = imgData.height;
+    const data = imgData.data;
+    const total = w * h;
+    const maskData = new Float32Array(total);
+
+    // Sample border background color distribution (corners and perimeter)
+    let bgR = 0, bgG = 0, bgB = 0, sampleCount = 0;
+    const sampleBorder = (x: number, y: number) => {
+      const idx = (y * w + x) * 4;
+      bgR += data[idx];
+      bgG += data[idx + 1];
+      bgB += data[idx + 2];
+      sampleCount++;
+    };
+
+    const step = Math.max(1, Math.floor(w / 30));
+    for (let x = 0; x < w; x += step) {
+      sampleBorder(x, 0);
+      sampleBorder(x, h - 1);
+    }
+    for (let y = 0; y < h; y += step) {
+      sampleBorder(0, y);
+      sampleBorder(w - 1, y);
+    }
+
+    const avgBgR = sampleCount > 0 ? bgR / sampleCount : 255;
+    const avgBgG = sampleCount > 0 ? bgG / sampleCount : 255;
+    const avgBgB = sampleCount > 0 ? bgB / sampleCount : 255;
+
+    // Foreground saliency based on color delta + center-prior spatial weight
+    const cx = w / 2;
+    const cy = h / 2;
+    const maxDist = Math.sqrt(cx * cx + cy * cy);
+
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const idx = y * w + x;
+        const p = idx * 4;
+
+        const dR = data[p] - avgBgR;
+        const dG = data[p + 1] - avgBgG;
+        const dB = data[p + 2] - avgBgB;
+        const colorDiff = Math.sqrt(dR * dR + dG * dG + dB * dB); // 0..441
+
+        const distCenter = Math.sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy));
+        const centerPrior = 1.0 - (distCenter / maxDist) * 0.45;
+
+        // Sigmoid mapping for confidence score 0.0 .. 1.0
+        const score = Math.min(1, Math.max(0, (colorDiff / 90) * centerPrior));
+        maskData[idx] = score > 0.4 ? Math.min(1, (score - 0.4) * 2.2) : 0;
+      }
+    }
+
+    return { maskData, width: w, height: h };
   }
 }
