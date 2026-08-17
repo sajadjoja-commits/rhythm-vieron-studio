@@ -4,11 +4,14 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
+import androidx.core.splashscreen.SplashScreen;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        SplashScreen.installSplashScreen(this);
+        
         registerPlugin(AIImageProcessorPlugin.class);
         registerPlugin(VireonMediaPlugin.class);
         registerPlugin(com.capacitorjs.plugins.browser.BrowserPlugin.class);
