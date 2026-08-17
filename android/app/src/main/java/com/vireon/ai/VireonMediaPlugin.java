@@ -1,35 +1,98 @@
 package com.vireon.ai;
 
+import android.Manifest;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.media.MediaScannerConnection;
 import android.net.Uri;
+import android.os.Build;
 import android.provider.MediaStore;
 import android.util.Log;
 import com.getcapacitor.JSObject;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Map;
 
-@CapacitorPlugin(name = "VireonMedia")
+@CapacitorPlugin(
+    name = "VireonMedia",
+    permissions = {
+        @Permission(
+            alias = "publicStorage",
+            strings = {
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE
+            }
+        ),
+        @Permission(
+            alias = "media",
+            strings = {
+                "android.permission.READ_MEDIA_IMAGES",
+                "android.permission.READ_MEDIA_VIDEO",
+                "android.permission.READ_MEDIA_AUDIO"
+            }
+        )
+    }
+)
 public class VireonMediaPlugin extends Plugin {
     private static final String TAG = "VireonMedia";
 
     @PluginMethod
     public void pickVideo(PluginCall call) {
+        if (checkMediaPermissions()) {
+            openVideoPicker(call);
+        } else {
+            requestPermissionForAlias(Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ? "media" : "publicStorage", call, "permissionCallback");
+        }
+    }
+
+    @PluginMethod
+    public void pickImage(PluginCall call) {
+        if (checkMediaPermissions()) {
+            openImagePicker(call);
+        } else {
+            requestPermissionForAlias(Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ? "media" : "publicStorage", call, "permissionCallback");
+        }
+    }
+
+    @PermissionCallback
+    private void permissionCallback(PluginCall call) {
+        if (checkMediaPermissions()) {
+            String method = call.getMethodName();
+            if ("pickVideo".equals(method)) {
+                openVideoPicker(call);
+            } else if ("pickImage".equals(method)) {
+                openImagePicker(call);
+            }
+        } else {
+            call.reject("يجب الموافقة على صلاحيات الوصول للملفات للمتابعة.");
+        }
+    }
+
+    private boolean checkMediaPermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            return getPermissionState("media") == PermissionState.GRANTED;
+        } else {
+            return getPermissionState("publicStorage") == PermissionState.GRANTED;
+        }
+    }
+
+    private void openVideoPicker(PluginCall call) {
         Intent intent = new Intent(Intent.ACTION_PICK);
         intent.setDataAndType(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, "video/*");
         startActivityForResult(call, intent, "videoPickCallback");
     }
 
-    @PluginMethod
-    public void pickImage(PluginCall call) {
+    private void openImagePicker(PluginCall call) {
         Intent intent = new Intent(Intent.ACTION_PICK);
         intent.setDataAndType(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, "image/*");
         startActivityForResult(call, intent, "imagePickCallback");

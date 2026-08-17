@@ -1,5 +1,6 @@
 package com.vireon.ai;
 
+import android.Manifest;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -9,14 +10,18 @@ import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffXfermode;
 import android.net.Uri;
+import android.os.Build;
 import android.util.Base64;
 import android.util.Log;
 
 import com.getcapacitor.JSObject;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 import com.google.android.gms.tasks.Tasks;
 import com.google.mlkit.vision.common.InputImage;
 import com.google.mlkit.vision.segmentation.subject.SubjectSegmentation;
@@ -31,13 +36,54 @@ import java.io.InputStream;
 import java.nio.FloatBuffer;
 import java.util.concurrent.TimeUnit;
 
-@CapacitorPlugin(name = "AIImageProcessor")
+@CapacitorPlugin(
+    name = "AIImageProcessor",
+    permissions = {
+        @Permission(
+            alias = "publicStorage",
+            strings = {
+                Manifest.permission.READ_EXTERNAL_STORAGE
+            }
+        ),
+        @Permission(
+            alias = "media",
+            strings = {
+                "android.permission.READ_MEDIA_IMAGES"
+            }
+        )
+    }
+)
 public class AIImageProcessorPlugin extends Plugin {
 
     private static final String TAG = "AIImageProcessor";
 
     @PluginMethod
     public void removeBackground(PluginCall call) {
+        if (!checkMediaPermissions()) {
+            requestPermissionForAlias(Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ? "media" : "publicStorage", call, "permissionCallback");
+            return;
+        }
+        executeRemoveBackground(call);
+    }
+
+    @PermissionCallback
+    private void permissionCallback(PluginCall call) {
+        if (checkMediaPermissions()) {
+            executeRemoveBackground(call);
+        } else {
+            call.reject("يجب الموافقة على صلاحيات الوصول للصور للمتابعة.");
+        }
+    }
+
+    private boolean checkMediaPermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            return getPermissionState("media") == PermissionState.GRANTED;
+        } else {
+            return getPermissionState("publicStorage") == PermissionState.GRANTED;
+        }
+    }
+
+    private void executeRemoveBackground(PluginCall call) {
         long startTime = System.currentTimeMillis();
 
         String imagePath = call.getString("filePath");
