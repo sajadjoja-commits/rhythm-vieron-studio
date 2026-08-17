@@ -1,9 +1,11 @@
 package com.vireon.ai;
 
 import android.content.ContentValues;
+import android.content.Intent;
 import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.provider.MediaStore;
+import android.util.Log;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -11,10 +13,80 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.io.OutputStream;
 
 @CapacitorPlugin(name = "VireonMedia")
 public class VireonMediaPlugin extends Plugin {
+    private static final String TAG = "VireonMedia";
+
+    @PluginMethod
+    public void pickVideo(PluginCall call) {
+        Intent intent = new Intent(Intent.ACTION_PICK);
+        intent.setDataAndType(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, "video/*");
+        startActivityForResult(call, intent, "videoPickCallback");
+    }
+
+    @PluginMethod
+    public void pickImage(PluginCall call) {
+        Intent intent = new Intent(Intent.ACTION_PICK);
+        intent.setDataAndType(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, "image/*");
+        startActivityForResult(call, intent, "imagePickCallback");
+    }
+
+    @PluginMethod
+    public void videoPickCallback(PluginCall call, Intent data) {
+        if (data == null || data.getData() == null) {
+            call.reject("لم يتم اختيار أي فيديو.");
+            return;
+        }
+        processPickedMedia(call, data.getData(), "video");
+    }
+
+    @PluginMethod
+    public void imagePickCallback(PluginCall call, Intent data) {
+        if (data == null || data.getData() == null) {
+            call.reject("لم يتم اختيار أي صورة.");
+            return;
+        }
+        processPickedMedia(call, data.getData(), "image");
+    }
+
+    private void processPickedMedia(PluginCall call, Uri uri, String type) {
+        try {
+            String extension = type.equals("video") ? "mp4" : "jpg";
+            String fileName = type + "_" + System.currentTimeMillis() + "." + extension;
+            
+            File destDir = new File(getContext().getFilesDir(), "vireon_media");
+            if (!destDir.exists() && !destDir.mkdirs()) {
+                Log.e(TAG, "Failed to create directory: " + destDir.getAbsolutePath());
+            }
+            File destFile = new File(destDir, fileName);
+
+            try (InputStream in = getContext().getContentResolver().openInputStream(uri);
+                 OutputStream out = new FileOutputStream(destFile)) {
+                if (in == null) {
+                    call.reject("فشل الوصول إلى الملف المختار.");
+                    return;
+                }
+                byte[] buffer = new byte[16384];
+                int len;
+                while ((len = in.read(buffer)) > 0) {
+                    out.write(buffer, 0, len);
+                }
+            }
+
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            ret.put("path", destFile.getAbsolutePath());
+            ret.put("webPath", Uri.fromFile(destFile).toString());
+            ret.put("format", type);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("فشل استيراد الملف: " + e.getMessage());
+        }
+    }
 
     @PluginMethod
     public void saveVideoToGallery(PluginCall call) {

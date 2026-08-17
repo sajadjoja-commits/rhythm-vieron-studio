@@ -113,9 +113,12 @@ public class AIImageProcessorPlugin extends Plugin {
                 return;
             }
 
-            // 7. Save output directly to Cache Directory as high-quality transparent PNG
-            File cacheDir = context.getCacheDir();
-            File outputFile = new File(cacheDir, "vireon_cutout_" + System.currentTimeMillis() + ".png");
+            // 7. Save output to internal storage files directory for persistence
+            File filesDir = new File(context.getFilesDir(), "vireon_media");
+            if (!filesDir.exists() && !filesDir.mkdirs()) {
+                Log.e(TAG, "Failed to create directory: " + filesDir.getAbsolutePath());
+            }
+            File outputFile = new File(filesDir, "vireon_cutout_" + System.currentTimeMillis() + ".png");
             
             try (FileOutputStream fos = new FileOutputStream(outputFile)) {
                 processedBitmap.compress(Bitmap.CompressFormat.PNG, 100, fos);
