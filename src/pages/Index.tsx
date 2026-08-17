@@ -359,6 +359,8 @@ const Index = () => {
   }, []);
 
   const handleOpenEditor = () => {
+    console.log("[Index] handleOpenEditor called. Setting showEditor=true");
+    toast.info(isRTL() ? "جارٍ فتح المحرر..." : "Opening editor...");
     window.history.pushState({ isEditor: true }, "");
     setShowEditor(true);
   };
@@ -507,12 +509,9 @@ const Index = () => {
             onClose={() => setActiveTab("home")}
             onCaptured={async (file) => {
               newProject();
-              const items = await addFiles([file]);
-              if (items && items.length > 0) {
-                setActiveTab("home");
-                window.history.pushState({ isEditor: true }, "");
-                setShowEditor(true);
-              }
+              await addFiles([file]);
+              handleOpenEditor();
+            }}
             }}
           />
         </Suspense>
@@ -605,22 +604,21 @@ const Index = () => {
                 <X className="w-5 h-5 text-muted-foreground" />
               </button>
             </div>
-            <div className="grid grid-cols-3 gap-2.5">
+            <div className="grid grid-cols-3 gap-3">
               <MediaPicker
-                isNewProject
                 accept="both"
-                multiple
-                onPicked={() => {
+                multiple={true}
+                onBeforePick={() => {
                   setShowPlusMenu(false);
-                  window.history.pushState({ isEditor: true }, "");
-                  setShowEditor(true);
+                  newProject();
                 }}
-                className="flex flex-col items-center gap-2 p-3.5 rounded-2xl bg-secondary hover:bg-secondary/70 transition-colors cursor-pointer text-center"
+                onPicked={handleOpenEditor}
+                className="flex flex-col items-center gap-2 p-5 rounded-2xl bg-secondary hover:bg-secondary/70 transition-colors w-full"
               >
-                <div className="w-12 h-12 rounded-2xl gradient-primary flex items-center justify-center shadow-md">
-                  <Video className="w-6 h-6 text-primary-foreground" />
+                <div className="w-14 h-14 rounded-2xl bg-primary/15 flex items-center justify-center">
+                  <Video className="w-7 h-7 text-primary" />
                 </div>
-                <span className="text-xs font-bold text-foreground line-clamp-1">{isRTL() ? "فيديو جديد" : "New Video"}</span>
+                <span className="text-sm font-medium text-foreground">{t("home.newVideo")}</span>
               </MediaPicker>
               <button
                 onClick={() => {
@@ -629,8 +627,11 @@ const Index = () => {
                 }}
                 className="flex flex-col items-center gap-2 p-3.5 rounded-2xl bg-secondary hover:bg-secondary/70 transition-colors"
               >
-                <div className="w-12 h-12 rounded-2xl bg-primary/15 flex items-center justify-center">
-                  <ImageIcon className="w-6 h-6 text-primary" />
+                <div className="w-14 h-14 rounded-2xl bg-accent/15 flex items-center justify-center">
+                  <ImageIcon className="w-7 h-7 text-accent" />
+                </div>
+                <span className="text-xs font-bold text-foreground line-clamp-1">{t("plus.photoEditor")}</span>
+              </button>
                 </div>
                 <span className="text-xs font-bold text-foreground line-clamp-1">{t("plus.photoEditor")}</span>
               </button>

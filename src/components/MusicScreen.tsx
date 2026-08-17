@@ -80,29 +80,66 @@ const MusicScreen = () => {
     setProgress(0);
   };
 
-  const onUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    e.target.value = "";
-    const url = URL.createObjectURL(f);
-    const cleanTitle = f.name.replace(/\.[^/.]+$/, "");
-    const iconicCover = getGenreCoverImage(activeGenre !== "all" ? activeGenre : "other", cleanTitle);
+  const onUpload = async (e: React.ChangeEvent<HTMLInputElement> | any) => {
+    let tracksToAdd: { file?: File; url: string; name: string }[] = [];
     
-    const newTrack: BuiltinTrack = {
-      id: `user-${Date.now()}`,
-      title: cleanTitle,
-      titleEn: cleanTitle,
-      artist: en ? "My Library" : "مكتبتي الخاصة",
-      url,
-      coverUrl: iconicCover,
-      bpm: 0,
-      genre: (activeGenre !== "all" ? activeGenre : "other") as any,
-      color: "#f59e0b",
-    };
+    if (e.target && e.target.files) {
+      tracksToAdd = Array.from(e.target.files as FileList).map(f => ({
+        file: f,
+        url: URL.createObjectURL(f),
+        name: f.name
+      }));
+      e.target.value = "";
+    } else if (e.nativeFiles) {
+      tracksToAdd = e.nativeFiles;
+    }
 
-    saveLibraryTrack(newTrack);
+    if (tracksToAdd.length === 0) return;
+
+    for (const track of tracksToAdd) {
+      const cleanTitle = track.name.replace(/\.[^/.]+$/, "");
+      const iconicCover = getGenreCoverImage(activeGenre !== "all" ? activeGenre : "other", cleanTitle);
+
+      const newTrack: BuiltinTrack = {
+        id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        title: cleanTitle,
+        titleEn: cleanTitle,
+        artist: en ? "My Library" : "مكتبتي الخاصة",
+        url: track.url,
+        coverUrl: iconicCover,
+        bpm: 0,
+        genre: (activeGenre !== "all" ? activeGenre : "other") as any,
+        color: "#f59e0b",
+      };
+
+      saveLibraryTrack(newTrack);
+    }
+
     setSavedTracks(getSavedLibraryTracks());
     playSfx("success");
+  };
+
+  const handleNativeUpload = async () => {
+    if (Capacitor.isNativePlatform()) {
+      const { registerPlugin } = await import("@capacitor/core");
+      const VireonMedia = registerPlugin<any>('VireonMedia');
+
+      try {
+        const result = await VireonMedia.pickAudio({ multiple: true });
+        if (result && result.success && result.files) {
+          const nativeFiles = result.files.map((f: any) => ({
+            name: f.name,
+            url: Capacitor.convertFileSrc(f.webPath)
+          }));
+          onUpload({ nativeFiles });
+        }
+      } catch (err) {
+        console.warn("Native audio pick failed, falling back to input:", err);
+        fileRef.current?.click();
+      }
+    } else {
+      fileRef.current?.click();
+    }
   };
 
   const seek = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -135,7 +172,7 @@ const MusicScreen = () => {
 
       {/* Upload button */}
       <button
-        onClick={() => fileRef.current?.click()}
+        onClick={handleNativeUpload}
         className="w-full flex items-center justify-between p-3.5 mb-5 rounded-2xl bg-card border border-border hover:border-primary/50 shadow-sm transition-all group"
       >
         <div className="flex items-center gap-3">

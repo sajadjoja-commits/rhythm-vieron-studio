@@ -3,16 +3,18 @@ package com.vireon.ai;
 import android.Manifest;
 import android.content.ContentValues;
 import android.content.Intent;
-import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.MediaStore;
 import android.util.Log;
+import android.webkit.MimeTypeMap;
+import androidx.activity.result.ActivityResult;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
@@ -21,7 +23,8 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 
 @CapacitorPlugin(
     name = "VireonMedia",
@@ -39,6 +42,12 @@ import java.util.Map;
                 "android.permission.READ_MEDIA_IMAGES",
                 "android.permission.READ_MEDIA_VIDEO",
                 "android.permission.READ_MEDIA_AUDIO"
+            }
+        ),
+        @Permission(
+            alias = "camera",
+            strings = {
+                Manifest.permission.CAMERA
             }
         )
     }
@@ -64,6 +73,24 @@ public class VireonMediaPlugin extends Plugin {
         }
     }
 
+    @PluginMethod
+    public void pickAudio(PluginCall call) {
+        if (checkMediaPermissions()) {
+            openAudioPicker(call);
+        } else {
+            requestPermissionForAlias(Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ? "media" : "publicStorage", call, "permissionCallback");
+        }
+    }
+
+    @PluginMethod
+    public void pickMedia(PluginCall call) {
+        if (checkMediaPermissions()) {
+            openMediaPicker(call);
+        } else {
+            requestPermissionForAlias(Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ? "media" : "publicStorage", call, "permissionCallback");
+        }
+    }
+
     @PermissionCallback
     private void permissionCallback(PluginCall call) {
         if (checkMediaPermissions()) {
@@ -72,9 +99,13 @@ public class VireonMediaPlugin extends Plugin {
                 openVideoPicker(call);
             } else if ("pickImage".equals(method)) {
                 openImagePicker(call);
+            } else if ("pickAudio".equals(method)) {
+                openAudioPicker(call);
+            } else if ("pickMedia".equals(method)) {
+                openMediaPicker(call);
             }
         } else {
-            call.reject("يجب الموافقة على صلاحيات الوصول للملفات للمتابعة.");
+            call.reject("صلاحيات الوصول مرفوضة.");
         }
     }
 
@@ -86,146 +117,181 @@ public class VireonMediaPlugin extends Plugin {
         }
     }
 
+    private void openMediaPicker(PluginCall call) {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/*", "video/*"});
+        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, call.getBoolean("multiple", false));
+        startActivityForResult(call, intent, "mediaPickCallback");
+    }
+
     private void openVideoPicker(PluginCall call) {
-        Intent intent = new Intent(Intent.ACTION_PICK);
-        intent.setDataAndType(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, "video/*");
-        startActivityForResult(call, intent, "videoPickCallback");
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("video/*");
+        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, call.getBoolean("multiple", false));
+        startActivityForResult(call, intent, "mediaPickCallback");
     }
 
     private void openImagePicker(PluginCall call) {
-        Intent intent = new Intent(Intent.ACTION_PICK);
-        intent.setDataAndType(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, "image/*");
-        startActivityForResult(call, intent, "imagePickCallback");
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("image/*");
+        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, call.getBoolean("multiple", false));
+        startActivityForResult(call, intent, "mediaPickCallback");
     }
 
-    @PluginMethod
-    public void videoPickCallback(PluginCall call, Intent data) {
-        if (data == null || data.getData() == null) {
-            call.reject("لم يتم اختيار أي فيديو.");
+    private void openAudioPicker(PluginCall call) {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("audio/*");
+        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, call.getBoolean("multiple", false));
+        startActivityForResult(call, intent, "mediaPickCallback");
+    }
+
+    @ActivityCallback
+    public void mediaPickCallback(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        
+        Intent data = result.getData();
+        if (data == null || (data.getData() == null && data.getClipData() == null)) {
+            call.reject("CANCELLED");
             return;
         }
-        processPickedMedia(call, data.getData(), "video");
-    }
 
-    @PluginMethod
-    public void imagePickCallback(PluginCall call, Intent data) {
-        if (data == null || data.getData() == null) {
-            call.reject("لم يتم اختيار أي صورة.");
-            return;
+        List<Uri> uris = new ArrayList<>();
+        if (data.getClipData() != null) {
+            int count = data.getClipData().getItemCount();
+            for (int i = 0; i < count; i++) {
+                uris.add(data.getClipData().getItemAt(i).getUri());
+            }
+        } else if (data.getData() != null) {
+            uris.add(data.getData());
         }
-        processPickedMedia(call, data.getData(), "image");
+
+        processPickedUris(call, uris);
     }
 
-    private void processPickedMedia(PluginCall call, Uri uri, String type) {
+    private void processPickedUris(PluginCall call, List<Uri> uris) {
         try {
-            String extension = type.equals("video") ? "mp4" : "jpg";
-            String fileName = type + "_" + System.currentTimeMillis() + "." + extension;
-            
+            List<JSObject> results = new ArrayList<>();
             File destDir = new File(getContext().getFilesDir(), "vireon_media");
             if (!destDir.exists() && !destDir.mkdirs()) {
-                Log.e(TAG, "Failed to create directory: " + destDir.getAbsolutePath());
+                Log.e(TAG, "Failed to create directory");
             }
-            File destFile = new File(destDir, fileName);
 
-            try (InputStream in = getContext().getContentResolver().openInputStream(uri);
-                 OutputStream out = new FileOutputStream(destFile)) {
-                if (in == null) {
-                    call.reject("فشل الوصول إلى الملف المختار.");
-                    return;
+            for (Uri uri : uris) {
+                String mimeType = getContext().getContentResolver().getType(uri);
+                String extension = MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType);
+                if (extension == null) extension = "bin";
+                
+                String fileName = "media_" + System.currentTimeMillis() + "_" + (int)(Math.random() * 1000) + "." + extension;
+                File destFile = new File(destDir, fileName);
+
+                try (InputStream in = getContext().getContentResolver().openInputStream(uri);
+                     OutputStream out = new FileOutputStream(destFile)) {
+                    if (in == null) continue;
+                    byte[] buffer = new byte[16384];
+                    int len;
+                    while ((len = in.read(buffer)) > 0) {
+                        out.write(buffer, 0, len);
+                    }
+                    out.flush();
                 }
-                byte[] buffer = new byte[16384];
-                int len;
-                while ((len = in.read(buffer)) > 0) {
-                    out.write(buffer, 0, len);
-                }
+
+                JSObject mediaObj = new JSObject();
+                mediaObj.put("path", destFile.getAbsolutePath());
+                mediaObj.put("webPath", Uri.fromFile(destFile).toString());
+                mediaObj.put("name", fileName);
+                mediaObj.put("mimeType", mimeType);
+                mediaObj.put("size", destFile.length());
+                results.add(mediaObj);
             }
 
             JSObject ret = new JSObject();
             ret.put("success", true);
-            ret.put("path", destFile.getAbsolutePath());
-            ret.put("webPath", Uri.fromFile(destFile).toString());
-            ret.put("format", type);
+            ret.put("files", results);
+            if (!results.isEmpty()) {
+                JSObject first = results.get(0);
+                ret.put("path", first.getString("path"));
+                ret.put("webPath", first.getString("webPath"));
+                ret.put("format", first.getString("mimeType"));
+            }
             call.resolve(ret);
         } catch (Exception e) {
-            call.reject("فشل استيراد الملف: " + e.getMessage());
+            call.reject("فشل الاستيراد: " + e.getMessage());
         }
     }
 
     @PluginMethod
     public void saveVideoToGallery(PluginCall call) {
+        saveMedia(call, MediaStore.Video.Media.EXTERNAL_CONTENT_URI, "video/mp4", "Movies/VireonAI", "Vireon_Render_", ".mp4");
+    }
+
+    @PluginMethod
+    public void saveImageToGallery(PluginCall call) {
+        saveMedia(call, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, "image/png", "Pictures/VireonAI", "Vireon_AI_", ".png");
+    }
+
+    @PluginMethod
+    public void saveAudioToMusic(PluginCall call) {
+        saveMedia(call, MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, "audio/wav", "Music/VireonAI", "Vireon_Audio_", ".wav");
+    }
+
+    private void saveMedia(PluginCall call, Uri collectionUri, String mimeType, String relativePath, String prefix, String extension) {
         String tempPath = call.getString("path");
         if (tempPath == null || tempPath.isEmpty()) {
-            call.reject("المسار فارغ أو غير موجود!");
+            call.reject("المسار فارغ!");
             return;
         }
 
-        if (tempPath.startsWith("file://")) {
-            tempPath = tempPath.substring(7);
-        }
-
+        if (tempPath.startsWith("file://")) tempPath = tempPath.substring(7);
         File tempFile = new File(tempPath);
         if (!tempFile.exists()) {
-            call.reject("الملف المؤقت غير موجود بالمسار المحدد: " + tempPath);
+            call.reject("الملف غير موجود!");
             return;
         }
 
         try {
             ContentValues values = new ContentValues();
-            String fileName = "Vireon_Render_" + System.currentTimeMillis();
-            values.put(MediaStore.Video.Media.TITLE, fileName);
-            values.put(MediaStore.Video.Media.DISPLAY_NAME, fileName + ".mp4");
-            values.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
-            values.put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/VireonAI");
-
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                values.put(MediaStore.Video.Media.IS_PENDING, 1);
+            String fileName = prefix + System.currentTimeMillis();
+            values.put(MediaStore.MediaColumns.TITLE, fileName);
+            values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName + extension);
+            values.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                values.put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath);
+                values.put(MediaStore.MediaColumns.IS_PENDING, 1);
             }
 
-            Uri collection = getContext().getContentResolver().insert(
-                MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values
-            );
+            Uri uri = getContext().getContentResolver().insert(collectionUri, values);
 
-            if (collection != null) {
-                try (OutputStream out = getContext().getContentResolver().openOutputStream(collection);
+            if (uri != null) {
+                try (OutputStream out = getContext().getContentResolver().openOutputStream(uri);
                      FileInputStream in = new FileInputStream(tempFile)) {
                     if (out != null) {
                         byte[] buffer = new byte[16384];
-                        int length;
-                        while ((length = in.read(buffer)) > 0) {
-                            out.write(buffer, 0, length);
-                        }
+                        int len;
+                        while ((len = in.read(buffer)) > 0) out.write(buffer, 0, len);
                         out.flush();
-
-                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                            values.clear();
-                            values.put(MediaStore.Video.Media.IS_PENDING, 0);
-                            getContext().getContentResolver().update(collection, values, null, null);
-                        } else {
-                            try {
-                                MediaScannerConnection.scanFile(
-                                    getContext(), 
-                                    new String[]{tempFile.getAbsolutePath()}, 
-                                    new String[]{"video/mp4"}, 
-                                    null
-                                );
-                            } catch (Exception ignored) {}
-                        }
-
-                        JSObject ret = new JSObject();
-                        ret.put("success", true);
-                        ret.put("uri", collection.toString());
-                        ret.put("message", "تم حفظ الفيديو بالاستوديو بنجاح!");
-                        call.resolve(ret);
-                    } else {
-                        call.reject("فشل فتح مجرى الكتابة في معرض الصور.");
                     }
                 }
-            } else {
-                call.reject("فشل إنشاء مسار في معرض الصور.");
-            }
 
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    values.clear();
+                    values.put(MediaStore.MediaColumns.IS_PENDING, 0);
+                    getContext().getContentResolver().update(uri, values, null, null);
+                }
+
+                JSObject ret = new JSObject();
+                ret.put("success", true);
+                ret.put("message", "تم الحفظ بنجاح!");
+                call.resolve(ret);
+            } else {
+                call.reject("فشل إنشاء مسار.");
+            }
         } catch (Exception e) {
-            call.reject("حدث خطأ أثناء الحفظ: " + e.getLocalizedMessage());
+            call.reject("خطأ: " + e.getLocalizedMessage());
         }
     }
 }

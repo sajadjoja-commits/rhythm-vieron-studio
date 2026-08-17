@@ -431,13 +431,54 @@ const AIStudioScreen: React.FC<AIStudioScreenProps> = ({ onBack, onOpenPhotoEdit
     }
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement> | any) => {
+    let file: File | null = null;
+
+    if (e.target && e.target.files) {
+      file = e.target.files[0];
+      e.target.value = "";
+    } else if (e.file) {
+      file = e.file;
+    }
+
     if (!file) return;
 
     const url = URL.createObjectURL(file);
     setInputMedia({ url, file, name: file.name });
     toast.success(en ? `File ${file.name} ready` : `الملف ${file.name} جاهز للمعالجة`);
+  };
+
+  const handleNativeUpload = async () => {
+    if (Capacitor.isNativePlatform()) {
+      const { registerPlugin } = await import("@capacitor/core");
+      const VireonMedia = registerPlugin<any>('VireonMedia');
+
+      try {
+        let method = "pickImage";
+        if (selectedTool?.category === "video") method = "pickVideo";
+        else if (selectedTool?.category === "audio") method = "pickAudio";
+
+        const result = await VireonMedia[method]({ multiple: false });
+        if (result && result.success && result.files && result.files.length > 0) {
+          const fileInfo = result.files[0];
+          try {
+            const response = await fetch(Capacitor.convertFileSrc(fileInfo.webPath));
+            const blob = await response.blob();
+            const pickedFile = new File([blob], fileInfo.name, { type: fileInfo.mimeType });
+            handleFileUpload({ file: pickedFile });
+          } catch (e) {
+            console.warn("Failed to convert native path:", e);
+          }
+        }
+      } catch (err) {
+        console.warn("Native pick failed, falling back to input:", err);
+        const input = document.getElementById('ai-studio-file-input') as HTMLInputElement;
+        input?.click();
+      }
+    } else {
+      const input = document.getElementById('ai-studio-file-input') as HTMLInputElement;
+      input?.click();
+    }
   };
 
   return (
@@ -769,7 +810,10 @@ const AIStudioScreen: React.FC<AIStudioScreenProps> = ({ onBack, onOpenPhotoEdit
                 </div>
               ) : (
                 <div className={selectedTool.category === "video" ? "grid grid-cols-1" : "grid grid-cols-2 gap-2.5"}>
-                  <label className="flex flex-col items-center justify-center p-4 rounded-2xl border-2 border-dashed border-border hover:border-primary/50 bg-secondary/30 cursor-pointer transition-colors text-center">
+                  <button
+                    onClick={handleNativeUpload}
+                    className="flex flex-col items-center justify-center p-4 rounded-2xl border-2 border-dashed border-border hover:border-primary/50 bg-secondary/30 cursor-pointer transition-colors text-center"
+                  >
                     <Upload className="w-6 h-6 text-primary mb-1.5" />
                     <span className="text-xs font-bold text-foreground">{en ? "Upload Real Video File" : "رفع ملف فيديو حقيقي"}</span>
                     <span className="text-[9px] text-muted-foreground mt-0.5">
@@ -780,6 +824,7 @@ const AIStudioScreen: React.FC<AIStudioScreenProps> = ({ onBack, onOpenPhotoEdit
                         : "WAV, MP3, M4A"}
                     </span>
                     <input
+                      id="ai-studio-file-input"
                       type="file"
                       accept={
                         selectedTool.category === "image"
@@ -791,7 +836,7 @@ const AIStudioScreen: React.FC<AIStudioScreenProps> = ({ onBack, onOpenPhotoEdit
                       onChange={handleFileUpload}
                       className="hidden"
                     />
-                  </label>
+                  </button>
 
                   {selectedTool.category !== "video" && (
                     <button
@@ -1012,14 +1057,23 @@ const AIStudioScreen: React.FC<AIStudioScreenProps> = ({ onBack, onOpenPhotoEdit
                         <span>{en ? "Open Smart Mask Editor & Backgrounds" : "فتح محرر القناع وتخصيص الخلفيات"}</span>
                       </button>
                     )}
-                    <a
-                      href={resultData.outputImageBase64OrUrl}
-                      download={`Vireon_AI_${selectedTool.actionName}.png`}
+                    <button
+                      onClick={async () => {
+                        try {
+                          const res = await fetch(resultData.outputImageBase64OrUrl);
+                          const blob = await res.blob();
+                          const { saveImageToGallery } = await import("@/services/NativeService");
+                          await saveImageToGallery(blob, `Vireon_AI_${selectedTool.actionName}.png`);
+                          toast.success(en ? "Image saved to gallery!" : "تم حفظ الصورة في الاستوديو!");
+                        } catch (err) {
+                          toast.error(en ? "Failed to save image" : "فشل حفظ الصورة");
+                        }
+                      }}
                       className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow"
                     >
                       <Download className="w-4 h-4" />
-                      {en ? "Download Processed Image" : "تنزيل الصورة المعالجة"}
-                    </a>
+                      {en ? "Save to Gallery" : "حفظ في الاستوديو"}
+                    </button>
                   </div>
                 )}
 
@@ -1110,20 +1164,46 @@ const AIStudioScreen: React.FC<AIStudioScreenProps> = ({ onBack, onOpenPhotoEdit
                         </button>
                       )}
                     </div>
+                    <button
+                      onClick={async () => {
+                        try {
+                          const res = await fetch(resultData.outputVideoBase64OrUrl);
+                          const blob = await res.blob();
+                          const { saveVideoToGallery } = await import("@/services/NativeService");
+                          await saveVideoToGallery(blob, `Vireon_AI_${selectedTool.actionName}.mp4`);
+                          toast.success(en ? "Video saved to gallery!" : "تم حفظ الفيديو في الاستوديو!");
+                        } catch (err) {
+                          toast.error(en ? "Failed to save video" : "فشل حفظ الفيديو");
+                        }
+                      }}
+                      className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow"
+                    >
+                      <Download className="w-4 h-4" />
+                      {en ? "Save to Gallery" : "حفظ في الاستوديو"}
+                    </button>
                   </div>
                 )}
 
                 {resultData.enhancedAudioUrlOrBase64 && (
                   <div className="space-y-2">
                     <audio src={resultData.enhancedAudioUrlOrBase64} controls className="w-full" />
-                    <a
-                      href={resultData.enhancedAudioUrlOrBase64}
-                      download={`Vireon_AI_${selectedTool.actionName}.wav`}
-                      className="w-full py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow"
+                    <button
+                      onClick={async () => {
+                        try {
+                          const res = await fetch(resultData.enhancedAudioUrlOrBase64);
+                          const blob = await res.blob();
+                          const { saveAudioToGallery } = await import("@/services/NativeService");
+                          await saveAudioToGallery(blob, `Vireon_AI_${selectedTool.actionName}.wav`);
+                          toast.success(en ? "Audio saved to Music folder!" : "تم حفظ المقطع في مجلد الموسيقى!");
+                        } catch (err) {
+                          toast.error(en ? "Failed to save audio" : "فشل حفظ المقطع الصوتي");
+                        }
+                      }}
+                      className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow"
                     >
                       <Download className="w-4 h-4" />
-                      {en ? "Download Enhanced Audio" : "تنزيل الصوت المنقى"}
-                    </a>
+                      {en ? "Save to Music" : "حفظ في الموسيقى"}
+                    </button>
                   </div>
                 )}
               </div>

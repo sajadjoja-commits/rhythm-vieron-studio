@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- نضع الشعار في المركز مع تحديد حجم مناسب (مثلاً 72dp من أصل 108dp) -->
+    <item
+        android:drawable="@drawable/img"
+        android:width="42dp"
+        android:height="42dp"
+        android:gravity="center" />
+</layer-list>

@@ -560,11 +560,17 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
   const canRedo = futureRef.current.length > 0;
 
   useEffect(() => {
-    if (freshStartRef.current) { hydratedRef.current = true; return; }
+    if (freshStartRef.current) {
+      console.log("[MediaContext] freshStart detected, setting hydrated=true");
+      hydratedRef.current = true;
+      return;
+    }
     (async () => {
+      console.log("[MediaContext] Starting hydration for projectId:", projectId);
       try {
         const proj = await idbGet<any>(STORE_PROJECTS, projectId);
         if (proj) {
+          console.log("[MediaContext] Project found in DB, restoring state...");
           setProjectName(proj.name || t("editor.projectName"));
           setExportPreset(proj.exportPreset || "full");
           setVideoMuted(!!proj.videoMuted);
@@ -598,9 +604,16 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
             restoredAudio.push({ ...a, url, file: blob ? new File([blob], a.name, { type: blob.type }) : undefined });
           }
           setAudioTracks(restoredAudio);
+          console.log("[MediaContext] project state restored successfully.");
+        } else {
+          console.log("[MediaContext] No project found in DB for this ID.");
         }
-      } catch (e) { console.warn("project restore failed", e); }
-      finally { hydratedRef.current = true; }
+      } catch (e) {
+        console.warn("[MediaContext] project restore failed:", e);
+      } finally {
+        hydratedRef.current = true;
+        console.log("[MediaContext] Hydration process finished.");
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1039,9 +1052,11 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const newProject = useCallback(() => {
+    console.log("[MediaContext] newProject called. Resetting state...");
     media.forEach((m) => URL.revokeObjectURL(m.url));
     audioTracks.forEach((a) => URL.revokeObjectURL(a.url));
     const id = uid();
+    console.log("[MediaContext] New Project ID generated:", id);
     freshStartRef.current = true; hydratedRef.current = true;
     setProjectId(id); setProjectName(t("editor.projectName"));
     setMedia([]); setClips([]); setCaptions([]); setAudioTracks([]);
@@ -1049,6 +1064,7 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
     setVideoMuted(false); setVideoVolume(1); setVideoAudioFx("none"); setExportPreset("full");
     localStorage.setItem(ACTIVE_KEY, id);
     resetHistory();
+    console.log("[MediaContext] project reset completed.");
   }, [media, audioTracks, resetHistory]);
 
   const createNewProjectWithFiles = useCallback(async (files: FileList | File[]) => {

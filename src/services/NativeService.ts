@@ -212,6 +212,7 @@ export async function saveVideoToGallery(
 }
 
 /**
+/**
  * Saves an exported photo/image Blob to the device gallery or native cache.
  */
 export async function saveImageToGallery(
@@ -258,3 +259,21 @@ export async function saveImageToGallery(
   }
 }
 
+/**
+ * Saves an audio Blob to the native music folder.
+ */
+export async function saveAudioToGallery(
+  blob: Blob,
+  fileName: string = 'vireon_audio.wav'
+): Promise<{ success: boolean; message?: string }> {
+  if (!Capacitor.isNativePlatform()) return { success: false };
+
+  try {
+    const cacheUri = await writeBlobInChunksToCache(blob, fileName);
+    const result = await VireonMedia.saveAudioToMusic({ path: cacheUri });
+    return { success: !!result?.success, message: result?.message };
+  } catch (err: any) {
+    console.error("[NativeService] saveAudioToGallery failed:", err);
+    throw new Error(err.message || "Failed to save audio to music folder");
+  }
+}
