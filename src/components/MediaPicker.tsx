@@ -163,33 +163,6 @@ export const MediaPicker = ({
     </>
   );
 };
-      >
-        {children}
-      </div>
-      <input
-        ref={inputRef}
-        id={`media-picker-input-${inputId}`}
-        type="file"
-        accept={acceptAttr}
-        multiple={multiple}
-        {...(capture ? { capture: "environment" as any } : {})}
-        onChange={handleChange}
-        style={{
-          position: "fixed",
-          top: "-9999px",
-          left: "-9999px",
-          width: "1px",
-          height: "1px",
-          opacity: 0,
-          pointerEvents: "none",
-          zIndex: -100,
-        }}
-        tabIndex={-1}
-        aria-hidden="true"
-      />
-    </>
-  );
-};
 
 // Expose globally for Android WebView / Capacitor runtime compatibility
 if (typeof window !== "undefined") {
@@ -197,4 +170,3 @@ if (typeof window !== "undefined") {
 }
 
 export default MediaPicker;
-

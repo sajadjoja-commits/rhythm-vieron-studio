@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Plus, Zap, Image, Video, User, Camera, Download, Sparkles, Wand2, Scissors, Palette, Film, Music } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { Plus, Zap, Image as ImageIcon, Video, User, Camera, Download, Sparkles, Wand2, Scissors, Palette, Film, Music } from "lucide-react";
 import { VireonLogo } from "@/components/VireonLogo";
 import NotificationsBell from "@/components/NotificationsBell";
 import { useMedia, ProjectMeta } from "@/context/MediaContext";
@@ -165,7 +165,7 @@ const HomeScreen = ({
           className="group relative flex flex-col items-center gap-2 p-4 rounded-2xl bg-card border border-border/80 hover:border-accent/60 hover:shadow-lg transition-all active:scale-95 text-center cursor-pointer"
         >
           <div className="w-11 h-11 rounded-2xl bg-accent/15 flex items-center justify-center group-hover:scale-110 transition-transform">
-            <Image className="w-5.5 h-5.5 text-accent" />
+            <ImageIcon className="w-5.5 h-5.5 text-accent" />
           </div>
           <div>
             <span className="text-xs font-bold text-foreground block">{en ? "Photo Editor" : "محرر الصور"}</span>

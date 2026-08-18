@@ -34,7 +34,7 @@ import { AIToolsPanel } from "@/components/editor/AIToolsPanel";
 import { toast } from "sonner";
 import { playSfx } from "@/lib/soundFx";
 import { attachFxChain } from "@/lib/audioFx";
-import { analyzeBeats, getAudioContext } from "@/lib/audioAnalysis";
+import { analyzeBeats, analyzeBeatsFromUrl, getAudioContext } from "@/lib/audioAnalysis";
 import { t, getLang, isRTL } from "@/lib/i18n";
 import { VireonLogo } from "@/components/VireonLogo";
 import { ASPECT_RATIOS, findClosestRatioIndex } from "@/lib/aspectRatios";

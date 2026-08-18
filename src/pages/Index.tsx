@@ -1,9 +1,9 @@
-import { useEffect, useState, lazy, Suspense } from "react";
+import React, { useEffect, useState, lazy, Suspense } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import BottomNav from "@/components/BottomNav";
 import { useMedia } from "@/context/MediaContext";
 import { isRTL, t } from "@/lib/i18n";
-import { Camera as CameraIcon, ImageIcon, X, Loader2, Video } from "lucide-react";
+import { Camera as CameraIcon, Image as ImageIcon, Video, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import MediaPicker from "@/components/MediaPicker";
 import { applyThemeToDOM } from "@/lib/theme";
@@ -26,7 +26,6 @@ function lazyWithRetry<T extends React.ComponentType<any>>(
       const retryCount = parseInt(window.sessionStorage.getItem("vireon:chunk_retry") || "0", 10);
       if (retryCount < 2) {
         window.sessionStorage.setItem("vireon:chunk_retry", String(retryCount + 1));
-        // Force reload page to fetch fresh bundle chunks from server
         window.location.reload();
       }
       return componentImport();
@@ -153,20 +152,15 @@ const Index = () => {
     let active = true;
     let unsubscribe = () => {};
 
-    // Native App Deep Link Handler for Google OAuth redirect
     const handleNativeDeepLinkUrl = async (rawDeepLinkUrl: string, source: "appUrlOpen" | "getLaunchUrl") => {
-      console.log(`[OAuth Audit Step 4 & 5] Deep Link URL received (${source}):`, rawDeepLinkUrl);
       if (!rawDeepLinkUrl || (!rawDeepLinkUrl.includes("auth-callback") && !rawDeepLinkUrl.startsWith("vireon://"))) {
-        console.log(`[OAuth Audit Step 5.IGNORE] URL does not match vireon://auth-callback scheme, ignoring.`);
         return;
       }
 
-      console.log("[OAuth Audit Step 5.1] Deep Link URL matched vireon://auth-callback. Closing In-App Browser...");
       try {
         await Browser.close();
-        console.log("[OAuth Audit Step 5.2] In-App Browser closed successfully.");
       } catch (e) {
-        console.log("[OAuth Audit Step 5.2] Browser.close() skipped or not active:", e);
+        // ignore
       }
 
       let code: string | null = null;
@@ -175,7 +169,6 @@ const Index = () => {
 
       try {
         const normalizedUrl = rawDeepLinkUrl.replace("vireon://", "https://vireon.ai/");
-        console.log("[OAuth Audit Step 5.3] Normalized URL for parsing:", normalizedUrl);
         const urlObj = new URL(normalizedUrl);
         code = urlObj.searchParams.get("code");
         accessToken = urlObj.searchParams.get("access_token");
@@ -185,78 +178,47 @@ const Index = () => {
           const hashStr = urlObj.hash.startsWith("#") ? urlObj.hash.slice(1) : urlObj.hash;
           const hashParams = new URLSearchParams(hashStr);
           code = hashParams.get("code");
-          accessToken = hashParams.get("access_token");
-          refreshToken = hashParams.get("refresh_token");
+          accessToken = hashParams.get("accessToken");
+          refreshToken = hashParams.get("refreshToken");
         }
-
-        console.log("[OAuth Audit Step 5.4] Parsed URL parameters:", {
-          hasCode: !!code,
-          codeSnippet: code ? code.substring(0, 10) + "..." : null,
-          hasAccessToken: !!accessToken,
-          hasRefreshToken: !!refreshToken,
-        });
       } catch (e) {
-        console.error("[OAuth Audit Step 5.ERR] URL parsing failed for deep link:", rawDeepLinkUrl, e);
+        console.error("URL parsing failed for deep link:", rawDeepLinkUrl, e);
       }
 
       if (code) {
-        console.log("[OAuth Audit Step 6] Exchanging PKCE code for Supabase session via supabase.auth.exchangeCodeForSession()...");
         try {
           const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-          console.log("[OAuth Audit Step 6.1] exchangeCodeForSession result:", {
-            hasSession: !!data?.session,
-            userEmail: data?.session?.user?.email,
-            error: error?.message || null,
-          });
-
           if (!error && data.session && active) {
-            console.log("[OAuth Audit Step 7] Setting active session state with setSession()...");
             setSession(data.session);
             setAuthChecked(true);
-            console.log("[OAuth Audit Step 8] User authenticated successfully! Navigating to Home/Editor view.");
             toast.success(isRTL() ? "تم تسجيل الدخول بنجاح!" : "Logged in successfully!");
           } else if (error) {
-            console.error("[OAuth Audit Step 6.ERR] exchangeCodeForSession error:", error);
             toast.error(error.message);
           }
         } catch (err) {
-          console.error("[OAuth Audit Step 6.EX] exchangeCodeForSession exception:", err);
+          console.error("exchangeCodeForSession exception:", err);
         }
       } else if (accessToken && refreshToken) {
-        console.log("[OAuth Audit Step 6.ALT] Setting session with access_token and refresh_token pair via supabase.auth.setSession()...");
         try {
           const { data, error } = await supabase.auth.setSession({
             access_token: accessToken,
             refresh_token: refreshToken,
           });
-          console.log("[OAuth Audit Step 6.ALT1] setSession result:", {
-            hasSession: !!data?.session,
-            userEmail: data?.session?.user?.email,
-            error: error?.message || null,
-          });
-
           if (!error && data.session && active) {
-            console.log("[OAuth Audit Step 7] Setting active session state with setSession()...");
             setSession(data.session);
             setAuthChecked(true);
-            console.log("[OAuth Audit Step 8] User authenticated successfully! Navigating to Home/Editor view.");
             toast.success(isRTL() ? "تم تسجيل الدخول بنجاح!" : "Logged in successfully!");
           } else if (error) {
-            console.error("[OAuth Audit Step 6.ALT_ERR] setSession error:", error);
             toast.error(error.message);
           }
         } catch (err) {
-          console.error("[OAuth Audit Step 6.ALT_EX] setSession exception:", err);
+          console.error("setSession exception:", err);
         }
-      } else {
-        console.warn("[OAuth Audit Step 5.WARN] Deep link URL matched but contained neither PKCE code nor token pair:", rawDeepLinkUrl);
       }
     };
 
     let nativeDeepLinkSub: any;
     if (Capacitor.isNativePlatform()) {
-      console.log("[OAuth Audit Step 4.INIT] Native platform active. Registering CapApp appUrlOpen listener & checking getLaunchUrl()...");
-      
       CapApp.addListener("appUrlOpen", async (event) => {
         handleNativeDeepLinkUrl(event.url, "appUrlOpen");
       }).then((sub) => {
@@ -265,11 +227,8 @@ const Index = () => {
 
       CapApp.getLaunchUrl().then((launchUrl) => {
         if (launchUrl?.url) {
-          console.log("[OAuth Audit Step 4.LAUNCH] CapApp.getLaunchUrl found initial launch URL:", launchUrl.url);
           handleNativeDeepLinkUrl(launchUrl.url, "getLaunchUrl");
         }
-      }).catch((err) => {
-        console.log("[OAuth Audit Step 4.LAUNCH_ERR] getLaunchUrl check skipped:", err);
       });
     }
 
@@ -332,22 +291,15 @@ const Index = () => {
         });
         unsubscribe = () => data.subscription.unsubscribe();
       } catch (error) {
-        console.warn("Supabase auth listener unavailable:", error);
         if (active) setAuthChecked(true);
       }
 
-      supabase.auth
-        .getSession()
-        .then(({ data: { session: nextSession } }) => {
-          if (!active) return;
-          setSession(nextSession);
-          setAuthChecked(true);
-          window.clearTimeout(timeoutId);
-        })
-        .catch((error) => {
-          console.warn("Supabase getSession failed; continuing without a session:", error);
-          if (active) setAuthChecked(true);
-        });
+      supabase.auth.getSession().then(({ data: { session: nextSession } }) => {
+        if (!active) return;
+        setSession(nextSession);
+        setAuthChecked(true);
+        window.clearTimeout(timeoutId);
+      });
     });
 
     return () => {
@@ -359,7 +311,6 @@ const Index = () => {
   }, []);
 
   const handleOpenEditor = () => {
-    console.log("[Index] handleOpenEditor called. Setting showEditor=true");
     toast.info(isRTL() ? "جارٍ فتح المحرر..." : "Opening editor...");
     window.history.pushState({ isEditor: true }, "");
     setShowEditor(true);
@@ -376,11 +327,7 @@ const Index = () => {
   };
 
   const handleLogout = async () => {
-    try {
-      await supabase.auth.signOut();
-    } catch (error) {
-      console.warn("Sign out error:", error);
-    }
+    await supabase.auth.signOut();
     safeStorage.removeItem("vireon:guest");
     setSession(null);
     setIsGuest(false);
@@ -401,9 +348,7 @@ const Index = () => {
           {isRTL() ? "تم الخروج بنجاح" : "Successfully Exited"}
         </h1>
         <p className="text-sm text-zinc-400 text-center max-w-xs leading-relaxed">
-          {isRTL()
-            ? "نشكرك على استخدام تطبيقنا. يمكنك الآن إغلاق هذه الصفحة أو التبويب بأمان."
-            : "Thank you for using our app. You can now safely close this tab or page."}
+          {isRTL() ? "نشكرك على استخدام تطبيقنا." : "Thank you for using our app."}
         </p>
         <button
           onClick={() => {
@@ -431,13 +376,10 @@ const Index = () => {
       <AuthScreen
         onGuestLogin={handleGuestLogin}
         onLoginSuccess={() => {
-          supabase.auth
-            .getSession()
-            .then(({ data: { session: currentSession } }) => {
-              setSession(currentSession);
-              setAuthChecked(true);
-            })
-            .catch(() => setAuthChecked(true));
+          supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
+            setSession(currentSession);
+            setAuthChecked(true);
+          });
         }}
       />
     );
@@ -453,8 +395,7 @@ const Index = () => {
                 window.history.back();
               } else {
                 setShowEditor(false);
-                const saved = (safeStorage.getItem("vireon:theme") as "dark" | "light" | "auto") || "dark";
-                applyThemeToDOM(saved);
+                applyThemeToDOM((safeStorage.getItem("vireon:theme") as "dark" | "light" | "auto") || "dark");
               }
             }}
           />
@@ -512,7 +453,6 @@ const Index = () => {
               await addFiles([file]);
               handleOpenEditor();
             }}
-            }}
           />
         </Suspense>
       </div>
@@ -559,17 +499,13 @@ const Index = () => {
                   const isVideo = blob.type.startsWith("video/") || mediaUrl.includes(".mp4") || mediaUrl.includes(".webm");
                   const isWebm = blob.type.includes("webm") || mediaUrl.includes(".webm");
                   const ext = isVideo ? (isWebm ? "webm" : "mp4") : "png";
-                  const mimeType = isVideo ? (isWebm ? "video/webm" : "video/mp4") : (blob.type || "image/png");
                   const fileName = isVideo ? `vieron-ai-video-${Date.now()}.${ext}` : `vieron-image-${Date.now()}.${ext}`;
 
-                  const file = new File([blob], fileName, { type: mimeType });
+                  const file = new File([blob], fileName, { type: blob.type || (isVideo ? "video/mp4" : "image/png") });
                   newProject();
-                  const items = await addFiles([file]);
-                  if (items && items.length > 0) {
-                    window.history.pushState({ isEditor: true }, "");
-                    setShowEditor(true);
-                    return;
-                  }
+                  await addFiles([file]);
+                  handleOpenEditor();
+                  return;
                 } catch (e) {
                   console.warn("Failed to load AI media into editor:", e);
                 }
@@ -629,9 +565,6 @@ const Index = () => {
               >
                 <div className="w-14 h-14 rounded-2xl bg-accent/15 flex items-center justify-center">
                   <ImageIcon className="w-7 h-7 text-accent" />
-                </div>
-                <span className="text-xs font-bold text-foreground line-clamp-1">{t("plus.photoEditor")}</span>
-              </button>
                 </div>
                 <span className="text-xs font-bold text-foreground line-clamp-1">{t("plus.photoEditor")}</span>
               </button>

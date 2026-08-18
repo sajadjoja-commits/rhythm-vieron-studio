@@ -1,6 +1,7 @@
 import React from "react";
-import { History, Play, Scissors, Volume2, Video, RefreshCw, Clock, Trash2, Film } from "lucide-react";
-import { ProjectMeta } from "@/context/MediaContext";
+import { History, Play, Scissors, Volume2, Video, RefreshCw, Clock, Trash2, Film, Plus } from "lucide-react";
+import { ProjectMeta, useMedia } from "@/context/MediaContext";
+import MediaPicker from "@/components/MediaPicker";
 
 interface RecentAIActivityProps {
   recentProjects: ProjectMeta[];
