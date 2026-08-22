@@ -27,7 +27,9 @@ import {
   ShieldCheck,
   Flame,
   Volume2,
-import { VolumeX, Brush } from "lucide-react";
+  VolumeX,
+  Brush
+} from "lucide-react";
 import { toast } from "sonner";
 import { Capacitor, registerPlugin } from "@capacitor/core";
 import { aiRuntime } from "@/ai/runtime/AIRuntime";

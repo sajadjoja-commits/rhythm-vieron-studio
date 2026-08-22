@@ -5,7 +5,6 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import "./index.css";
 import { applyLangToDOM } from "./lib/i18n";
 import { preloadSfx } from "./lib/soundFx";
-import { initCapgo } from "./services/capgo";
 import { initializePerformanceOptimizations, logPerformanceMetrics, enableGarbageCollectionHints } from "./lib/performanceOptimizations";
 
 // Filter benign WebAssembly / TensorFlow Lite engine informational logs
@@ -52,8 +51,6 @@ try {
     try { preloadSfx(); } catch {}
   }, { once: true });
 } catch {}
-
-try { initCapgo(); } catch (e) { console.warn("Capgo init warning:", e); }
 
 try {
   initializePerformanceOptimizations();
@@ -115,7 +112,6 @@ if (typeof window !== "undefined") {
 if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
   const isIframe = typeof window !== "undefined" && window.self !== window.top;
   if (Capacitor.isNativePlatform() || import.meta.env.DEV || isIframe) {
-    // Unregister service worker on native Capacitor mobile shell, Vite dev mode, or iframe preview
     navigator.serviceWorker.getRegistrations().then((registrations) => {
       for (const registration of registrations) {
         registration.unregister().catch(() => {});

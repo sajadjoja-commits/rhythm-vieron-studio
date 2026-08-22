@@ -83,11 +83,36 @@ export async function removeBackgroundAndroidNative(
       });
 
       let base64Data = "";
+      let mimeType = "image/jpeg";
+
       if (typeof imageInput === "string" && imageInput.startsWith("data:")) {
-        base64Data = imageInput.split(",")[1] || "";
-      } else if (imageInput instanceof Blob) {
-        const buffer = await imageInput.arrayBuffer();
+        const parts = imageInput.split(",");
+        base64Data = parts[1] || "";
+        const mimeMatch = parts[0].match(/:(.*?);/);
+        if (mimeMatch) mimeType = mimeMatch[1];
+      } else {
+        let blob: Blob;
+        if (imageInput instanceof Blob) {
+          blob = imageInput;
+        } else if (typeof imageInput === "string" && imageInput.startsWith("blob:")) {
+          const response = await fetch(imageInput);
+          blob = await response.blob();
+        } else {
+          throw new Error(`Unsupported image input format: ${typeof imageInput}`);
+        }
+
+        if (blob.size === 0) {
+          throw new Error("Input image data is empty (0 bytes)");
+        }
+
+        mimeType = blob.type || "image/jpeg";
+        const buffer = await blob.arrayBuffer();
         const bytes = new Uint8Array(buffer);
+
+        if (bytes.length === 0) {
+          throw new Error("Failed to read image buffer (0 bytes)");
+        }
+
         let binary = "";
         const chunkSize = 32768;
         for (let i = 0; i < bytes.length; i += chunkSize) {
@@ -96,7 +121,12 @@ export async function removeBackgroundAndroidNative(
         base64Data = btoa(binary);
       }
 
-      const tempFileName = `vireon_input_${Date.now()}.${imageInput instanceof File && imageInput.name.endsWith(".png") ? "png" : "jpg"}`;
+      if (!base64Data) {
+        throw new Error("Failed to convert image to base64 for native processing");
+      }
+
+      const extension = mimeType.includes("png") ? "png" : "jpg";
+      const tempFileName = `vireon_input_${Date.now()}.${extension}`;
       const writeResult = await Filesystem.writeFile({
         path: tempFileName,
         data: base64Data,
