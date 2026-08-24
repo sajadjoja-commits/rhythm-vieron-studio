@@ -195,12 +195,17 @@ class CapgoService {
    */
   public async applyUpdate(): Promise<void> {
     if (!this.isInitialized || !this.updater) return;
-    if (this.state.status !== "ready-to-install" || !this.downloadedBundleId) return;
+    if (this.state.status !== "ready-to-install" || !this.downloadedBundleId) {
+      console.warn("[Capgo] Cannot apply update: no bundle ready.");
+      return;
+    }
 
     this.setState({ status: "installing" });
 
     try {
+      console.log("[Capgo] Applying update bundle:", this.downloadedBundleId);
       // Set the bundle as active and reload immediately
+      // This is a terminal operation for the current JS context
       await this.updater.set({ id: this.downloadedBundleId });
 
       // Note: app will reload here
@@ -208,6 +213,15 @@ class CapgoService {
     } catch (error: any) {
       console.error("[Capgo] Apply failed:", error);
       this.setState({ status: "error", error: error?.message || "Failed to apply update" });
+    }
+  }
+
+  /**
+   * Clear error state to allow retrying
+   */
+  public clearError() {
+    if (this.state.status === "error") {
+      this.setState({ status: "idle", error: undefined });
     }
   }
 }

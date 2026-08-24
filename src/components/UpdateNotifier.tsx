@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { Capacitor } from "@capacitor/core";
-import { Sparkles, RefreshCw, X, Download, Package } from "lucide-react";
+import { Sparkles, RefreshCw, X, Download, Package, AlertTriangle } from "lucide-react";
 import { addDynamicNotification } from "@/lib/notifications";
 import { t, getLang, isRTL } from "@/lib/i18n";
 import { useOTAUpdate } from "@/hooks/useOTAUpdate";
+import { otaService } from "@/services/capgo";
 
 const UpdateNotifier = () => {
   const [hasWebUpdate, setHasWebUpdate] = useState(false);
@@ -141,7 +142,11 @@ const UpdateNotifier = () => {
     ota.applyUpdate();
   };
 
-  const shouldShow = (hasWebUpdate || ota.status !== "idle" && ota.status !== "no-update" && ota.status !== "checking") && !dismissed;
+  const handleClearError = () => {
+    otaService.clearError();
+  };
+
+  const shouldShow = (hasWebUpdate || (ota.status !== "idle" && ota.status !== "no-update" && ota.status !== "checking")) && !dismissed;
 
   if (!shouldShow) return null;
 
@@ -150,14 +155,16 @@ const UpdateNotifier = () => {
       className="fixed bottom-20 left-4 right-4 md:left-auto md:right-4 md:max-w-md z-[110] animate-in slide-in-from-bottom duration-300"
       dir={isRTL() ? "rtl" : "ltr"}
     >
-      <div className="relative overflow-hidden rounded-2xl border border-emerald-500/30 bg-zinc-950/95 p-4 text-white shadow-2xl shadow-emerald-500/10 backdrop-blur-md">
+      <div className={`relative overflow-hidden rounded-2xl border ${ota.status === 'error' ? 'border-red-500/30' : 'border-emerald-500/30'} bg-zinc-950/95 p-4 text-white shadow-2xl ${ota.status === 'error' ? 'shadow-red-500/10' : 'shadow-emerald-500/10'} backdrop-blur-md`}>
         {/* Glow decoration */}
-        <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
+        <div className={`absolute top-0 right-0 w-24 h-24 ${ota.status === 'error' ? 'bg-red-500/10' : 'bg-emerald-500/10'} rounded-full blur-2xl pointer-events-none`} />
         
         <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+          <div className={`w-10 h-10 rounded-xl ${ota.status === 'error' ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'} flex items-center justify-center shrink-0`}>
             {ota.status === "downloading" ? (
               <Download className="w-5 h-5 animate-pulse" />
+            ) : ota.status === "error" ? (
+              <AlertTriangle className="w-5 h-5" />
             ) : (
               <RefreshCw className="w-5 h-5 animate-spin-slow" />
             )}
@@ -165,8 +172,10 @@ const UpdateNotifier = () => {
           
           <div className="flex-1 min-w-0 pr-6">
             <h3 className="font-heading font-bold text-sm text-white flex items-center gap-1.5">
-              <Sparkles className="w-4 h-4 text-emerald-400" />
-              {isNative ? (
+              <Sparkles className={`w-4 h-4 ${ota.status === 'error' ? 'text-red-400' : 'text-emerald-400'}`} />
+              {ota.status === "error" ? (
+                ar ? "فشل التحديث" : "Update Failed"
+              ) : isNative ? (
                 ar ? "تحديث متاح للنظام" : "System Update Available"
               ) : (
                 ar ? "تحديث جديد متوفر للتطبيق!" : "New App Update Available!"
@@ -174,7 +183,9 @@ const UpdateNotifier = () => {
             </h3>
 
             <p className="mt-1 text-xs text-zinc-300 leading-relaxed">
-              {ota.status === "update-available" ? (
+              {ota.status === "error" ? (
+                ar ? `حدث خطأ: ${ota.error || "حاول مرة أخرى لاحقاً"}` : `An error occurred: ${ota.error || "Please try again later."}`
+              ) : ota.status === "update-available" ? (
                 ar ? `إصدار جديد (${ota.version}) جاهز للتحميل.` : `New version (${ota.version}) is ready to download.`
               ) : ota.status === "downloading" ? (
                 ar ? `جاري تحميل التحديث... ${Math.round(ota.progress)}%` : `Downloading update... ${Math.round(ota.progress)}%`
@@ -188,7 +199,15 @@ const UpdateNotifier = () => {
             </p>
             
             <div className="mt-3 flex items-center gap-2">
-              {isNative ? (
+              {ota.status === "error" ? (
+                <button
+                  onClick={handleClearError}
+                  className="px-4 py-1.5 rounded-lg bg-red-500 hover:bg-red-600 active:scale-95 text-xs font-bold text-white transition-all shadow-md shadow-red-500/20 flex items-center gap-1.5"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  {ar ? "إعادة المحاولة" : "Retry"}
+                </button>
+              ) : isNative ? (
                 <>
                   {ota.status === "update-available" && (
                     <button
@@ -211,7 +230,7 @@ const UpdateNotifier = () => {
                   )}
 
                   {ota.status === "downloading" && (
-                    <div className="w-full bg-zinc-800 rounded-full h-1.5 mt-2">
+                    <div className="w-full bg-zinc-800 rounded-full h-1.5 mt-2 overflow-hidden">
                       <div
                         className="bg-emerald-500 h-1.5 rounded-full transition-all duration-300"
                         style={{ width: `${ota.progress}%` }}
@@ -229,7 +248,7 @@ const UpdateNotifier = () => {
                 </button>
               )}
               
-              {(ota.status === "update-available" || !isNative) && (
+              {(ota.status === "update-available" || ota.status === "error" || ota.status === "ready-to-install" || !isNative) && (
                 <button
                   onClick={() => setDismissed(true)}
                   className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-400 transition-colors"
