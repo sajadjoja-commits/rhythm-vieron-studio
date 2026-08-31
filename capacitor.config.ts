@@ -36,6 +36,7 @@ const config: CapacitorConfig = {
     CapacitorUpdater: {
       appId: '4ff5064c-bd8c-4b62-b998-25e5da1d59c5',
       autoUpdate: false,
+      defaultChannel: 'staging',
     },
   },
 };
