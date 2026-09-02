@@ -53,7 +53,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     audioTracks = [], selectedAudioTrackId, setSelectedAudioTrackId, videoMuted, videoVolume, videoAudioFx, projectName, setProjectName,
     splitClipsAtBeats, filters = [], vfx = [], overlays = [], setAudioBeats, updateOverlay, setOverlays,
     splitTrackAt, coverImage, undo, redo, canUndo, canRedo, setClips,
-    captions = [], captionStyle, setCaptions, setFilters, setVfx, updateAudioTrack,
+    captions = [], captionStyle, setCaptions, setFilters, setVfx, updateAudioTrack, updateMediaItem,
     removeClip, removeCaption, removeAudioTrack, removeFilter, removeVfx, removeOverlay,
   } = useMedia();
   const [isPlaying, setIsPlaying] = useState(false);
@@ -1732,9 +1732,17 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
             mediaType={activeMedia?.type === "image" ? "image" : "video"}
             currentMediaUrlOrBase64={activeMedia?.url || undefined}
             onApplyResult={(resData) => {
-              if (resData?.outputVideoBase64OrUrl && resolved?.clip) {
-                // updateClip if available or toast completion
-                toast.success(getLang() === "ar" ? "تم تحديث فيديو المقطع بالنتيجة الذكية!" : "Updated video clip with AI result!");
+              if (resData?.outputVideoBase64OrUrl && activeMedia) {
+                updateMediaItem(activeMedia.id, { url: resData.outputVideoBase64OrUrl });
+                if (videoRefA.current) {
+                  videoRefA.current.src = resData.outputVideoBase64OrUrl;
+                  videoRefA.current.load();
+                }
+                if (videoRefB.current) {
+                  videoRefB.current.src = resData.outputVideoBase64OrUrl;
+                  videoRefB.current.load();
+                }
+                toast.success(getLang() === "ar" ? "تم تحديث فيديو المقطع بنتيجة المعالجة الذكية!" : "Updated video clip with AI result!");
               }
             }}
           />

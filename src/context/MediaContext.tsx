@@ -317,6 +317,7 @@ interface MediaContextType {
   audioTracks: AudioTrackItem[]; videoMuted: boolean; videoVolume: number; videoAudioFx: AudioFxType;
   exportPreset: ExportPreset; projectName: string; projectId: string;
   addFiles: (files: FileList | File[]) => Promise<MediaItem[]>;
+  updateMediaItem: (id: string, patch: Partial<MediaItem>) => void;
   removeMedia: (id: string) => void; clearMedia: () => void;
   setClips: React.Dispatch<React.SetStateAction<Clip[]>>;
   setFilters: React.Dispatch<React.SetStateAction<FilterItem[]>>;
@@ -708,6 +709,10 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
       }
     });
     return items;
+  }, []);
+
+  const updateMediaItem = useCallback((id: string, patch: Partial<MediaItem>) => {
+    setMedia((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
   }, []);
 
   const removeMedia = useCallback((id: string) => {
@@ -1104,7 +1109,7 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
         media, clips, captions, captionStyle, audioTracks, videoMuted, videoVolume, videoAudioFx,
         exportPreset, projectName, projectId,
         filters, vfx, overlays,
-        addFiles, removeMedia, clearMedia,
+        addFiles, updateMediaItem, removeMedia, clearMedia,
         setClips, splitClipAt, splitTrackAt, trimClip, removeClip, moveClip, setClipSpeed, setTransition,
         setFilters, setVfx, setOverlays,
         coverImage, setCoverImage,

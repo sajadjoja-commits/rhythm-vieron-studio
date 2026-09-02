@@ -324,12 +324,22 @@ export class VideoEncoderEngine {
       });
 
       try {
-        if (state === EncoderState.PROCESSING) {
-          videoEncoder.encode(frame, { keyFrame });
-          frameIndex++;
-        } else {
+        if (state !== EncoderState.PROCESSING) {
           throw new Error(`Cannot call encode on a ${state.toLowerCase()} codec`);
         }
+        if (videoEncoder.state !== "configured") {
+          throw new Error(`Cannot encode frame: VideoEncoder is in '${videoEncoder.state}' state (expected 'configured')`);
+        }
+
+        // Diagnostic tracing before encoder.encode(frame)
+        if (frameIndex === 0 || isKeyFrame || frameIndex % Math.max(1, Math.floor(fps * 2)) === 0) {
+          console.log(
+            `[VideoEncoderEngine] Encode frame ${frameIndex}: ts=${timestampMicros}µs, size=${frame.displayWidth || width}x${frame.displayHeight || height}, format=${(frame as any).format || "canvas/RGBA"}, encoderState=${videoEncoder.state}, sessionState=${state}, keyFrame=${keyFrame}`
+          );
+        }
+
+        videoEncoder.encode(frame, { keyFrame });
+        frameIndex++;
       } finally {
         frame.close(); // Immediate memory release
       }

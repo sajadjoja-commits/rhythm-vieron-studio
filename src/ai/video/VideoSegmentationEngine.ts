@@ -13,6 +13,16 @@ const MEDIAPIPE_WASM_PATH = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-visio
 const PRIMARY_SEGMENTER_MODEL = "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/1/selfie_segmenter.tflite";
 const FALLBACK_SEGMENTER_MODEL = "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter_landscape/float16/1/selfie_segmenter_landscape.tflite";
 
+export interface MaskVerificationStats {
+  min: number;
+  max: number;
+  mean: number;
+  foregroundPercentage: number;
+  transparentPercentage: number;
+  isValid: boolean;
+  error?: string;
+}
+
 export class VideoSegmentationEngine {
   private static instance: VideoSegmentationEngine;
   private segmenterInstance: ImageSegmenter | null = null;
@@ -153,19 +163,30 @@ export class VideoSegmentationEngine {
     const maskWidth = mask.width;
     const maskHeight = mask.height;
 
+    // Validate mask statistics (min, max, mean, foreground%)
+    const stats = this.verifyMask(maskData, maskWidth, maskHeight, options?.frameIndex);
+    if (!stats.isValid) {
+      console.warn(`[VideoSegmentationEngine] Warning on frame ${options?.frameIndex ?? 0}: ${stats.error}`);
+    }
+
     const currentAlphaBuffer = new Float32Array(numPixels);
 
     // Parse background color if not transparent
     let bgR = 0, bgG = 0, bgB = 0, bgA = 0;
-    if (bgColor !== "transparent") {
-      if (bgColor.startsWith("#")) {
-        const hex = bgColor.replace("#", "");
+    const bgLower = bgColor.toLowerCase().trim();
+    if (bgLower !== "transparent") {
+      if (bgLower.startsWith("#")) {
+        const hex = bgLower.replace("#", "");
         bgR = parseInt(hex.substring(0, 2), 16) || 0;
         bgG = parseInt(hex.substring(2, 4), 16) || 0;
         bgB = parseInt(hex.substring(4, 6), 16) || 0;
         bgA = 255;
-      } else if (bgColor === "green") {
+      } else if (bgLower === "green") {
         bgR = 0; bgG = 255; bgB = 0; bgA = 255;
+      } else if (bgLower === "white") {
+        bgR = 255; bgG = 255; bgB = 255; bgA = 255;
+      } else if (bgLower === "black") {
+        bgR = 0; bgG = 0; bgB = 0; bgA = 255;
       }
     }
 
@@ -213,8 +234,14 @@ export class VideoSegmentationEngine {
           data[pixelIdx + 2] = Math.round(b * fgAlpha + bgB * (1 - fgAlpha));
           data[pixelIdx + 3] = 255;
         } else {
-          // Pure transparent alpha channel cutout
-          data[pixelIdx + 3] = Math.round(finalAlpha * 255);
+          // Pure transparent alpha channel cutout:
+          // CRITICAL: NEVER leave original background RGB under the transparent mask!
+          // Multiply foreground RGB by finalAlpha so background pixels have RGB=(0,0,0) and Alpha=0!
+          const fgAlpha = finalAlpha;
+          data[pixelIdx] = Math.round(data[pixelIdx] * fgAlpha);
+          data[pixelIdx + 1] = Math.round(data[pixelIdx + 1] * fgAlpha);
+          data[pixelIdx + 2] = Math.round(data[pixelIdx + 2] * fgAlpha);
+          data[pixelIdx + 3] = Math.round(fgAlpha * 255);
         }
       }
     }
@@ -226,6 +253,79 @@ export class VideoSegmentationEngine {
 
     return {
       currentAlphaBuffer,
+    };
+  }
+
+  /**
+   * Verifies segmentation mask validity and calculates diagnostics statistics:
+   * min, max, mean, foreground %, transparent %.
+   * Rejects invalid masks (all zero, all 1.0, zero variance).
+   */
+  public verifyMask(
+    maskData: Float32Array,
+    maskWidth: number,
+    maskHeight: number,
+    frameIndex = 0
+  ): MaskVerificationStats {
+    if (!maskData || maskData.length === 0 || maskWidth <= 0 || maskHeight <= 0) {
+      return {
+        min: 0,
+        max: 0,
+        mean: 0,
+        foregroundPercentage: 0,
+        transparentPercentage: 0,
+        isValid: false,
+        error: `Invalid mask dimensions: ${maskWidth}x${maskHeight}`,
+      };
+    }
+
+    let min = 1.0;
+    let max = 0.0;
+    let sum = 0;
+    let fgCount = 0;
+    let transCount = 0;
+
+    const total = maskData.length;
+    for (let i = 0; i < total; i++) {
+      const v = maskData[i];
+      if (v < min) min = v;
+      if (v > max) max = v;
+      sum += v;
+      if (v >= 0.5) fgCount++;
+      if (v <= 0.1) transCount++;
+    }
+
+    const mean = sum / total;
+    const foregroundPercentage = (fgCount / total) * 100;
+    const transparentPercentage = (transCount / total) * 100;
+
+    // Check rejection conditions: all zero, all 1.0, or nearly zero variance
+    let isValid = true;
+    let error: string | undefined;
+
+    if (max <= 0.001) {
+      isValid = false;
+      error = "Segmentation mask is completely empty (all zero)";
+    } else if (min >= 0.999) {
+      isValid = false;
+      error = "Segmentation mask has no background (all 1.0)";
+    } else if (Math.abs(max - min) < 0.02) {
+      isValid = false;
+      error = "Segmentation mask lacks contrast/variance between foreground and background";
+    }
+
+    if (frameIndex === 0 || frameIndex % 30 === 0) {
+      console.log(`[VideoSegmentationEngine] Frame ${frameIndex} Mask: min=${min.toFixed(3)} max=${max.toFixed(3)} mean=${mean.toFixed(3)} foreground%=${foregroundPercentage.toFixed(1)}% transparent%=${transparentPercentage.toFixed(1)}%`);
+    }
+
+    return {
+      min,
+      max,
+      mean,
+      foregroundPercentage,
+      transparentPercentage,
+      isValid,
+      error,
     };
   }
 

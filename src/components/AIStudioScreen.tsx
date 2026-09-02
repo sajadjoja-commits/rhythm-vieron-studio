@@ -43,6 +43,7 @@ import { ImagePreviewEngine } from "@/components/imageAi/ImagePreviewEngine";
 import { AILoadingOverlay } from "@/components/ui/AILoadingOverlay";
 import { BackgroundRemovalResult } from "@/components/imageAi/BackgroundRemovalResult";
 import { VideoJobManager, VideoJobRecord } from "@/ai/video";
+import { VideoAIPreviewPlayer } from "@/components/video/VideoAIPreviewPlayer";
 
 export interface AIToolConfig {
   id: string;
@@ -287,6 +288,14 @@ const AIStudioScreen: React.FC<AIStudioScreenProps> = ({ onBack, onOpenPhotoEdit
             claheClipLimit: contrastBoost * 2.5,
             colorVibrance: 0.3,
             preserveAudio: true,
+            backgroundColor:
+              videoBgMode === "green"
+                ? "green"
+                : videoBgMode === "white"
+                ? "white"
+                : videoBgMode === "black"
+                ? "black"
+                : "transparent",
           },
         });
 
@@ -1046,25 +1055,12 @@ const AIStudioScreen: React.FC<AIStudioScreenProps> = ({ onBack, onOpenPhotoEdit
                       </div>
                     )}
 
-                    {/* Real Video Player Container */}
-                    <div
-                      className={`relative rounded-2xl overflow-hidden border border-border flex items-center justify-center min-h-[200px] ${
-                        videoBgMode === "checkerboard"
-                          ? "bg-[linear-gradient(45deg,#202020_25%,transparent_25%),linear-gradient(-45deg,#202020_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#202020_75%),linear-gradient(-45deg,transparent_75%,#202020_75%)] bg-[size:16px_16px] bg-[position:0_0,0_8px,8px_-8px,-8px_0] bg-slate-900"
-                          : videoBgMode === "green"
-                          ? "bg-[#00ff00]"
-                          : videoBgMode === "white"
-                          ? "bg-white"
-                          : "bg-black"
-                      }`}
-                    >
-                      <video
-                        src={resultData.outputVideoBase64OrUrl}
-                        controls
-                        playsInline
-                        className="w-full max-h-72 object-contain"
-                      />
-                    </div>
+                    {/* Verified Real Video AI Preview Player */}
+                    <VideoAIPreviewPlayer
+                      src={resultData.outputVideoBase64OrUrl}
+                      videoBgMode={videoBgMode}
+                      en={en}
+                    />
 
                     {/* Stats pills */}
                     <div className="flex flex-wrap gap-1.5 text-[10px] font-mono text-muted-foreground">

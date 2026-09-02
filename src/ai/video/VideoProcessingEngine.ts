@@ -22,7 +22,7 @@ import { VideoFrameExtractor } from "./VideoFrameExtractor";
 import { VideoEnhancementEngine } from "./VideoEnhancementEngine";
 import { VideoSegmentationEngine } from "./VideoSegmentationEngine";
 import { VideoEncoderEngine } from "./VideoEncoderEngine";
-import { VideoOutputVerifier } from "./VideoOutputVerifier";
+import { VideoOutputVerifier, VideoSampleFrame } from "./VideoOutputVerifier";
 
 export class VideoProcessingEngine {
   private static instance: VideoProcessingEngine;
@@ -205,6 +205,7 @@ export class VideoProcessingEngine {
       // Buffers for temporal stabilization
       let prevLuminanceBuffer: Float32Array | null = null;
       let prevAlphaBuffer: Float32Array | null = null;
+      const inputSampleFrames: VideoSampleFrame[] = [];
 
       // 5. Sequential Frame Processing Loop (Zero frame accumulation in RAM)
       try {
@@ -235,22 +236,52 @@ export class VideoProcessingEngine {
           // Fetch ImageData
           const imageData = ctx.getImageData(0, 0, width, height);
 
+          // Sample frames (start, midpoint, end) for authentic output verification
+          const isSampleFrame = frameIdx === 0 || frameIdx === Math.floor(totalFrames / 2) || frameIdx === totalFrames - 1;
+          if (isSampleFrame && inputSampleFrames.length < 3) {
+            inputSampleFrames.push({
+              timestampSeconds,
+              data: new Uint8ClampedArray(imageData.data),
+              width,
+              height,
+            });
+          }
+
           // Apply task-specific processing
           if (taskType === "enhance-video") {
+            const origDataCopy = isSampleFrame ? new Uint8ClampedArray(imageData.data) : null;
             const res = this.enhancementEngine.processFrame(imageData, options, prevLuminanceBuffer);
             prevLuminanceBuffer = res.currentLuminance;
+
+            if (isSampleFrame && origDataCopy) {
+              const metrics = this.enhancementEngine.calculateFrameMetrics(origDataCopy, imageData.data);
+              console.log(
+                `[VideoProcessingEngine] Frame ${frameIdx + 1}/${totalFrames} [Enhance]: meanDiff=${metrics.meanPixelDifference.toFixed(2)}, changed%=${metrics.changedPixelPercentage.toFixed(1)}%, lum=[${metrics.luminanceOriginal.toFixed(1)}->${metrics.luminanceProcessed.toFixed(1)}], contrast=[${metrics.contrastOriginal.toFixed(1)}->${metrics.contrastProcessed.toFixed(1)}]`
+              );
+            }
+
             ctx.clearRect(0, 0, width, height);
             ctx.putImageData(imageData, 0, 0);
           } else if (taskType === "remove-video-background") {
             const res = await this.segmentationEngine.processFrame(
               processCanvas,
               imageData,
-              options,
+              { ...options, frameIndex: frameIdx },
               prevAlphaBuffer
             );
             prevAlphaBuffer = res.currentAlphaBuffer;
+
+            // CRITICAL: Clear canvas completely before putting modified image data so no original frame remnants exist underneath!
             ctx.clearRect(0, 0, width, height);
             ctx.putImageData(imageData, 0, 0);
+          }
+
+          // Quick canvas verification for sample frames
+          if (isSampleFrame) {
+            const checkPixel = ctx.getImageData(0, 0, 1, 1).data;
+            console.log(
+              `[VideoProcessingEngine] Frame ${frameIdx + 1} canvas ready: R=${checkPixel[0]}, G=${checkPixel[1]}, B=${checkPixel[2]}, A=${checkPixel[3]}`
+            );
           }
 
           // Stream encoded frame into muxer
@@ -279,13 +310,14 @@ export class VideoProcessingEngine {
         this.memoryManager.disposeCanvas(processCanvas);
 
         // 7. Verify Output
-        logStage("VERIFYING", { sizeBytes: outputBlob.size });
-        emitProgress("VERIFYING", 95, totalFrames, totalFrames, "جاري التحقق من سلامة الفيديو المُنتج...");
+        logStage("VERIFYING", { sizeBytes: outputBlob.size, sampleFramesCount: inputSampleFrames.length });
+        emitProgress("VERIFYING", 95, totalFrames, totalFrames, "جاري التحقق من سلامة الفيديو المُنتج ومطابقة الإطارات...");
         const verification = await this.verifier.verify(outputBlob, {
           expectedDuration: durationSeconds,
           expectedWidth: width,
           expectedHeight: height,
           taskType: taskType as any,
+          inputSampleFrames,
         });
 
         if (!verification.valid) {
