@@ -4,7 +4,7 @@ import {
   Image as ImageIcon, Video, Plus, Wand2, Loader2, Palette, Activity, Layers,
   Gauge, Zap, Clapperboard, Undo2, Redo2, Eye, EyeOff, RotateCw, Diamond, Minus, Trash2, Maximize2,
 } from "lucide-react";
-import { useMedia, TransitionType, Clip, interpolateKeyframes } from "@/context/MediaContext";
+import { useMedia, TransitionType, Clip, MediaItem, OverlayItem, interpolateKeyframes } from "@/context/MediaContext";
 import { computeVfxState } from "@/lib/vfxEngine";
 import MediaPicker from "@/components/MediaPicker";
 import Timeline from "@/components/editor/Timeline";
@@ -33,7 +33,7 @@ import CropOverlay from "@/components/editor/CropOverlay";
 import { AIToolsPanel } from "@/components/editor/AIToolsPanel";
 import { toast } from "sonner";
 import { attachFxChain } from "@/lib/audioFx";
-import { analyzeBeats, getAudioContext } from "@/lib/audioAnalysis";
+import { analyzeBeats, analyzeBeatsFromUrl, getAudioContext } from "@/lib/audioAnalysis";
 import { t, getLang, isRTL } from "@/lib/i18n";
 import { VireonLogo } from "@/components/VireonLogo";
 import { ASPECT_RATIOS, findClosestRatioIndex } from "@/lib/aspectRatios";
@@ -42,7 +42,7 @@ interface EditorScreenProps {
   onBack: () => void;
 }
 
-type Tool = "transition" | "caption" | "music" | "filter" | "vfx" | "ratio" | "overlay" | "speed" | "cover" | "ai" | null;
+type Tool = "transition" | "keyframe" | "caption" | "music" | "filter" | "vfx" | "ratio" | "overlay" | "speed" | "cover" | "ai" | null;
 
 // Which timeline track is focused — determines which handles are visible
 type FocusedTrack = "video" | "caption" | "audio" | "filter" | "vfx" | "overlay" | null;
