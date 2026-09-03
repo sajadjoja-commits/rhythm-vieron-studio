@@ -16,6 +16,9 @@ export interface MediaItem {
   duration: number;
   file: File;
   thumbnail?: string;
+  width?: number;
+  height?: number;
+  editable?: boolean;
 }
 
 export type TransitionType = 
@@ -87,6 +90,9 @@ export interface Clip {
   cropW?: number;
   cropH?: number;
   speedCurve?: { id: string; timePct: number; value: number }[];
+  editable?: boolean;
+  url?: string;
+  duration?: number;
 }
 
 export function interpolateKeyframes(
@@ -180,6 +186,7 @@ export interface Caption {
   badgeIcon?: string;
   badgePosition?: "left" | "right" | "top";
   presetCategory?: string;
+  editable?: boolean;
 }
 
 export interface CaptionTemplate {
@@ -203,6 +210,7 @@ export interface CaptionTemplate {
   badgePosition?: "left" | "right" | "top";
   sampleText?: string;
   sampleTextAr?: string;
+  sampleTextEn?: string;
 }
 
 export interface CaptionStyle {
@@ -222,6 +230,13 @@ export interface CaptionStyle {
   textTransform?: "none" | "uppercase" | "lowercase" | "capitalize";
   bgRadius?: number;
   bgPadding?: number;
+  badgeIcon?: string;
+  badgePosition?: "left" | "right" | "top";
+  isMultiLine?: boolean;
+  flipH?: boolean;
+  flipV?: boolean;
+  rotation?: number;
+  scale?: number;
 }
 
 export type AudioFxType =
@@ -260,6 +275,7 @@ export interface AudioTrackItem {
   keyframes?: Keyframe[];
   beats?: number[];
   bpm?: number;
+  end?: number;
 }
 
 export type FilterType = "brightness" | "contrast" | "saturate" | "grayscale" | "sepia" | "blur" | "hue-rotate" | "invert" | "vintage" | "warm" | "cool" | "dramatic" | "noir" | "fade-edge" | "duotone" | "dream" | "neon" | "sepia-blue";
@@ -295,6 +311,7 @@ export interface OverlayItem {
   id: string; url: string; type: "image" | "video"; name: string; file: File;
   start: number; end: number; x: number; y: number; scale: number;
   opacity?: number; rotation?: number; blend?: string; brightness?: number;
+  flipH?: boolean; flipV?: boolean; duration?: number;
   keyframes?: Keyframe[];
 }
 
@@ -637,9 +654,9 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
         if (session?.user) {
           supabase.from("projects").upsert({
             id: projectId, name: projectName, export_preset: exportPreset,
-            clips_json: clips, captions_json: captions, caption_style_json: captionStyle,
+            clips_json: clips as any, captions_json: captions as any, caption_style_json: captionStyle as any,
             audio_tracks_json: audioTracks.map((a) => ({ id: a.id, name: a.name, start: a.start, offset: a.offset, duration: a.duration, sourceDuration: a.sourceDuration, volume: a.volume, muted: a.muted, fx: a.fx, color: a.color, kind: a.kind, url: a.file ? null : a.url })),
-            filters_json: filters, vfx_json: vfx, cover_image: effectiveCover,
+            filters_json: filters as any, vfx_json: vfx as any, cover_image: effectiveCover,
             duration: totalDuration, updated_at: new Date().toISOString(),
           }).then(({ error }) => { if (error) console.warn("cloud sync failed", error.message); });
         }

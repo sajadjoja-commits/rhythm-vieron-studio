@@ -17,7 +17,7 @@ export abstract class BaseTask<TPayload = any, TResult = any> {
     const preferredId = options?.preferredProvider?.toLowerCase();
 
     const candidates = providers.filter((p) => {
-      if (!p.supportsTask(this.taskType)) return false;
+      if (p.supportsTask ? !p.supportsTask(this.taskType) : !p.supportedTasks?.includes(this.taskType)) return false;
       if (payload && typeof p.isAvailable === "function") {
         try {
           const avail = p.isAvailable(this.taskType, payload);

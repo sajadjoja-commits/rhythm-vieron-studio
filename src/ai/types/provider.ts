@@ -7,6 +7,9 @@ export interface AIProvider {
   name: string;
   type: ProviderType;
   supportedTasks: AITaskType[];
+
+  /** Optional convenience check for task support */
+  supportsTask?(taskType: AITaskType): boolean;
   
   /**
    * Checks if provider is configured and available (e.g., API key present, or local model ready for payload's mediaType)
