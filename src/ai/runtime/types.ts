@@ -35,6 +35,7 @@ export interface AICapability {
 export interface AIJobProgress {
   jobId: string;
   taskId?: string;
+  taskType?: string;
   percentage: number;
   currentStage: string;
   estimatedTimeRemainingMs?: number;

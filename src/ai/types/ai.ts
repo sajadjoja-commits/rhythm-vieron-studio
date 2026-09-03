@@ -111,6 +111,8 @@ export interface EnhanceMediaResult {
   appliedEngine?: string;
   executionTimeMs?: number;
   qualityMetrics?: Record<string, any>;
+  requestId?: string;
+  metadata?: Record<string, any>;
 }
 
 // 5. Image Generation (FLUX.1 & AI Image Generators)

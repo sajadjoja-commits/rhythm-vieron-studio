@@ -102,9 +102,9 @@ export const logPerformanceMetrics = () => {
     console.log(`  Connect Time: ${connectTime}ms`);
     console.log(`  Render Time: ${renderTime}ms`);
     
-    if (performance.memory) {
-      console.log(`  Memory Used: ${(performance.memory.usedJSHeapSize / 1048576).toFixed(2)}MB`);
-      console.log(`  Memory Limit: ${(performance.memory.jsHeapSizeLimit / 1048576).toFixed(2)}MB`);
+    if ((performance as any).memory) {
+      console.log(`  Memory Used: ${((performance as any).memory.usedJSHeapSize / 1048576).toFixed(2)}MB`);
+      console.log(`  Memory Limit: ${((performance as any).memory.jsHeapSizeLimit / 1048576).toFixed(2)}MB`);
     }
   }
 };
@@ -162,8 +162,7 @@ export const enableGarbageCollectionHints = () => {
   setInterval(() => {
     if (typeof window !== 'undefined' && 'gc' in window) {
       try {
-        // @ts-expect-error - gc is a non-standard browser debugging API
-        window.gc();
+        (window as any).gc();
       } catch (e) {
         // GC not available in production
       }

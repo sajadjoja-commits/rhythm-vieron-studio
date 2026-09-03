@@ -1,4 +1,4 @@
-import { AITaskType, AIResponse } from "../types/ai";
+import { AITaskType, AIResponse, ExecutionMode } from "../types/ai";
 import { JobPriority } from "../runtime/types";
 import { AICapabilityRegistry } from "../runtime/AICapabilityRegistry";
 import { AIPluginRegistry } from "../plugins";
@@ -21,7 +21,7 @@ export interface AgentRequestOptions {
   denoiseIntensity?: number;
   targetFps?: 30 | 60 | 120;
   targetLanguage?: string;
-  executionMode?: "local" | "remote" | "auto";
+  executionMode?: ExecutionMode;
   [key: string]: any;
 }
 
@@ -41,7 +41,7 @@ export interface ExecutionStep {
   actionName: string;
   dependsOn?: string[]; // IDs of predecessor steps that must finish first
   payloadTemplate?: Record<string, any>;
-  executionMode?: "local" | "remote" | "auto";
+  executionMode?: ExecutionMode;
   outputField?: string; // Property name in result containing the media output
   inputPipeFromStepId?: string; // Step ID from which to pipe media output
 }
