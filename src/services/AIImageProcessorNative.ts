@@ -160,6 +160,9 @@ export async function removeBackgroundAndroidNative(
     });
 
     return {
+      success: true,
+      mimeType: "image/png",
+      taskType: "remove-background",
       outputDataUrl,
       width: nativeResponse.width,
       height: nativeResponse.height,

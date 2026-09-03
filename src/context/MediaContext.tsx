@@ -92,6 +92,7 @@ export interface Clip {
   speedCurve?: { id: string; timePct: number; value: number }[];
   editable?: boolean;
   url?: string;
+  duration?: number;
 }
 
 export function interpolateKeyframes(
@@ -310,6 +311,7 @@ export interface OverlayItem {
   id: string; url: string; type: "image" | "video"; name: string; file: File;
   start: number; end: number; x: number; y: number; scale: number;
   opacity?: number; rotation?: number; blend?: string; brightness?: number;
+  flipH?: boolean; flipV?: boolean; duration?: number;
   keyframes?: Keyframe[];
 }
 

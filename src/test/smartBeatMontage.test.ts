@@ -69,7 +69,7 @@ describe("Smart Beat Montage Scoring & Selection", () => {
   it("prioritizes high-motion and face-detected footage moments over static footage", async () => {
     // Media 1: Dynamic video (10s)
     // Media 2: Static photo (5s)
-    const media: MediaItem[] = [
+    const media = ([
       {
         id: "media-dynamic",
         name: "action_video.mp4",
@@ -88,7 +88,7 @@ describe("Smart Beat Montage Scoring & Selection", () => {
         width: 1920,
         height: 1080,
       },
-    ];
+    ] as unknown) as MediaItem[];
 
     const beatTimes = [1.0, 2.0, 3.0, 4.0];
 
@@ -114,7 +114,7 @@ describe("Smart Beat Montage Scoring & Selection", () => {
   });
 
   it("avoids redundant duplicate intervals when sufficient unique footage is available", async () => {
-    const media: MediaItem[] = [
+    const media = ([
       {
         id: "media-long",
         name: "long_video.mp4",
@@ -124,7 +124,7 @@ describe("Smart Beat Montage Scoring & Selection", () => {
         width: 1920,
         height: 1080,
       },
-    ];
+    ] as unknown) as MediaItem[];
 
     const beatTimes = [1.0, 2.0, 3.0, 4.0, 5.0];
 

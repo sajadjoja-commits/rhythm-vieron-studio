@@ -50,8 +50,7 @@ export const initializePerformanceOptimizations = () => {
   // 4. Request Idle Callback for non-critical tasks
   const scheduleIdleTask = (callback: () => void) => {
     if ('requestIdleCallback' in window) {
-      // @ts-expect-error - requestIdleCallback is not standard in lib.dom.d.ts
-      requestIdleCallback(callback);
+      (window as any).requestIdleCallback(callback);
     } else {
       setTimeout(callback, 0);
     }
