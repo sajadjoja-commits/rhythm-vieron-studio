@@ -169,6 +169,8 @@ export async function removeBackgroundAndroidNative(
       executionTimeMs: nativeResponse.processingTime || totalTime,
       executionProvider: "Android Native ML Kit (GPU/NPU)" as any,
       metrics: {
+        deviceTier: "HIGH",
+        isLocal: true,
         foregroundPixelCount: nativeResponse.metrics?.foregroundPixels || 0,
         backgroundPixelCount: nativeResponse.metrics?.transparentPixels || 0,
         alphaMattingApplied: true,

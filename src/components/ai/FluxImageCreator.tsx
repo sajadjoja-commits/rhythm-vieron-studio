@@ -147,7 +147,7 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
           },
           {
             executionMode: "cloud",
-            preferredProvider: "flux",
+            preferredProviderId: "flux",
             enableCache: false,
           }
         );

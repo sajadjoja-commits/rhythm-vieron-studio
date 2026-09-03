@@ -36,6 +36,9 @@ export interface AIJobProgress {
   jobId: string;
   taskId?: string;
   taskType?: string;
+  stage?: string;
+  progress?: number;
+  message?: string;
   percentage: number;
   currentStage: string;
   estimatedTimeRemainingMs?: number;
