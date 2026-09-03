@@ -63,13 +63,32 @@ vi.mock("../lib/beatDetector", () => ({
 
 vi.mock("../lib/visionAnalyzer", () => ({
   disposeVisionModels: () => {},
+  resetVisionDetector: () => {},
+  getVisionAnalysisStatus: () => ({
+    isDetectorAvailable: true,
+    isInitialized: true,
+    lastEngineUsed: "mediapipe",
+    sessionStats: { realMediaPipeFrames: 5, fallbackFrames: 0, facesDetected: 2, handsDetected: 1 },
+  }),
+  analyzeFrameVision: async () => ({
+    faceCount: 1,
+    faceConfidence: 0.9,
+    hasHands: true,
+    handCount: 1,
+    handPositions: [{ x: 0.5, y: 0.5 }],
+  }),
+  computeVisionSegmentScore: () => ({
+    faceScore: 0.9,
+    handScore: 0.8,
+    handVelocityScore: 0.5,
+  }),
 }));
 
 describe("Smart Beat Montage Scoring & Selection", () => {
   it("prioritizes high-motion and face-detected footage moments over static footage", async () => {
     // Media 1: Dynamic video (10s)
     // Media 2: Static photo (5s)
-    const media = ([
+    const media: MediaItem[] = [
       {
         id: "media-dynamic",
         name: "action_video.mp4",
@@ -88,7 +107,7 @@ describe("Smart Beat Montage Scoring & Selection", () => {
         width: 1920,
         height: 1080,
       },
-    ] as unknown) as MediaItem[];
+    ];
 
     const beatTimes = [1.0, 2.0, 3.0, 4.0];
 
@@ -114,7 +133,7 @@ describe("Smart Beat Montage Scoring & Selection", () => {
   });
 
   it("avoids redundant duplicate intervals when sufficient unique footage is available", async () => {
-    const media = ([
+    const media: MediaItem[] = [
       {
         id: "media-long",
         name: "long_video.mp4",
@@ -124,7 +143,7 @@ describe("Smart Beat Montage Scoring & Selection", () => {
         width: 1920,
         height: 1080,
       },
-    ] as unknown) as MediaItem[];
+    ];
 
     const beatTimes = [1.0, 2.0, 3.0, 4.0, 5.0];
 

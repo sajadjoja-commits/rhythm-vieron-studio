@@ -7,7 +7,6 @@ export type ImageAITaskType =
   | "remove-background"
   | "enhance"
   | "face-enhance"
-  | "upscale"
   | "object-remove";
 
 export type DeviceTier = "LOW" | "MEDIUM" | "HIGH" | "ULTRA";
@@ -141,7 +140,6 @@ export interface ImageAIResult {
     scaleFactor?: number;
     facesDetected?: number;
     tilesProcessed?: number;
-    [key: string]: any;
   };
   error?: string;
 }

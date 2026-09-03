@@ -166,9 +166,7 @@ export class ImageWorkerManager {
       case "remove-background":
         return engine.removeBackground(imageDataUrl, options);
       case "upscale":
-        return (engine as any).upscaleImage
-          ? (engine as any).upscaleImage(imageDataUrl, options?.scaleFactor || 2, options)
-          : engine.enhanceImage(imageDataUrl, { ...options, scaleFactor: options?.scaleFactor || 2 });
+        return engine.upscaleImage(imageDataUrl, options?.scaleFactor || 2, options);
       case "face-enhance":
         return engine.enhanceFace(imageDataUrl, options);
       case "enhance":

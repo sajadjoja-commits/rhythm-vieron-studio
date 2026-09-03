@@ -50,7 +50,6 @@ export interface VideoProgressEvent {
 
 export interface VideoAIOptions {
   jobId?: string;
-  frameIndex?: number;
   maxResolution?: "original" | "1080p" | "720p" | "480p";
   targetFps?: number;
   outputFormat?: "mp4" | "webm";

@@ -169,6 +169,13 @@ export default function SmartTemplateQuickEditor({ initialTemplate, onBack, onOp
       setAnalyzingProgress(100);
       setAnalysisStatusText(isRTL() ? "تم المونتاج بنجاح!" : "Montage generated!");
 
+      const isRealMediaPipe = res.analysis?.visionEngine === "mediapipe";
+      toast.success(
+        isRTL()
+          ? `تم المونتاج بنجاح! ${isRealMediaPipe ? "(⚡ ذكاء MediaPipe)" : ""}`
+          : `Montage generated! ${isRealMediaPipe ? "(⚡ MediaPipe AI Vision)" : ""}`
+      );
+
       // Update Media Context
       setClips(res.clips);
       setFilters(res.filters);
@@ -715,9 +722,16 @@ export default function SmartTemplateQuickEditor({ initialTemplate, onBack, onOp
                 <Sliders className="w-3.5 h-3.5 text-primary" />
                 {isRTL() ? "التعديلات السريعة الخفيفة" : "Light Touch-Ups"}
               </h3>
-              <span className="text-[10px] text-primary bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20 font-bold">
-                Vireon Quick UX
-              </span>
+              <div className="flex items-center gap-1.5">
+                {montageResult?.analysis?.visionEngine === "mediapipe" && (
+                  <span className="text-[9px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 font-bold flex items-center gap-0.5">
+                    ⚡ MediaPipe AI
+                  </span>
+                )}
+                <span className="text-[10px] text-primary bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20 font-bold">
+                  Vireon Quick UX
+                </span>
+              </div>
             </div>
 
             {/* Clip Slot Replacer */}

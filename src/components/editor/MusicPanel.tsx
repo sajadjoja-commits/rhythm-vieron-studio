@@ -411,10 +411,14 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
         if (res.clips.length > 0) {
           setClips(res.clips);
           playSfx("success");
+          const isRealAi = res.analysis?.visionEngine === "mediapipe";
+          const aiBadge = isRealAi 
+            ? (en ? " [⚡ MediaPipe AI Vision]" : " [⚡ رؤية ذكية MediaPipe AI]")
+            : "";
           toast.success(
             en
-              ? `Smart Cut complete! ${res.clips.length} cuts synchronized across ${targetMedia.length} clips (${res.totalDuration.toFixed(1)}s).`
-              : `تم التقطيع الذكي! ${res.clips.length} قطع متزامن عبر ${targetMedia.length} مقاطع بطول (${res.totalDuration.toFixed(1)} ثانية).`
+              ? `Smart Cut complete! ${res.clips.length} cuts synchronized across ${targetMedia.length} clips (${res.totalDuration.toFixed(1)}s).${aiBadge}`
+              : `تم التقطيع الذكي! ${res.clips.length} قطع متزامن عبر ${targetMedia.length} مقاطع بطول (${res.totalDuration.toFixed(1)} ثانية).${aiBadge}`
           );
         } else {
           toast.error(en ? "No valid segments generated" : "لم يتم توليد مقاطع صالحة");

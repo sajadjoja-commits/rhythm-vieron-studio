@@ -193,11 +193,7 @@ const TemplatesScreen = ({ onStartEditor, onSelectPublishedTemplate, onSelectSma
     setAnalysisTemplate(customizedTpl);
     setAnalyzing(true);
     setAnalysisProgress(0.05);
-
-    const progressInterval = setInterval(() => {
-      setAnalysisProgress((p) => (p < 0.9 ? p + 0.01 : p));
-    }, 500);
-
+    
     try {
       let musicUrl: string | undefined;
       const allLibTracks = [...getSavedLibraryTracks(), ...BUILTIN_TRACKS];

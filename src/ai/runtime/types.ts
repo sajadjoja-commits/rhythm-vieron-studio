@@ -33,25 +33,16 @@ export interface AICapability {
 }
 
 export interface AIJobProgress {
-  jobId?: string;
-  metadata?: Record<string, any>;
-  taskId?: string;
-  taskType?: string;
-  stage?: string;
-  progress?: number;
-  message?: string;
-  percentage?: number;
-  currentStage?: string;
+  jobId: string;
+  percentage: number;
+  currentStage: string;
   estimatedTimeRemainingMs?: number;
-  status?: JobStatus;
+  status: JobStatus;
   error?: AIError;
 }
 
 export interface AIJobOptions {
   priority?: JobPriority;
-  jobId?: string;
-  signal?: AbortSignal;
-  abortSignal?: AbortSignal;
   executionMode?: ExecutionMode;
   preferredProviderId?: string;
   enableCache?: boolean;

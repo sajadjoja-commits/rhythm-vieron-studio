@@ -288,7 +288,7 @@ export class VideoEncoderEngine {
         throw new Error("Cannot call encode: Encoder was CANCELLED.");
       }
       if (state === EncoderState.CLOSED || state === EncoderState.FLUSHING) {
-        throw new Error(`Cannot call encode on a ${String(state).toLowerCase()} codec`);
+        throw new Error(`Cannot call encode on a ${state.toLowerCase()} codec`);
       }
       if (state !== EncoderState.PROCESSING) {
         throw new Error(`Cannot call encode on encoder in ${state} state.`);
@@ -300,7 +300,7 @@ export class VideoEncoderEngine {
         if (state !== EncoderState.PROCESSING) {
           if (state === EncoderState.ERROR) throw lastError || new Error("Encoder encountered error while waiting for queue.");
           if (state === EncoderState.CANCELLED) throw new Error("Encoder was cancelled while waiting for queue.");
-          throw new Error(`Cannot call encode on a ${String(state).toLowerCase()} codec`);
+          throw new Error(`Cannot call encode on a ${state.toLowerCase()} codec`);
         }
         await new Promise((r) => setTimeout(r, 10));
         waitCount++;
@@ -313,7 +313,7 @@ export class VideoEncoderEngine {
       }
 
       if (state !== EncoderState.PROCESSING) {
-        throw new Error(`Cannot call encode on a ${String(state).toLowerCase()} codec`);
+        throw new Error(`Cannot call encode on a ${state.toLowerCase()} codec`);
       }
 
       // 3. Construct VideoFrame, encode, and dispose synchronously
@@ -325,7 +325,7 @@ export class VideoEncoderEngine {
 
       try {
         if (state !== EncoderState.PROCESSING) {
-          throw new Error(`Cannot call encode on a ${String(state).toLowerCase()} codec`);
+          throw new Error(`Cannot call encode on a ${state.toLowerCase()} codec`);
         }
         if (videoEncoder.state !== "configured") {
           throw new Error(`Cannot encode frame: VideoEncoder is in '${videoEncoder.state}' state (expected 'configured')`);
@@ -403,7 +403,7 @@ export class VideoEncoderEngine {
 
           await videoEncoder.flush();
 
-          if ((state as EncoderState) === EncoderState.ERROR) {
+          if (state === EncoderState.ERROR) {
             throw lastError || new Error("Encoder error occurred during flush.");
           }
 

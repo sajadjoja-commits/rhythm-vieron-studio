@@ -2,7 +2,14 @@
 import type { SmartTemplate } from "./smartTemplates";
 import type { Clip, MediaItem, FilterItem, VfxItem, Caption, CaptionStyle } from "@/context/MediaContext";
 import { calculateSegmentAudioEnergiesBatch, analyzeAudioTrack, clearAudioBufferCache } from "./beatDetector";
-import { disposeVisionModels } from "./visionAnalyzer";
+import { 
+  disposeVisionModels, 
+  resetVisionDetector, 
+  analyzeFrameVision, 
+  computeVisionSegmentScore, 
+  getVisionAnalysisStatus, 
+  type VisionFrameAnalysis 
+} from "./visionAnalyzer";
 import { VideoAnalysisWorkerManager } from "./videoAnalysisWorkerManager";
 import type { FrameBufferData } from "./workers/videoAnalysis.worker";
 
@@ -32,6 +39,7 @@ export interface MontageResult {
     durationAfter: number;
     beatCount?: number;
     hasFacesDetected?: boolean;
+    visionEngine?: "mediapipe" | "heuristic_fallback";
   };
 }
 
@@ -117,6 +125,7 @@ async function analyzeVideoAdvanced(
     
     let sampleIdx = 0;
     const extractedFrames: FrameBufferData[] = [];
+    const visionPromises: Promise<{ time: number; analysis: VisionFrameAnalysis }>[] = [];
     let isCleanedUp = false;
 
     const cleanup = () => {
@@ -134,32 +143,42 @@ async function analyzeVideoAdvanced(
 
     const processFrame = () => {
       if (sampleIdx >= sampleTimes.length) {
-        // All frames extracted - dispatch analysis & batch audio energy to Web Worker
+        // All frames extracted - dispatch analysis & batch audio energy to Web Worker + Vision
         void (async () => {
           try {
             const workerMgr = VideoAnalysisWorkerManager.getInstance();
             
-            // Concurrently calculate batch audio energies & worker vision/motion results
-            const [workerResults, audioEnergies] = await Promise.all([
+            // Concurrently calculate batch audio energies, worker results & real AI vision detections
+            const [workerResults, audioEnergies, visionResults] = await Promise.all([
               workerMgr.analyzeFrames(extractedFrames, segmentTimes),
-              calculateSegmentAudioEnergiesBatch(url, segmentTimes)
+              calculateSegmentAudioEnergiesBatch(url, segmentTimes),
+              Promise.all(visionPromises)
             ]);
 
             cleanup();
 
-            const finalSegments: Segment[] = workerResults.map((wr, i) => ({
-              mediaId: "",
-              in: wr.in,
-              out: wr.out,
-              score: 0,
-              motion: wr.motion,
-              audioEnergy: audioEnergies[i] ?? 0.5,
-              faceScore: wr.faceScore,
-              handScore: wr.handScore,
-              handVelocityScore: wr.handVelocityScore,
-              brightness: wr.brightness,
-              colorfulness: wr.colorfulness,
-            }));
+            const finalSegments: Segment[] = workerResults.map((wr, i) => {
+              const seg = segmentTimes[i];
+              const segVisionFrames = visionResults
+                .filter((vf) => seg && vf.time >= seg.in - 0.25 && vf.time <= seg.out + 0.25)
+                .map((vf) => vf.analysis);
+
+              const visionScore = computeVisionSegmentScore(segVisionFrames);
+
+              return {
+                mediaId: "",
+                in: wr.in,
+                out: wr.out,
+                score: 0,
+                motion: wr.motion,
+                audioEnergy: audioEnergies[i] ?? 0.5,
+                faceScore: Math.max(wr.faceScore, visionScore.faceScore),
+                handScore: Math.max(wr.handScore, visionScore.handScore),
+                handVelocityScore: Math.max(wr.handVelocityScore, visionScore.handVelocityScore),
+                brightness: wr.brightness,
+                colorfulness: wr.colorfulness,
+              };
+            });
 
             resolve(finalSegments);
           } catch (err) {
@@ -196,21 +215,32 @@ async function analyzeVideoAdvanced(
     };
 
     v.addEventListener("seeked", () => {
+      const frameTime = sampleTimes[sampleIdx];
       try {
         ctx.drawImage(v, 0, 0, W, H);
         const imgData = ctx.getImageData(0, 0, W, H);
         // Create an ArrayBuffer copy to transfer to worker
         const bufferCopy = imgData.data.buffer.slice(0);
         extractedFrames.push({
-          time: sampleTimes[sampleIdx],
+          time: frameTime,
           width: W,
           height: H,
           buffer: bufferCopy,
         });
+
+        // Trigger real AI vision detection concurrently on sampled keyframe
+        visionPromises.push(
+          analyzeFrameVision(canvas)
+            .then((analysis) => ({ time: frameTime, analysis }))
+            .catch(() => ({
+              time: frameTime,
+              analysis: { faceCount: 0, faceConfidence: 0, hasHands: false, handCount: 0, handPositions: [] },
+            }))
+        );
       } catch {
         // Fallback placeholder frame
         extractedFrames.push({
-          time: sampleTimes[sampleIdx],
+          time: frameTime,
           width: W,
           height: H,
           buffer: new ArrayBuffer(W * H * 4),
@@ -252,6 +282,7 @@ export async function runAutoMontage(
   musicTrackUrl?: string,
   options?: AutoMontageOptions
 ): Promise<MontageResult> {
+  resetVisionDetector();
   const fastMode = options?.fastMode ?? true;
   const customTargetDuration = options?.targetDuration;
   const onProgress = options?.onProgress;
@@ -277,7 +308,7 @@ export async function runAutoMontage(
   // 1. Optional Beat Detection
   let beatTimes: number[] = [];
   if (musicTrackUrl || ai.musicSync) {
-    const targetUrl = musicTrackUrl || media.find(m => (m.type as string) === "audio")?.url;
+    const targetUrl = musicTrackUrl || media.find(m => m.type === "audio")?.url;
     if (targetUrl) {
       try {
         const beatRes = await analyzeAudioTrack(targetUrl);
@@ -466,6 +497,10 @@ export async function runAutoMontage(
   const captionStyle: Partial<CaptionStyle> = { font: template.caption.font, size: template.caption.size, color: template.caption.color, bg: template.caption.bg, position: template.caption.position, animation: template.caption.animation };
   const avgScore = segments.length > 0 ? segments.reduce((a, s) => a + s.score, 0) / segments.length : 0;
 
+  // Capture vision telemetry before disposing models
+  const visionStatus = getVisionAnalysisStatus();
+  console.log(`[AutoMontage] Analysis complete. AI Vision Engine: ${visionStatus.lastEngineUsed} (real MediaPipe frames: ${visionStatus.sessionStats.realMediaPipeFrames}, fallback frames: ${visionStatus.sessionStats.fallbackFrames})`);
+
   // Explicitly free models & memory
   disposeVisionModels();
   clearAudioBufferCache();
@@ -493,7 +528,8 @@ export async function runAutoMontage(
       durationBefore: media.reduce((acc, m) => acc + m.duration, 0), 
       durationAfter: totalDur,
       beatCount: beatTimes.length,
-      hasFacesDetected
+      hasFacesDetected,
+      visionEngine: visionStatus.lastEngineUsed === "mediapipe" ? "mediapipe" : "heuristic_fallback"
     } 
   };
 }
@@ -513,6 +549,7 @@ export async function runSmartBeatMontage({
   fastMode = true,
   onProgress,
 }: SmartBeatMontageParams): Promise<MontageResult> {
+  resetVisionDetector();
   const validMedia = media.filter((m) => m.type === "video" || m.type === "image");
   if (validMedia.length === 0 || beatTimes.length === 0) {
     return {
@@ -805,6 +842,10 @@ export async function runSmartBeatMontage({
   const totalDur = finalClips.reduce((acc, c) => acc + (c.out - c.in), 0);
   const avgScore = allCandidateSegments.length > 0 ? allCandidateSegments.reduce((a, s) => a + s.score, 0) / allCandidateSegments.length : 0;
 
+  // Capture vision telemetry before disposing models
+  const visionStatus = getVisionAnalysisStatus();
+  console.log(`[SmartBeatMontage] Analysis complete. AI Vision Engine: ${visionStatus.lastEngineUsed} (real MediaPipe frames: ${visionStatus.sessionStats.realMediaPipeFrames}, fallback frames: ${visionStatus.sessionStats.fallbackFrames})`);
+
   // Cleanup models & decoded audio cache
   disposeVisionModels();
   clearAudioBufferCache();
@@ -833,6 +874,7 @@ export async function runSmartBeatMontage({
       durationAfter: totalDur,
       beatCount: sortedBeats.length,
       hasFacesDetected,
+      visionEngine: visionStatus.lastEngineUsed === "mediapipe" ? "mediapipe" : "heuristic_fallback",
     },
   };
 }

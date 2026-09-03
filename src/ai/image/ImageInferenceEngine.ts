@@ -616,7 +616,7 @@ export class ImageInferenceEngine {
         minDetectionConfidence: 0.5,
       });
     } catch {
-      detector = await (FaceDetector as any).createFromModelPath(
+      detector = await FaceDetector.createFromModel(
         vision,
         OFFICIAL_MODEL_MANIFESTS["mediapipe-face-detector"].urls[0]
       );

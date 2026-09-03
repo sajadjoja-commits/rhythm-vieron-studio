@@ -69,7 +69,6 @@ export type ImageActionType =
   | "face-enhance"
   | "object-remove"
   | "denoise"
-  | "upscale"
   | "composite-enhance";
 
 export type ImageBgEngine = "RMBG-2.0" | "Bria-RMBG" | "Gemini-Vision";
@@ -86,12 +85,7 @@ export interface AIImagePayload {
   maskBase64OrUrl?: string; // For object removal / inpainting
   denoiseIntensity?: number; // 0.0 to 1.0
   enhanceFaceLevel?: number; // 0.0 to 1.0
-  contrastBoost?: number;
-  detailSharpen?: number;
-  quality?: number;
-  format?: string;
   preferredEngine?: string;
-  [key: string]: any;
 }
 
 export interface AIImageResult {
@@ -108,7 +102,6 @@ export interface AIImageResult {
     originalHeight?: number;
     isLocalExecution?: boolean;
     psnrEstimateDb?: number;
-    [key: string]: any;
   };
 }
 
