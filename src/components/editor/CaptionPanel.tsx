@@ -653,7 +653,7 @@ const STICKERS_LIST = [
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
-  const { captions, setCaptions, captionStyle, setCaptionStyle, totalDuration, media } = useMedia();
+  const { captions, setCaptions, captionStyle, setCaptionStyle, totalDuration, media, audioTracks } = useMedia();
   const { requestAccess } = useAdGate();
   const [editingText, setEditingText] = useState("");
   const [extracting, setExtracting] = useState(false);
@@ -661,7 +661,7 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
   const [extractProgress, setExtractProgress] = useState(0);
   const [extractMsg, setExtractMsg] = useState("");
   const [extractError, setExtractError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"templates" | "stickers" | "style" | "list">("templates");
+  const [tab, setTab] = useState<"templates" | "motion" | "stickers" | "style" | "list">("templates");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [stickerCategory, setStickerCategory] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -868,7 +868,7 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
     }
 
     // Check video or audio item in media library
-    const mediaItem = media.find((m) => m.type === "video" || m.type === "audio");
+    const mediaItem = media.find((m) => m.type === "video" || (m.type as string) === "audio");
     
     if (!mediaItem && audioTracks.length === 0) {
       toast.error(en ? "No video or audio file found to extract speech from" : "لا يوجد ملف فيديو أو صوت لاستخراج الكلام منه");
@@ -1015,7 +1015,7 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
 
       if (items && items.length > 0) {
         const newText = items.map((i: any) => i.text).join(" ").trim();
-        const newConf = typeof items[0]?.confidence === "number" ? items[0].confidence : 0.95;
+        const newConf = typeof (items[0] as any)?.confidence === "number" ? (items[0] as any).confidence : 0.95;
         updateCap(capId, { text: newText, confidence: newConf });
         playSfx("success");
         toast.success(en ? "Segment re-transcribed successfully!" : "تمت إعادة استخراج المقطع بنجاح!");
