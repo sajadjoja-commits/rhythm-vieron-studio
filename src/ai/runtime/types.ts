@@ -34,6 +34,7 @@ export interface AICapability {
 
 export interface AIJobProgress {
   jobId: string;
+  taskId?: string;
   percentage: number;
   currentStage: string;
   estimatedTimeRemainingMs?: number;
@@ -43,6 +44,9 @@ export interface AIJobProgress {
 
 export interface AIJobOptions {
   priority?: JobPriority;
+  jobId?: string;
+  signal?: AbortSignal;
+  abortSignal?: AbortSignal;
   executionMode?: ExecutionMode;
   preferredProviderId?: string;
   enableCache?: boolean;

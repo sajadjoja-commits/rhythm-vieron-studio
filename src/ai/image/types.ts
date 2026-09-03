@@ -7,6 +7,7 @@ export type ImageAITaskType =
   | "remove-background"
   | "enhance"
   | "face-enhance"
+  | "upscale"
   | "object-remove";
 
 export type DeviceTier = "LOW" | "MEDIUM" | "HIGH" | "ULTRA";
