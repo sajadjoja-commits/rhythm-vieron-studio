@@ -16,6 +16,9 @@ export interface MediaItem {
   duration: number;
   file: File;
   thumbnail?: string;
+  width?: number;
+  height?: number;
+  editable?: boolean;
 }
 
 export type TransitionType = 

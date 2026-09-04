@@ -15,7 +15,7 @@ export type AITaskType =
   | "translation"
   | "custom";
 
-export type ExecutionMode = "auto" | "remote" | "local";
+export type ExecutionMode = "auto" | "remote" | "local" | "cloud";
 
 export interface AIError {
   code: string;
@@ -71,6 +71,8 @@ export interface BackgroundRemovalPayload {
   mediaUrlOrBase64: string;
   isVideo?: boolean;
   quality?: "fast" | "accurate";
+  inputMediaType?: string;
+  [key: string]: any;
 }
 
 export interface BackgroundRemovalResult {
@@ -83,6 +85,8 @@ export interface AudioIsolationPayload {
   audioBase64OrUrl: string;
   mode: "remove-noise" | "isolate-vocals" | "remove-music";
   intensity?: number; // 0 to 1
+  inputMediaType?: string;
+  [key: string]: any;
 }
 
 export interface AudioIsolationResult {
@@ -96,10 +100,13 @@ export interface EnhanceMediaPayload {
   mediaUrlOrBase64: string;
   isVideo?: boolean;
   scaleFactor?: 2 | 4;
+  inputMediaType?: string;
+  [key: string]: any;
 }
 
 export interface EnhanceMediaResult {
   enhancedUrlOrBase64: string;
+  [key: string]: any;
 }
 
 // 5. Image Generation (FLUX.1 & AI Image Generators)
