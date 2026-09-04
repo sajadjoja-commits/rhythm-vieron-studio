@@ -110,6 +110,7 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
     ...BUILTIN_TRACKS,
   ]);
   const [previewingId, setPreviewingId] = useState<string | null>(null);
+  const [pendingCoverUrl, setPendingCoverUrl] = useState<string | null>(null);
   const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {

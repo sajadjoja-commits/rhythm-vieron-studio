@@ -102,7 +102,7 @@ const OverlayTimeline = memo(({ currentTime, pxPerSec, containerW, isPlaying, fo
         s = Math.max(0, Math.min(d.origEnd - 0.2, snapped.time));
       } else {
         const overlayObj = overlays.find((x) => x.id === d.id);
-        const maxDuration = (overlayObj?.type === "video" && overlayObj.duration && overlayObj.duration > 0) ? overlayObj.duration : Infinity;
+        const maxDuration = (overlayObj?.type === "video" && (overlayObj as any).duration && (overlayObj as any).duration > 0) ? (overlayObj as any).duration : Infinity;
         const maxEnd = d.origStart + maxDuration;
         const rawEnd = Math.max(d.origStart + 0.2, Math.min(totalDuration, Math.min(maxEnd, d.origEnd + dx)));
         const snapped = snapTimelineTime(rawEnd, { pxPerSec, targets: snapTargets });
@@ -224,7 +224,7 @@ const OverlayTimeline = memo(({ currentTime, pxPerSec, containerW, isPlaying, fo
             const left = o.start * pxPerSec;
             const w = Math.max(20, (o.end - o.start) * pxPerSec);
             const isVideo = o.type === "video";
-            const isMaxReached = isVideo && o.duration && o.duration > 0 && (o.end - o.start) >= o.duration - 0.05;
+            const isMaxReached = isVideo && (o as any).duration && (o as any).duration > 0 && (o.end - o.start) >= (o as any).duration - 0.05;
             const isSelected = selectedId === o.id;
             return (
               <div 

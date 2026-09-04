@@ -535,7 +535,7 @@ const SpeedPanel = ({ open, onClose, currentTime }: Props) => {
                             fontSize="8"
                             fontWeight="bold"
                             className="pointer-events-none drop-shadow-sm select-none"
-                            dir="ltr"
+                            {...({ dir: "ltr" } as any)}
                           >
                             {pt.value.toFixed(2)}×
                           </text>

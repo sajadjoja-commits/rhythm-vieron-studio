@@ -983,9 +983,9 @@ const AIStudioScreen: React.FC<AIStudioScreenProps> = ({ onBack, onOpenPhotoEdit
                     {inputMedia?.url ? (
                       <div className="h-72 rounded-2xl overflow-hidden border border-border">
                         <ImagePreviewEngine
-                          originalUrl={inputMedia.url}
-                          processedUrl={resultData.outputImageBase64OrUrl}
-                          isTransparent={selectedTool.actionName === "remove-background"}
+                          originalImage={inputMedia.url}
+                          processedImage={resultData.outputImageBase64OrUrl}
+                          isCutout={selectedTool.actionName === "remove-background"}
                           className="h-full w-full"
                         />
                       </div>

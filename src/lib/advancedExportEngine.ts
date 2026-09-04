@@ -12,7 +12,7 @@
  *   - Post-export container & metadata validation
  */
 
-import { FFmpeg, toBlobURL } from "@ffmpeg/ffmpeg";
+import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { Clip, AudioTrackItem, FilterItem, VfxItem, OverlayItem, Caption, CaptionStyle } from "@/context/MediaContext";
 import { robustSeekVideo } from "./videoSeeking";
 import { validateExportedVideo } from "./videoValidator";
