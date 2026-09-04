@@ -9,7 +9,8 @@ import { playSfx } from "@/lib/soundFx";
 import { 
   TRANSITIONS_DATA, 
   TRANSITION_CATEGORIES, 
-  TransitionCategory 
+  TransitionCategory,
+  TransitionMetadata
 } from "@/data/transitionsData";
 import { renderGSAPTransitionFrame } from "@/lib/gsapTransitions";
 

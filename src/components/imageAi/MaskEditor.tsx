@@ -397,7 +397,7 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({
   // Undo / Redo Actions
   const handleUndo = () => {
     if (!canUndo || historyIndexRef.current <= 0) return;
-    playSfx("tap");
+    playSfx("click");
     const maskCanvas = maskCanvasRef.current;
     if (!maskCanvas) return;
     const maskCtx = maskCanvas.getContext("2d");
@@ -413,7 +413,7 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({
 
   const handleRedo = () => {
     if (!canRedo || historyIndexRef.current >= historyRef.current.length - 1) return;
-    playSfx("tap");
+    playSfx("click");
     const maskCanvas = maskCanvasRef.current;
     if (!maskCanvas) return;
     const maskCtx = maskCanvas.getContext("2d");
@@ -450,7 +450,7 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({
     const maskCtx = maskCanvas.getContext("2d", { willReadFrequently: true });
     if (!maskCtx) return;
 
-    playSfx("select");
+    playSfx("pop");
     const w = maskCanvas.width;
     const h = maskCanvas.height;
     const imgData = maskCtx.getImageData(0, 0, w, h);
@@ -637,7 +637,7 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({
             <button
               type="button"
               onClick={() => {
-                playSfx("tap");
+                playSfx("click");
                 setActiveTool("restore");
               }}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
@@ -652,7 +652,7 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({
             <button
               type="button"
               onClick={() => {
-                playSfx("tap");
+                playSfx("click");
                 setActiveTool("erase");
               }}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${

@@ -198,7 +198,7 @@ export const ImageAIToolsModal: React.FC<ImageAIToolsModalProps> = ({
   };
 
   const handleTaskSwitch = (taskId: ImageAITaskType) => {
-    playSfx("tap");
+    playSfx("click");
     setActiveTask(taskId);
     setResult(null);
     setActiveResultUrl("");
@@ -216,7 +216,7 @@ export const ImageAIToolsModal: React.FC<ImageAIToolsModalProps> = ({
     setIsProcessing(false);
     setProgressPct(0);
     setTileProgress(null);
-    playSfx("tap");
+    playSfx("click");
     toast.info(isArabic ? "تم إلغاء المعالجة" : "Processing cancelled");
   };
 
@@ -358,7 +358,7 @@ export const ImageAIToolsModal: React.FC<ImageAIToolsModalProps> = ({
   // Export / Apply
   const handleApply = () => {
     if (!activeResultUrl) return;
-    playSfx("select");
+    playSfx("pop");
     onApplyResult(activeResultUrl);
     onClose();
   };

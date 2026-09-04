@@ -167,11 +167,11 @@ export async function removeBackgroundAndroidNative(
       originalHeight: nativeResponse.height,
       engineName: "Google ML Kit Subject Segmentation (Android Native)",
       executionTimeMs: nativeResponse.processingTime || totalTime,
-      executionProvider: "Android Native ML Kit (GPU/NPU)",
+      executionProvider: "cpu",
       metrics: {
-        foregroundPixelCount: nativeResponse.metrics?.foregroundPixels || 0,
-        backgroundPixelCount: nativeResponse.metrics?.transparentPixels || 0,
-        alphaMattingApplied: true,
+        deviceTier: "HIGH" as const,
+        isLocal: true,
+        transparentPixels: nativeResponse.metrics?.transparentPixels || 0,
         hasAlphaChannel: nativeResponse.metrics?.hasAlphaChannel ?? true,
       },
       timings: {

@@ -8,6 +8,7 @@ export type AgentIntentType =
   | "podcast-cleaner"
   | "short-video-enhancer"
   | "bg-remove-upscale"
+  | "bg-remove-enhance"
   | "auto-captioning"
   | "custom-workflow"
   | "unknown";
@@ -40,7 +41,7 @@ export interface ExecutionStep {
   actionName: string;
   dependsOn?: string[]; // IDs of predecessor steps that must finish first
   payloadTemplate?: Record<string, any>;
-  executionMode?: "local" | "remote" | "auto";
+  executionMode?: "local" | "remote" | "auto" | "cloud";
   outputField?: string; // Property name in result containing the media output
   inputPipeFromStepId?: string; // Step ID from which to pipe media output
 }
