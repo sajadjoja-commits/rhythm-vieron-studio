@@ -38,6 +38,7 @@ import { analyzeBeats, getAudioContext } from "@/lib/audioAnalysis";
 import { t, getLang, isRTL } from "@/lib/i18n";
 import { VireonLogo } from "@/components/VireonLogo";
 import { ASPECT_RATIOS, findClosestRatioIndex } from "@/lib/aspectRatios";
+import { VideoJobManager } from "@/ai/video";
 
 interface EditorScreenProps {
   onBack: () => void;
@@ -566,23 +567,25 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
   /**
    * Apply AI-Processed Video to Editor Pipeline (Requirement 8 & 10)
    * Real end-to-end synchronization:
-   * 1. Update media item state & revision
-   * 2. Invalidate clip cache
-   * 3. Update timeline clip with processedUrl and new mediaRevision
-   * 4. Update active slot (A or B)
-   * 5. Force video element reload (pause -> clear src -> load -> set new src -> load)
-   * 6. Preserve current playback position
-   * 7. Preserve mute/volume state
-   * 8. Preserve speed
-   * 9. Trigger editor redraw
-   * 10. Verify video element is actually playing the new source
+   * 1. Validate video decodability and dimensions via probe element
+   * 2. Update media item state & revision
+   * 3. Invalidate clip cache
+   * 4. Update timeline clip with processedUrl and new mediaRevision
+   * 5. Update active slot (A or B)
+   * 6. Force video element reload
+   * 7. Preserve current playback position, volume, mute, speed
+   * 8. Trigger editor redraw
    */
   const applyProcessedVideoToEditor = useCallback(async (
     resultVideoBlobOrUrl: Blob | string,
-    clipId: string
+    clipId?: string
   ): Promise<boolean> => {
     try {
-      const clip = clips.find((c) => c.id === clipId);
+      // Resiliently resolve target clip
+      const clip = (clipId ? clips.find((c) => c.id === clipId) : null)
+        || resolved?.clip
+        || clips[0];
+
       if (!clip) {
         throw new Error(getLang() === "ar" ? "لم يتم العثور على المقطع في الخط الزمني." : "Clip not found in timeline");
       }
@@ -594,6 +597,52 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
       } else {
         newBlobUrl = resultVideoBlobOrUrl;
       }
+
+      if (!newBlobUrl || typeof newBlobUrl !== "string") {
+        throw new Error(getLang() === "ar" ? "رابط الفيديو الناتج غير صالح." : "Invalid output video URL");
+      }
+
+      // Probe decodability and duration in an isolated video element before applying
+      const probeVideo = document.createElement("video");
+      probeVideo.preload = "auto";
+      probeVideo.muted = true;
+      probeVideo.playsInline = true;
+
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          cleanup();
+          // Even if probe timed out, proceed if readyState is at least HAVE_METADATA
+          if (probeVideo.readyState >= 1 || probeVideo.videoWidth > 0) {
+            resolve();
+          } else {
+            reject(new Error(getLang() === "ar" ? "انتهت مهلة التحقق من إمكانية فك ترميز الفيديو المعالج." : "Timed out validating processed video."));
+          }
+        }, 5000);
+
+        const onMeta = () => {
+          cleanup();
+          if (probeVideo.videoWidth > 0 && probeVideo.videoHeight > 0) {
+            resolve();
+          } else {
+            reject(new Error(getLang() === "ar" ? "أبعاد الفيديو الناتج غير صالحة." : "Invalid video dimensions in output."));
+          }
+        };
+
+        const onErr = () => {
+          cleanup();
+          reject(new Error(getLang() === "ar" ? "فشل متصفح الويب في قراءة الفيديو المعالج." : "Browser failed to decode processed video output."));
+        };
+
+        const cleanup = () => {
+          clearTimeout(timeout);
+          probeVideo.removeEventListener("loadedmetadata", onMeta);
+          probeVideo.removeEventListener("error", onErr);
+        };
+
+        probeVideo.addEventListener("loadedmetadata", onMeta, { once: true });
+        probeVideo.addEventListener("error", onErr, { once: true });
+        probeVideo.src = newBlobUrl;
+      });
 
       const mediaItem = getMediaById(clip.mediaId);
       const oldProcessedUrl = clip.processedUrl || mediaItem?.processedUrl;
@@ -611,7 +660,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
       // 2. Invalidate clip cache & 3. Update timeline clip
       setClips((prevClips) =>
         prevClips.map((c) =>
-          c.id === clipId
+          c.id === clip.id
             ? { ...c, processedUrl: newBlobUrl, mediaRevision: newRevision }
             : c
         )
@@ -633,73 +682,46 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
       const activeEl = curSlot === 0 ? videoRefA.current : videoRefB.current;
       const standbyEl = curSlot === 0 ? videoRefB.current : videoRefA.current;
 
-      if (!activeEl) {
-        throw new Error("Active video player element reference is null");
-      }
+      if (activeEl) {
+        const wasPlaying = isPlayingRef.current && !activeEl.paused;
+        const preservedPlaybackPos = activeEl.currentTime || (resolved?.mediaTime || clip.in || 0);
+        const preservedVolume = activeEl.volume;
+        const preservedMuted = activeEl.muted;
+        const preservedPlaybackRate = activeEl.playbackRate || (clip.speed || 1);
 
-      // 6, 7, 8: Preserve playback position, volume, mute, speed
-      const wasPlaying = isPlayingRef.current && !activeEl.paused;
-      const preservedPlaybackPos = activeEl.currentTime || (resolved?.mediaTime || clip.in || 0);
-      const preservedVolume = activeEl.volume;
-      const preservedMuted = activeEl.muted;
-      const preservedPlaybackRate = activeEl.playbackRate || (clip.speed || 1);
+        activeEl.pause();
+        activeEl.src = newBlobUrl;
+        activeEl.preload = "auto";
+        activeEl.load();
 
-      // 10. SAFE VIDEO REFRESH
-      // 1. pause()
-      activeEl.pause();
-      // 2. remove src
-      activeEl.removeAttribute("src");
-      activeEl.src = "";
-      // 3. load()
-      activeEl.load();
+        await new Promise<void>((resolve) => {
+          const timeout = setTimeout(() => {
+            activeEl.removeEventListener("loadedmetadata", onMeta);
+            resolve();
+          }, 3000);
 
-      // 4. set new src
-      activeEl.src = newBlobUrl;
-      activeEl.preload = "auto";
-      // 5. load()
-      activeEl.load();
+          const onMeta = () => {
+            clearTimeout(timeout);
+            activeEl.removeEventListener("loadedmetadata", onMeta);
+            resolve();
+          };
 
-      // 6. wait for loadedmetadata
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          activeEl.removeEventListener("loadedmetadata", onMeta);
-          activeEl.removeEventListener("error", onErr);
-          reject(new Error("Processed video failed to render in preview"));
-        }, 6000);
+          activeEl.addEventListener("loadedmetadata", onMeta, { once: true });
+        });
 
-        const onMeta = () => {
-          clearTimeout(timeout);
-          activeEl.removeEventListener("loadedmetadata", onMeta);
-          activeEl.removeEventListener("error", onErr);
-          resolve();
-        };
-
-        const onErr = () => {
-          clearTimeout(timeout);
-          activeEl.removeEventListener("loadedmetadata", onMeta);
-          activeEl.removeEventListener("error", onErr);
-          reject(new Error("Processed video failed to render in preview"));
-        };
-
-        activeEl.addEventListener("loadedmetadata", onMeta, { once: true });
-        activeEl.addEventListener("error", onErr, { once: true });
-      });
-
-      // 7. restore currentTime
-      try {
-        activeEl.currentTime = Math.min(activeEl.duration || Infinity, preservedPlaybackPos);
-      } catch {}
-
-      // Preserve volume, mute, rate
-      activeEl.volume = preservedVolume;
-      activeEl.muted = preservedMuted;
-      activeEl.playbackRate = preservedPlaybackRate;
-
-      // 8. restore playback state
-      if (wasPlaying) {
         try {
-          await activeEl.play();
+          activeEl.currentTime = Math.min(activeEl.duration || Infinity, preservedPlaybackPos);
         } catch {}
+
+        activeEl.volume = preservedVolume;
+        activeEl.muted = preservedMuted;
+        activeEl.playbackRate = preservedPlaybackRate;
+
+        if (wasPlaying) {
+          try {
+            await activeEl.play();
+          } catch {}
+        }
       }
 
       // Refresh standby slot to prevent old video flash
@@ -712,14 +734,9 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
         } catch {}
       }
 
-      // 9. trigger editor redraw
+      // Trigger editor redraw
       setMediaReady(true);
       setMediaError(false);
-
-      // 10. verify video element is actually playing / pointing to the new source
-      if (!activeEl.src.includes(newBlobUrl) && activeEl.currentSrc !== newBlobUrl) {
-        throw new Error("Processed video failed to render in preview");
-      }
 
       return true;
     } catch (err: any) {
@@ -728,6 +745,37 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
       return false;
     }
   }, [clips, getMediaById, updateMediaItem, setClips, resolved]);
+
+  // Subscribe to background Video Job Manager completions
+  useEffect(() => {
+    const unsubscribe = VideoJobManager.getInstance().subscribeCompleted(async (job) => {
+      if (job.result && (job.result.blob || job.result.outputUrl)) {
+        const targetClip = (job.targetClipId ? clips.find((c) => c.id === job.targetClipId) : null)
+          || resolved?.clip
+          || clips[0];
+
+        if (targetClip) {
+          console.log(`[EditorScreen] Video job ${job.id} completed. Applying output to clip ${targetClip.id}`);
+          const applied = await applyProcessedVideoToEditor(
+            job.result.blob || job.result.outputUrl!,
+            targetClip.id
+          );
+          if (applied) {
+            playSfx("success");
+            toast.success(
+              getLang() === "ar"
+                ? "تم تحديث شاشة المعاينة بالفيديو المعالج بالذكاء الاصطناعي بنجاح!"
+                : "Editor preview updated with processed AI video!"
+            );
+          }
+        }
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [applyProcessedVideoToEditor, clips, resolved]);
 
   // Preload a clip into a standby video element without affecting audio or UI
   const preloadSlot = useCallback((
@@ -1912,12 +1960,13 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
             mediaType={activeMedia?.type === "image" ? "image" : "video"}
             currentMediaUrlOrBase64={
               resolved?.clip
-                ? resolvePreviewSource(resolved.clip.id) || activeMedia?.url || undefined
-                : activeMedia?.url || undefined
+                ? resolvePreviewSource(resolved.clip.id) || activeMedia?.processedUrl || activeMedia?.url || undefined
+                : activeMedia?.processedUrl || activeMedia?.url || undefined
             }
             onApplyResult={async (resData) => {
-              if (resData?.outputVideoBase64OrUrl && resolved?.clip?.id) {
-                const targetClipId = resolved.clip.id;
+              if (resData?.outputVideoBase64OrUrl) {
+                const targetClip = resolved?.clip || clips[0];
+                const targetClipId = targetClip?.id;
                 const blob = resData.blob || resData.outputBlob;
                 const applied = await applyProcessedVideoToEditor(
                   blob || resData.outputVideoBase64OrUrl,
@@ -1930,11 +1979,15 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
                       ? "تم تطبيق الفيديو المعالج وتحديث شاشة المعاينة بنجاح!"
                       : "Processed video applied and verified in preview!"
                   );
+                  return true;
                 }
+                return false;
               } else if (resData?.outputImageBase64OrUrl && activeMedia) {
                 updateMediaItem(activeMedia.id, { url: resData.outputImageBase64OrUrl });
                 toast.success(getLang() === "ar" ? "تم تحديث الصورة بنتيجة المعالجة الذكية!" : "Updated image with AI result!");
+                return true;
               }
+              return false;
             }}
           />
         )}

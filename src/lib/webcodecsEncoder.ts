@@ -24,10 +24,31 @@ export async function isWebCodecsSupported(
   width: number,
   height: number,
   fps: number,
-  bitrate: number
+  bitrate: number,
+  checkAudio: boolean = false
 ): Promise<boolean> {
   if (typeof window === "undefined" || !("VideoEncoder" in window) || typeof VideoEncoder !== "function") {
     return false;
+  }
+
+  // If audio is required, verify AudioEncoder support as well
+  if (checkAudio) {
+    if (!("AudioEncoder" in window) || typeof AudioEncoder !== "function" || !("AudioData" in window)) {
+      return false;
+    }
+    try {
+      const audioSupport = await AudioEncoder.isConfigSupported({
+        codec: "mp4a.40.2",
+        numberOfChannels: 2,
+        sampleRate: 44100,
+        bitrate: 192_000,
+      });
+      if (!audioSupport.supported) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
   }
 
   const testConfigs = [
@@ -86,8 +107,28 @@ export async function exportWithWebCodecs(options: WebCodecsExportOptions): Prom
   }
 
   const hasAudio = renderedAudioBuffer !== null && renderedAudioBuffer.length > 0;
+  const audioChannels = hasAudio ? Math.min(2, Math.max(1, renderedAudioBuffer!.numberOfChannels)) : 0;
+  const audioSampleRate = hasAudio ? renderedAudioBuffer!.sampleRate : 0;
 
-  // 2. Initialize MP4 Muxer
+  // Verify AudioEncoder support if audio is present
+  let audioEncoderReady = false;
+  if (hasAudio) {
+    if (typeof AudioEncoder === "undefined" || typeof AudioData === "undefined") {
+      throw new Error("AudioEncoder not supported on this platform, falling back to secondary engine.");
+    }
+    const audioSupported = await AudioEncoder.isConfigSupported({
+      codec: "mp4a.40.2",
+      numberOfChannels: audioChannels,
+      sampleRate: audioSampleRate,
+      bitrate: 192_000,
+    });
+    if (!audioSupported.supported) {
+      throw new Error(`Audio configuration (${audioChannels}ch @ ${audioSampleRate}Hz) not supported by AudioEncoder.`);
+    }
+    audioEncoderReady = true;
+  }
+
+  // 2. Initialize MP4 Muxer with matching audio configuration
   const muxerTarget = new ArrayBufferTarget();
   const muxer = new Muxer({
     target: muxerTarget,
@@ -96,11 +137,11 @@ export async function exportWithWebCodecs(options: WebCodecsExportOptions): Prom
       width: exportWidth,
       height: exportHeight,
     },
-    audio: hasAudio
+    audio: audioEncoderReady
       ? {
           codec: "aac",
-          numberOfChannels: 2,
-          sampleRate: 44100,
+          numberOfChannels: audioChannels,
+          sampleRate: audioSampleRate,
         }
       : undefined,
     fastStart: "in-memory",
@@ -128,64 +169,92 @@ export async function exportWithWebCodecs(options: WebCodecsExportOptions): Prom
     bitrateMode: "variable",
   });
 
-  // 4. Encode audio samples if available
-  if (hasAudio && renderedAudioBuffer) {
-    try {
-      if ("AudioEncoder" in window && typeof AudioEncoder === "function") {
-        const audioEncoder = new AudioEncoder({
-          output: (chunk, meta) => {
-            muxer.addAudioChunk(chunk, meta);
-          },
-          error: (e) => console.warn("[WebCodecs] AudioEncoder notice:", e),
-        });
+  // 4. Encode audio samples with strict f32-planar alignment and error propagation
+  if (audioEncoderReady && renderedAudioBuffer) {
+    let audioEncoderError: Error | null = null;
 
-        audioEncoder.configure({
-          codec: "mp4a.40.2", // AAC LC
-          numberOfChannels: 2,
-          sampleRate: 44100,
-          bitrate: 192_000,
-        });
-
-        const numChannels = Math.min(2, renderedAudioBuffer.numberOfChannels);
-        const length = renderedAudioBuffer.length;
-        const pcmData = new Float32Array(length * numChannels);
-
-        const leftChan = renderedAudioBuffer.getChannelData(0);
-        const rightChan = numChannels > 1 ? renderedAudioBuffer.getChannelData(1) : leftChan;
-
-        for (let i = 0; i < length; i++) {
-          pcmData[i * 2] = leftChan[i];
-          pcmData[i * 2 + 1] = rightChan[i];
+    const audioEncoder = new AudioEncoder({
+      output: (chunk, meta) => {
+        try {
+          muxer.addAudioChunk(chunk, meta);
+        } catch (muxErr: any) {
+          console.error("[WebCodecs] Audio muxing error:", muxErr);
+          audioEncoderError = muxErr instanceof Error ? muxErr : new Error(String(muxErr));
         }
+      },
+      error: (e) => {
+        console.error("[WebCodecs] AudioEncoder error:", e);
+        audioEncoderError = e instanceof Error ? e : new Error(String(e));
+      },
+    });
 
-        // Send audio in 1-second chunks (44100 frames)
-        const chunkSize = 44100;
-        let sampleOffset = 0;
+    audioEncoder.configure({
+      codec: "mp4a.40.2", // AAC LC
+      numberOfChannels: audioChannels,
+      sampleRate: audioSampleRate,
+      bitrate: 192_000,
+    });
 
-        while (sampleOffset < length) {
-          const framesInChunk = Math.min(chunkSize, length - sampleOffset);
-          const chunkPcm = pcmData.subarray(sampleOffset * 2, (sampleOffset + framesInChunk) * 2);
+    const length = renderedAudioBuffer.length;
+    // Standard AAC frame size is 1024 samples
+    const frameChunkSize = 1024;
+    let sampleOffset = 0;
 
-          const audioData = new AudioData({
-            format: "f32-planar",
-            sampleRate: 44100,
-            numberOfFrames: framesInChunk,
-            numberOfChannels: 2,
-            timestamp: Math.round((sampleOffset / 44100) * 1_000_000),
-            data: chunkPcm,
-          });
-
-          audioEncoder.encode(audioData);
-          audioData.close();
-          sampleOffset += framesInChunk;
-        }
-
-        await audioEncoder.flush();
-        audioEncoder.close();
+    while (sampleOffset < length) {
+      if (isAborted()) {
+        try { audioEncoder.close(); } catch {}
+        try { videoEncoder.close(); } catch {}
+        throw new Error("Export cancelled");
       }
-    } catch (audioErr) {
-      console.warn("[WebCodecs] Audio encoding warning, continuing with video track:", audioErr);
+
+      if (audioEncoderError) {
+        try { audioEncoder.close(); } catch {}
+        throw audioEncoderError;
+      }
+
+      const framesInChunk = Math.min(frameChunkSize, length - sampleOffset);
+      // Construct strict f32-planar memory layout:
+      // Channel 0 occupies [0 .. framesInChunk - 1]
+      // Channel 1 occupies [framesInChunk .. 2 * framesInChunk - 1]
+      const planarData = new Float32Array(framesInChunk * audioChannels);
+
+      for (let ch = 0; ch < audioChannels; ch++) {
+        const channelData = renderedAudioBuffer.getChannelData(ch);
+        const destOffset = ch * framesInChunk;
+        for (let s = 0; s < framesInChunk; s++) {
+          const sample = channelData[sampleOffset + s];
+          if (Number.isNaN(sample) || !Number.isFinite(sample)) {
+            planarData[destOffset + s] = 0;
+          } else {
+            // Soft-clamp into [-1.0, 1.0] to prevent clipping distortions
+            planarData[destOffset + s] = Math.max(-1.0, Math.min(1.0, sample));
+          }
+        }
+      }
+
+      const timestampUs = Math.round((sampleOffset / audioSampleRate) * 1_000_000);
+      const audioData = new AudioData({
+        format: "f32-planar",
+        sampleRate: audioSampleRate,
+        numberOfFrames: framesInChunk,
+        numberOfChannels: audioChannels,
+        timestamp: timestampUs,
+        data: planarData,
+      });
+
+      audioEncoder.encode(audioData);
+      audioData.close();
+      sampleOffset += framesInChunk;
     }
+
+    await audioEncoder.flush();
+
+    if (audioEncoderError) {
+      try { audioEncoder.close(); } catch {}
+      throw audioEncoderError;
+    }
+
+    audioEncoder.close();
   }
 
   // 5. Frame-by-frame rendering and hardware encoding loop

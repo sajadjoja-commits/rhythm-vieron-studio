@@ -36,7 +36,9 @@ export class VideoProcessingEngine {
   private segmentationEngine = VideoSegmentationEngine.getInstance();
   private encoderEngine = VideoEncoderEngine.getInstance();
   private verifier = VideoOutputVerifier.getInstance();
-  private workerManager = VideoWorkerManager.getInstance();
+  private get workerManager(): VideoWorkerManager {
+    return VideoWorkerManager.getInstance();
+  }
 
   private activeJobs = new Map<string, { abortController: AbortController }>();
 
@@ -295,7 +297,7 @@ export class VideoProcessingEngine {
           } else if (taskType === "remove-video-background") {
             try {
               const segmenter = await this.segmentationEngine.getSegmenter();
-              const maskResult = await segmenter.segmentForVideo(processCanvas, timestampMicros / 1000);
+              const maskResult = segmenter.segment(processCanvas);
               const rawMaskData = maskResult.confidenceMasks?.[0]?.getAsFloat32Array?.();
               const maskWidth = maskResult.confidenceMasks?.[0]?.width || width;
               const maskHeight = maskResult.confidenceMasks?.[0]?.height || height;

@@ -52,7 +52,11 @@ async function recordCanvasWithMediaRecorder(
         try {
           const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
           if (AudioCtxClass) {
-            audioCtx = new AudioCtxClass();
+            try {
+              audioCtx = new AudioCtxClass({ sampleRate: renderedAudioBuffer.sampleRate });
+            } catch {
+              audioCtx = new AudioCtxClass();
+            }
             const dest = audioCtx.createMediaStreamDestination();
             const src = audioCtx.createBufferSource();
             src.buffer = renderedAudioBuffer;
@@ -1549,7 +1553,8 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
         exportWidth,
         exportHeight,
         fpsVal,
-        chosenQuality.bitrate
+        chosenQuality.bitrate,
+        hasAudioSources
       );
     } catch (e) {
       console.warn("WebCodecs support check notice:", e);
@@ -1757,10 +1762,13 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
     setProgress(0.97);
     toast.info(isRTL() ? "جاري إنهاء وتجهيز الملف..." : "Preparing final video file...");
 
-    const validation = await validateExportedVideo(finalBlob, totalDuration);
+    const validation = await validateExportedVideo(finalBlob, {
+      expectedMinDurationSec: totalDuration,
+      expectedHasAudio: hasAudioSources,
+    });
     if (!validation.valid) {
       throw new Error(
-        (isRTL() ? "خطأ في التحقق من صحة ملف الفيديو: " : "Video validation failed: ") +
+        (isRTL() ? "خطأ في التحقق من صحة ملف التصدير: " : "Media validation failed: ") +
           (validation.error || "Corrupted video output")
       );
     }
@@ -1770,6 +1778,16 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
       duration: validation.duration,
       resolution: `${validation.width}x${validation.height}`,
       containerType: validation.containerType,
+      audioReport: validation.audioReport
+        ? {
+            channels: validation.audioReport.channels,
+            sampleRate: validation.audioReport.sampleRate,
+            duration: validation.audioReport.duration.toFixed(2) + "s",
+            peakDbfs: validation.audioReport.peakDbfs.toFixed(1) + " dBFS",
+            rmsDbfs: validation.audioReport.rmsDbfs.toFixed(1) + " dBFS",
+            clippingPercentage: validation.audioReport.clippingPercentage.toFixed(2) + "%",
+          }
+        : "No audio track expected",
     });
 
       // Sanity check: Ensure generated video is valid and not empty

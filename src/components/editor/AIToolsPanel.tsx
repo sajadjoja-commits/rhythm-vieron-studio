@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import {
   Sparkles,
   Zap,
@@ -256,6 +256,21 @@ export const AIToolsPanel = ({
     return AI_TOOLS_CATALOG.filter((tool) => tool.mediaType === mediaType);
   }, [mediaType]);
 
+  // Sync with active background video job if one exists
+  useEffect(() => {
+    const unsubscribe = VideoJobManager.getInstance().subscribeActive((activeJob) => {
+      if (activeJob && activeJob.status !== "COMPLETED" && activeJob.status !== "FAILED" && activeJob.status !== "CANCELLED") {
+        setIsExecuting(true);
+        setActiveToolId(activeJob.toolId || null);
+        setExecutingProgress(activeJob.progress);
+        setStatusText(activeJob.stageMessage);
+      }
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
   const historyRecords = useMemo(() => {
     return aiRuntime.historyManager.getHistory().filter((item) => {
       const toolMatch = availableTools.some((t) => t.taskType === item.taskType);
@@ -330,7 +345,69 @@ export const AIToolsPanel = ({
 
     const payload = PayloadValidator.normalize(rawPayload);
 
-    // Check AICache for existing execution
+    // VIDEO AI ROUTE: Do NOT hit stale cache. Execute via VideoJobManager with full background lifecycle
+    if (targetMediaType === "video") {
+      const jobId = `video_job_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      try {
+        const videoResult = await VideoJobManager.getInstance().startJob({
+          taskType: toolConfig.actionName === "video-bg-removal" ? "remove-video-background" : "enhance-video",
+          toolId: toolConfig.id,
+          actionName: toolConfig.actionName,
+          videoInput: mediaInput,
+          options: {
+            ...toolConfig.payload,
+            jobId,
+            abortSignal: abortController.signal,
+            onProgress: (prog) => {
+              if (abortController.signal.aborted) return;
+              const pct = Math.min(100, Math.max(0, prog.progress));
+              setExecutingProgress(pct);
+              if (prog.message) setStatusText(prog.message);
+            },
+          },
+          inputMediaUrl: mediaInput,
+          inputMediaName: "editor-video",
+        });
+
+        if (!videoResult || (!videoResult.blob && !videoResult.outputUrl)) {
+          throw new Error(en ? "Video AI failed to produce output" : "فشلت المعالجة الذكية في إنتاج الفيديو");
+        }
+
+        const resData = {
+          outputVideoBase64OrUrl: videoResult.outputUrl,
+          blob: videoResult.blob,
+          outputBlob: videoResult.blob,
+          mimeType: videoResult.mimeType,
+          width: videoResult.width,
+          height: videoResult.height,
+          durationSeconds: videoResult.durationSeconds,
+          fps: videoResult.fps,
+        };
+
+        if (onApplyResult) {
+          const applied = await onApplyResult(resData);
+          if (applied === false) {
+            throw new Error(en ? "Failed to apply video to editor preview" : "فشل تطبيق الفيديو على نافذة المعاينة");
+          }
+        }
+
+        setExecutingProgress(100);
+        setStatusText(en ? "Completed Successfully!" : "اكتملت العملية وتحديث المعاينة بنجاح!");
+        playSfx("success");
+        toast.success(en ? `${toolConfig.titleEn} applied!` : `تم تطبيق ${toolConfig.titleAr} بنجاح!`);
+      } catch (videoErr: any) {
+        const errorMsg = videoErr?.message || "Execution failed";
+        setLastError(errorMsg);
+        toast.error(errorMsg);
+      } finally {
+        setIsExecuting(false);
+        setActiveToolId(null);
+        activeAbortRef.current = null;
+      }
+      return;
+    }
+
+    // NON-VIDEO (IMAGE / AUDIO) ROUTE: Preserved completely intact
     const cacheKey = aiManager.cache.generateHash(toolConfig.taskType, payload);
     const cachedData = aiManager.cache.get<any>(cacheKey);
 

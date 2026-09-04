@@ -150,7 +150,11 @@ export async function recordCanvasWithMediaRecorder(
         try {
           const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
           if (AudioCtxClass) {
-            audioCtx = new AudioCtxClass();
+            try {
+              audioCtx = new AudioCtxClass({ sampleRate: renderedAudioBuffer.sampleRate });
+            } catch {
+              audioCtx = new AudioCtxClass();
+            }
             const dest = audioCtx.createMediaStreamDestination();
             const src = audioCtx.createBufferSource();
             src.buffer = renderedAudioBuffer;

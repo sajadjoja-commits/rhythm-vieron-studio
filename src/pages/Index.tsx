@@ -552,12 +552,18 @@ const Index = () => {
           <AIStudioScreen
             onBack={() => setActiveTab("home")}
             onOpenPhotoEditor={() => setShowPhotoEditor(true)}
-            onOpenVideoEditor={async (imageUrl?: string) => {
-              if (imageUrl) {
+            onOpenVideoEditor={async (mediaUrl?: string) => {
+              if (mediaUrl) {
                 try {
-                  const resp = await fetch(imageUrl);
+                  const resp = await fetch(mediaUrl);
                   const blob = await resp.blob();
-                  const file = new File([blob], `flux-image-${Date.now()}.png`, { type: blob.type || "image/png" });
+                  const isVideo = blob.type.startsWith("video/") || mediaUrl.includes(".mp4") || mediaUrl.includes(".webm");
+                  const isWebm = blob.type.includes("webm") || mediaUrl.includes(".webm");
+                  const ext = isVideo ? (isWebm ? "webm" : "mp4") : "png";
+                  const mimeType = isVideo ? (isWebm ? "video/webm" : "video/mp4") : (blob.type || "image/png");
+                  const fileName = isVideo ? `vieron-ai-video-${Date.now()}.${ext}` : `vieron-image-${Date.now()}.${ext}`;
+
+                  const file = new File([blob], fileName, { type: mimeType });
                   newProject();
                   const items = await addFiles([file]);
                   if (items && items.length > 0) {
@@ -566,7 +572,7 @@ const Index = () => {
                     return;
                   }
                 } catch (e) {
-                  console.warn("Failed to load image into editor:", e);
+                  console.warn("Failed to load AI media into editor:", e);
                 }
               }
               handleOpenEditor();

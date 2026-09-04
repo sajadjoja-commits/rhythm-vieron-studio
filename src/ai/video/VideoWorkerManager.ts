@@ -40,7 +40,9 @@ export interface WorkerSegmentationResult {
 
 export class VideoWorkerManager {
   private static instance: VideoWorkerManager;
-  private jobManager = VideoJobManager.getInstance();
+  private get jobManager(): VideoJobManager {
+    return VideoJobManager.getInstance();
+  }
   private worker: Worker | null = null;
   private pendingRequests = new Map<
     string,

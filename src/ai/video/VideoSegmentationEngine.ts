@@ -54,6 +54,45 @@ export class VideoSegmentationEngine {
   }
 
   /**
+   * Resolves the best available MediaPipe model path, prioritizing local assets
+   */
+  private async resolveModelPath(): Promise<string> {
+    try {
+      const localRes = await fetch("/models/mediapipe/selfie_segmenter.tflite", { method: "HEAD" });
+      if (localRes.ok && localRes.status < 400) {
+        console.log("[VideoSegmentationEngine] Using local MediaPipe selfie_segmenter model.");
+        return "/models/mediapipe/selfie_segmenter.tflite";
+      }
+    } catch {}
+
+    const isPrimaryOk = await this.verifyModelUrl(PRIMARY_SEGMENTER_MODEL);
+    if (isPrimaryOk) {
+      return PRIMARY_SEGMENTER_MODEL;
+    }
+
+    const isFallbackOk = await this.verifyModelUrl(FALLBACK_SEGMENTER_MODEL);
+    if (isFallbackOk) {
+      return FALLBACK_SEGMENTER_MODEL;
+    }
+
+    return PRIMARY_SEGMENTER_MODEL;
+  }
+
+  /**
+   * Resolves the best available WASM directory path, prioritizing local assets
+   */
+  private async resolveWasmPath(): Promise<string> {
+    try {
+      const localWasm = await fetch("/wasm/mediapipe/vision_wasm_internal.wasm", { method: "HEAD" });
+      if (localWasm.ok && localWasm.status < 400) {
+        console.log("[VideoSegmentationEngine] Using local MediaPipe WASM binaries.");
+        return "/wasm/mediapipe";
+      }
+    } catch {}
+    return MEDIAPIPE_WASM_PATH;
+  }
+
+  /**
    * Initializes or retrieves the singleton MediaPipe ImageSegmenter instance.
    * Features Promise-lock to prevent duplicate downloads and GPU -> CPU delegate fallback.
    */
@@ -69,21 +108,11 @@ export class VideoSegmentationEngine {
     this.initPromise = (async () => {
       try {
         // 1. Resolve WASM Fileset
-        const vision = await FilesetResolver.forVisionTasks(MEDIAPIPE_WASM_PATH);
+        const wasmPath = await this.resolveWasmPath();
+        const vision = await FilesetResolver.forVisionTasks(wasmPath);
 
-        // 2. Select valid, accessible version-pinned model URL
-        let activeModelPath = PRIMARY_SEGMENTER_MODEL;
-        const isPrimaryOk = await this.verifyModelUrl(PRIMARY_SEGMENTER_MODEL);
-        
-        if (!isPrimaryOk) {
-          console.warn("[VideoSegmentationEngine] Primary model unavailable, checking fallback model...");
-          const isFallbackOk = await this.verifyModelUrl(FALLBACK_SEGMENTER_MODEL);
-          if (isFallbackOk) {
-            activeModelPath = FALLBACK_SEGMENTER_MODEL;
-          } else {
-            throw new Error(`[VideoSegmentationEngine] Failed to reach MediaPipe model endpoints (HTTP 404/Network Error). Primary: ${PRIMARY_SEGMENTER_MODEL}`);
-          }
-        }
+        // 2. Select valid, accessible model URL (local or remote)
+        const activeModelPath = await this.resolveModelPath();
 
         // 3. Try creating ImageSegmenter with GPU Delegate first
         let segmenter: ImageSegmenter | null = null;

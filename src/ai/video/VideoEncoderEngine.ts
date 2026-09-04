@@ -118,6 +118,7 @@ export class VideoEncoderEngine {
 
     let audioEncoder: any = null;
     let audioEncoderReady = false;
+    let audioEncoderError: Error | null = null;
 
     // Check if AudioEncoder is available for WebCodecs
     if (hasAudio && typeof AudioEncoder !== "undefined" && typeof AudioData !== "undefined") {
@@ -139,12 +140,14 @@ export class VideoEncoderEngine {
                 } else if (mp4Muxer) {
                   mp4Muxer.addAudioChunk(chunk, meta);
                 }
-              } catch (audioMuxErr) {
-                console.warn("[VideoEncoderEngine] Audio chunk muxing non-fatal error:", audioMuxErr);
+              } catch (audioMuxErr: any) {
+                console.error("[VideoEncoderEngine] Audio chunk muxing error:", audioMuxErr);
+                audioEncoderError = audioMuxErr instanceof Error ? audioMuxErr : new Error(String(audioMuxErr));
               }
             },
             error: (e: any) => {
-              console.warn("[VideoEncoderEngine] AudioEncoder non-fatal error:", e);
+              console.error("[VideoEncoderEngine] AudioEncoder error:", e);
+              audioEncoderError = e instanceof Error ? e : new Error(String(e));
             },
           });
 
@@ -380,12 +383,24 @@ export class VideoEncoderEngine {
               const frameSize = 1024;
 
               for (let offset = 0; offset < totalSamples; offset += frameSize) {
+                if (audioEncoderError) {
+                  throw audioEncoderError;
+                }
+
                 const chunkSize = Math.min(frameSize, totalSamples - offset);
                 const planarData = new Float32Array(chunkSize * numberOfChannels);
 
                 for (let ch = 0; ch < numberOfChannels; ch++) {
                   const channelData = audioBuffer.getChannelData(ch);
-                  planarData.set(channelData.subarray(offset, offset + chunkSize), ch * chunkSize);
+                  const destOffset = ch * chunkSize;
+                  for (let s = 0; s < chunkSize; s++) {
+                    const sample = channelData[offset + s];
+                    if (Number.isNaN(sample) || !Number.isFinite(sample)) {
+                      planarData[destOffset + s] = 0;
+                    } else {
+                      planarData[destOffset + s] = Math.max(-1.0, Math.min(1.0, sample));
+                    }
+                  }
                 }
 
                 const audioTimestampMicros = Math.round((offset / sampleRate) * 1_000_000);
@@ -403,12 +418,16 @@ export class VideoEncoderEngine {
               }
 
               await audioEncoder.flush();
+              if (audioEncoderError) {
+                throw audioEncoderError;
+              }
               audioEncoder.close();
             } catch (audioFlushErr) {
-              console.warn("[VideoEncoderEngine] Audio encoding non-fatal error:", audioFlushErr);
+              console.error("[VideoEncoderEngine] Audio encoding error:", audioFlushErr);
               try {
                 audioEncoder.close();
               } catch {}
+              throw audioFlushErr;
             }
           }
 

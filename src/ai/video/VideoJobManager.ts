@@ -26,6 +26,8 @@ export interface VideoJobRecord {
   taskType: VideoAITaskType;
   toolId?: string;
   actionName?: string;
+  targetClipId?: string;
+  targetMediaId?: string;
   status: VideoAIStage;
   progress: number; // 0 - 100
   stageMessage: string;
@@ -49,7 +51,9 @@ export interface VideoJobRecord {
 export class VideoJobManager {
   private static instance: VideoJobManager;
 
-  private engine = VideoProcessingEngine.getInstance();
+  private get engine(): VideoProcessingEngine {
+    return VideoProcessingEngine.getInstance();
+  }
   private jobs = new Map<string, VideoJobRecord>();
   private activeJobId: string | null = null;
   private activeAbortControllers = new Map<string, AbortController>();
@@ -57,6 +61,7 @@ export class VideoJobManager {
   private activeListeners = new Set<(activeJob: VideoJobRecord | null) => void>();
   private jobListeners = new Map<string, Set<(job: VideoJobRecord) => void>>();
   private allJobsListeners = new Set<(jobs: VideoJobRecord[]) => void>();
+  private completionListeners = new Set<(job: VideoJobRecord) => void>();
 
   public static getInstance(): VideoJobManager {
     if (!VideoJobManager.instance) {
@@ -69,6 +74,13 @@ export class VideoJobManager {
     console.log("[VideoJobManager] Global Video Job Manager initialized.");
   }
 
+  public subscribeCompleted(listener: (job: VideoJobRecord) => void): () => void {
+    this.completionListeners.add(listener);
+    return () => {
+      this.completionListeners.delete(listener);
+    };
+  }
+
   // --------------------------------------------------------------------------
   // JOB CREATION & EXECUTION
   // --------------------------------------------------------------------------
@@ -79,6 +91,8 @@ export class VideoJobManager {
     options?: VideoAIOptions;
     toolId?: string;
     actionName?: string;
+    targetClipId?: string;
+    targetMediaId?: string;
     inputMediaUrl: string;
     inputMediaName?: string;
   }): Promise<VideoAIResult> {
@@ -88,6 +102,8 @@ export class VideoJobManager {
       options,
       toolId,
       actionName,
+      targetClipId,
+      targetMediaId,
       inputMediaUrl,
       inputMediaName,
     } = params;
@@ -102,6 +118,8 @@ export class VideoJobManager {
       taskType,
       toolId,
       actionName,
+      targetClipId,
+      targetMediaId,
       status: "QUEUED",
       progress: 0,
       stageMessage: "جاري جدولة مهمة الفيديو بالذكاء الاصطناعي...",
@@ -151,6 +169,7 @@ export class VideoJobManager {
         jobRecord.elapsedMs = Date.now() - jobRecord.startedAt;
 
         this.notifyJobChange(jobRecord);
+        this.notifyCompletion(jobRecord);
         if (this.activeJobId === jobId) {
           this.activeJobId = null;
           this.notifyActiveChange();
@@ -394,6 +413,14 @@ export class VideoJobManager {
     const list = this.getAllJobs();
     this.allJobsListeners.forEach((fn) => {
       try { fn(list); } catch {}
+    });
+  }
+
+  private notifyCompletion(job: VideoJobRecord): void {
+    this.completionListeners.forEach((fn) => {
+      try { fn(job); } catch (e) {
+        console.error("[VideoJobManager] Error in completion listener:", e);
+      }
     });
   }
 }

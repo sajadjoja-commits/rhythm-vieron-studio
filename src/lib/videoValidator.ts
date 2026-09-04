@@ -4,6 +4,8 @@
  * Checks MIME type, container size, duration, dimensions, and decode capability.
  */
 
+import { validateExportedAudio, AudioValidationReport } from "./audioValidator";
+
 export interface VideoValidationResult {
   valid: boolean;
   error?: string;
@@ -12,12 +14,28 @@ export interface VideoValidationResult {
   height?: number;
   sizeMB?: number;
   containerType?: string;
+  audioReport?: AudioValidationReport;
+}
+
+export interface VideoValidationOptions {
+  expectedMinDurationSec?: number;
+  expectedHasAudio?: boolean;
 }
 
 export async function validateExportedVideo(
   blob: Blob,
-  expectedMinDurationSec: number = 0.5
+  optionsOrDuration: number | VideoValidationOptions = 0.5
 ): Promise<VideoValidationResult> {
+  const expectedMinDurationSec =
+    typeof optionsOrDuration === "number"
+      ? optionsOrDuration
+      : optionsOrDuration.expectedMinDurationSec ?? 0.5;
+
+  const expectedHasAudio =
+    typeof optionsOrDuration === "object"
+      ? optionsOrDuration.expectedHasAudio ?? false
+      : false;
+
   const sizeMB = blob.size / (1024 * 1024);
 
   // 1. Check size threshold (must be at least 50KB for valid container header + stream)
@@ -75,7 +93,7 @@ export async function validateExportedVideo(
       });
     }, 6000);
 
-    const onLoadedMetadata = () => {
+    const onLoadedMetadata = async () => {
       const duration = video.duration;
       const width = video.videoWidth;
       const height = video.videoHeight;
@@ -104,6 +122,40 @@ export async function validateExportedVideo(
         return;
       }
 
+      // Audio validation if audio was expected
+      let audioReport: AudioValidationReport | undefined;
+      if (expectedHasAudio) {
+        try {
+          audioReport = await validateExportedAudio(blob, {
+            expectedHasAudio: true,
+            expectedDurationSec: duration || expectedMinDurationSec,
+          });
+
+          if (!audioReport.valid) {
+            finish({
+              valid: false,
+              sizeMB,
+              duration,
+              width,
+              height,
+              audioReport,
+              error: audioReport.error || "فشل التحقق من جودة وسلامة الصوت المصدّر.",
+            });
+            return;
+          }
+        } catch (audioErr: any) {
+          finish({
+            valid: false,
+            sizeMB,
+            duration,
+            width,
+            height,
+            error: `خطأ أثناء فحص مسار الصوت المصدّر: ${audioErr?.message || String(audioErr)}`,
+          });
+          return;
+        }
+      }
+
       finish({
         valid: true,
         sizeMB,
@@ -111,6 +163,7 @@ export async function validateExportedVideo(
         width,
         height,
         containerType: blob.type || "video/mp4",
+        audioReport,
       });
     };
 
