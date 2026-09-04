@@ -90,6 +90,9 @@ export interface Clip {
   cropW?: number;
   cropH?: number;
   speedCurve?: { id: string; timePct: number; value: number }[];
+  editable?: boolean;
+  url?: string;
+  duration?: number;
 }
 
 export function interpolateKeyframes(
@@ -183,6 +186,7 @@ export interface Caption {
   badgeIcon?: string;
   badgePosition?: "left" | "right" | "top";
   presetCategory?: string;
+  editable?: boolean;
 }
 
 export interface CaptionTemplate {
@@ -206,6 +210,7 @@ export interface CaptionTemplate {
   badgePosition?: "left" | "right" | "top";
   sampleText?: string;
   sampleTextAr?: string;
+  sampleTextEn?: string;
 }
 
 export interface CaptionStyle {
@@ -225,6 +230,12 @@ export interface CaptionStyle {
   textTransform?: "none" | "uppercase" | "lowercase" | "capitalize";
   bgRadius?: number;
   bgPadding?: number;
+  badgeIcon?: string;
+  badgePosition?: "left" | "right" | "top";
+  rotation?: number;
+  scale?: number;
+  flipH?: boolean;
+  flipV?: boolean;
 }
 
 export type AudioFxType =
@@ -263,6 +274,8 @@ export interface AudioTrackItem {
   keyframes?: Keyframe[];
   beats?: number[];
   bpm?: number;
+  end?: number;
+  editable?: boolean;
 }
 
 export type FilterType = "brightness" | "contrast" | "saturate" | "grayscale" | "sepia" | "blur" | "hue-rotate" | "invert" | "vintage" | "warm" | "cool" | "dramatic" | "noir" | "fade-edge" | "duotone" | "dream" | "neon" | "sepia-blue";
