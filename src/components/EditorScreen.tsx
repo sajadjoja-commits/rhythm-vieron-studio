@@ -4,7 +4,7 @@ import {
   Image as ImageIcon, Video, Plus, Wand2, Loader2, Palette, Activity, Layers,
   Gauge, Zap, Clapperboard, Undo2, Redo2, Eye, EyeOff, RotateCw, Diamond, Minus, Trash2, Maximize2,
 } from "lucide-react";
-import { useMedia, TransitionType, Clip, interpolateKeyframes, OverlayItem, MediaItem } from "@/context/MediaContext";
+import { useMedia, TransitionType, Clip, interpolateKeyframes } from "@/context/MediaContext";
 import { computeVfxState } from "@/lib/vfxEngine";
 import MediaPicker from "@/components/MediaPicker";
 import Timeline from "@/components/editor/Timeline";
@@ -32,8 +32,9 @@ import RatioPanel from "@/components/editor/RatioPanel";
 import CropOverlay from "@/components/editor/CropOverlay";
 import { AIToolsPanel } from "@/components/editor/AIToolsPanel";
 import { toast } from "sonner";
+import { playSfx } from "@/lib/soundFx";
 import { attachFxChain } from "@/lib/audioFx";
-import { analyzeBeats, analyzeBeatsFromUrl, getAudioContext } from "@/lib/audioAnalysis";
+import { analyzeBeats, getAudioContext } from "@/lib/audioAnalysis";
 import { t, getLang, isRTL } from "@/lib/i18n";
 import { VireonLogo } from "@/components/VireonLogo";
 import { ASPECT_RATIOS, findClosestRatioIndex } from "@/lib/aspectRatios";
@@ -42,7 +43,7 @@ interface EditorScreenProps {
   onBack: () => void;
 }
 
-type Tool = "transition" | "caption" | "music" | "filter" | "vfx" | "ratio" | "overlay" | "speed" | "cover" | "ai" | "keyframe" | null;
+type Tool = "transition" | "caption" | "music" | "filter" | "vfx" | "ratio" | "overlay" | "speed" | "cover" | "ai" | null;
 
 // Which timeline track is focused — determines which handles are visible
 type FocusedTrack = "video" | "caption" | "audio" | "filter" | "vfx" | "overlay" | null;
@@ -551,6 +552,183 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     return overlays.filter((o) => currentTime >= o.start && currentTime <= o.end);
   }, [overlays, currentTime]);
 
+  // Single Source of Truth for Video Source Resolution (Requirement 9)
+  const resolvePreviewSource = useCallback((clipId?: string): string => {
+    if (!clipId) return "";
+    const clip = clips.find((c) => c.id === clipId);
+    if (!clip) return "";
+    if (clip.processedUrl) return clip.processedUrl;
+    const mediaItem = getMediaById(clip.mediaId);
+    if (mediaItem?.processedUrl) return mediaItem.processedUrl;
+    return mediaItem?.url || "";
+  }, [clips, getMediaById]);
+
+  /**
+   * Apply AI-Processed Video to Editor Pipeline (Requirement 8 & 10)
+   * Real end-to-end synchronization:
+   * 1. Update media item state & revision
+   * 2. Invalidate clip cache
+   * 3. Update timeline clip with processedUrl and new mediaRevision
+   * 4. Update active slot (A or B)
+   * 5. Force video element reload (pause -> clear src -> load -> set new src -> load)
+   * 6. Preserve current playback position
+   * 7. Preserve mute/volume state
+   * 8. Preserve speed
+   * 9. Trigger editor redraw
+   * 10. Verify video element is actually playing the new source
+   */
+  const applyProcessedVideoToEditor = useCallback(async (
+    resultVideoBlobOrUrl: Blob | string,
+    clipId: string
+  ): Promise<boolean> => {
+    try {
+      const clip = clips.find((c) => c.id === clipId);
+      if (!clip) {
+        throw new Error(getLang() === "ar" ? "لم يتم العثور على المقطع في الخط الزمني." : "Clip not found in timeline");
+      }
+
+      // Convert Blob to Object URL or use provided URL
+      let newBlobUrl: string;
+      if (resultVideoBlobOrUrl instanceof Blob) {
+        newBlobUrl = URL.createObjectURL(resultVideoBlobOrUrl);
+      } else {
+        newBlobUrl = resultVideoBlobOrUrl;
+      }
+
+      const mediaItem = getMediaById(clip.mediaId);
+      const oldProcessedUrl = clip.processedUrl || mediaItem?.processedUrl;
+
+      // 1. Update media item state with revision
+      const newRevision = (clip.mediaRevision || mediaItem?.mediaRevision || 0) + 1;
+      if (mediaItem) {
+        updateMediaItem(mediaItem.id, {
+          url: newBlobUrl,
+          processedUrl: newBlobUrl,
+          mediaRevision: newRevision,
+        });
+      }
+
+      // 2. Invalidate clip cache & 3. Update timeline clip
+      setClips((prevClips) =>
+        prevClips.map((c) =>
+          c.id === clipId
+            ? { ...c, processedUrl: newBlobUrl, mediaRevision: newRevision }
+            : c
+        )
+      );
+
+      // Invalidate ping-pong preloaded slots cache for this clip
+      slot0ClipIdRef.current = null;
+      slot1ClipIdRef.current = null;
+
+      // Revoke previous blob url if it was AI generated
+      if (oldProcessedUrl && oldProcessedUrl.startsWith("blob:") && oldProcessedUrl !== newBlobUrl) {
+        try {
+          URL.revokeObjectURL(oldProcessedUrl);
+        } catch {}
+      }
+
+      // 4. Determine target video slot (active slot)
+      const curSlot = activeSlotRef.current;
+      const activeEl = curSlot === 0 ? videoRefA.current : videoRefB.current;
+      const standbyEl = curSlot === 0 ? videoRefB.current : videoRefA.current;
+
+      if (!activeEl) {
+        throw new Error("Active video player element reference is null");
+      }
+
+      // 6, 7, 8: Preserve playback position, volume, mute, speed
+      const wasPlaying = isPlayingRef.current && !activeEl.paused;
+      const preservedPlaybackPos = activeEl.currentTime || (resolved?.mediaTime || clip.in || 0);
+      const preservedVolume = activeEl.volume;
+      const preservedMuted = activeEl.muted;
+      const preservedPlaybackRate = activeEl.playbackRate || (clip.speed || 1);
+
+      // 10. SAFE VIDEO REFRESH
+      // 1. pause()
+      activeEl.pause();
+      // 2. remove src
+      activeEl.removeAttribute("src");
+      activeEl.src = "";
+      // 3. load()
+      activeEl.load();
+
+      // 4. set new src
+      activeEl.src = newBlobUrl;
+      activeEl.preload = "auto";
+      // 5. load()
+      activeEl.load();
+
+      // 6. wait for loadedmetadata
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          activeEl.removeEventListener("loadedmetadata", onMeta);
+          activeEl.removeEventListener("error", onErr);
+          reject(new Error("Processed video failed to render in preview"));
+        }, 6000);
+
+        const onMeta = () => {
+          clearTimeout(timeout);
+          activeEl.removeEventListener("loadedmetadata", onMeta);
+          activeEl.removeEventListener("error", onErr);
+          resolve();
+        };
+
+        const onErr = () => {
+          clearTimeout(timeout);
+          activeEl.removeEventListener("loadedmetadata", onMeta);
+          activeEl.removeEventListener("error", onErr);
+          reject(new Error("Processed video failed to render in preview"));
+        };
+
+        activeEl.addEventListener("loadedmetadata", onMeta, { once: true });
+        activeEl.addEventListener("error", onErr, { once: true });
+      });
+
+      // 7. restore currentTime
+      try {
+        activeEl.currentTime = Math.min(activeEl.duration || Infinity, preservedPlaybackPos);
+      } catch {}
+
+      // Preserve volume, mute, rate
+      activeEl.volume = preservedVolume;
+      activeEl.muted = preservedMuted;
+      activeEl.playbackRate = preservedPlaybackRate;
+
+      // 8. restore playback state
+      if (wasPlaying) {
+        try {
+          await activeEl.play();
+        } catch {}
+      }
+
+      // Refresh standby slot to prevent old video flash
+      if (standbyEl) {
+        try {
+          standbyEl.pause();
+          standbyEl.removeAttribute("src");
+          standbyEl.src = "";
+          standbyEl.load();
+        } catch {}
+      }
+
+      // 9. trigger editor redraw
+      setMediaReady(true);
+      setMediaError(false);
+
+      // 10. verify video element is actually playing / pointing to the new source
+      if (!activeEl.src.includes(newBlobUrl) && activeEl.currentSrc !== newBlobUrl) {
+        throw new Error("Processed video failed to render in preview");
+      }
+
+      return true;
+    } catch (err: any) {
+      console.error("[applyProcessedVideoToEditor] Error:", err);
+      toast.error(err?.message || (getLang() === "ar" ? "فشل عرض الفيديو المعالج في نافذة المعاينة" : "Processed video failed to render in preview"));
+      return false;
+    }
+  }, [clips, getMediaById, updateMediaItem, setClips, resolved]);
+
   // Preload a clip into a standby video element without affecting audio or UI
   const preloadSlot = useCallback((
     el: HTMLVideoElement | null, 
@@ -558,8 +736,9 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     targetMedia: MediaItem | null | undefined
   ) => {
     if (!el || !targetClip || !targetMedia || targetMedia.type !== "video") return;
-    if (el.src !== targetMedia.url) {
-      el.src = targetMedia.url;
+    const targetSourceUrl = resolvePreviewSource(targetClip.id) || targetMedia.processedUrl || targetMedia.url;
+    if (el.src !== targetSourceUrl && targetSourceUrl) {
+      el.src = targetSourceUrl;
       el.preload = "auto";
     }
     el.muted = true;
@@ -568,7 +747,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     if (Math.abs(el.currentTime - targetIn) > 0.06 || el.currentTime === 0) {
       try { el.currentTime = targetIn; } catch {}
     }
-  }, []);
+  }, [resolvePreviewSource]);
 
   // Dual-video ping-pong synchronization effect: handles gapless clip transitions
   useEffect(() => {
@@ -592,6 +771,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     }
 
     const currentClipId = resolved.clip.id;
+    const currentVideoUrl = resolvePreviewSource(currentClipId) || activeMedia.processedUrl || activeMedia.url;
     const standbyPreloadedId = curSlot === 0 ? slot1ClipIdRef.current : slot0ClipIdRef.current;
 
     // Check if the upcoming clip was already preloaded into the standby slot
@@ -636,8 +816,8 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     } else {
       // Direct load (initial load, timeline scrub, or seek)
       if (activeEl) {
-        if (activeEl.src !== activeMedia.url) {
-          activeEl.src = activeMedia.url;
+        if (activeEl.src !== currentVideoUrl && currentVideoUrl) {
+          activeEl.src = currentVideoUrl;
           activeEl.preload = "auto";
         }
         activeEl.muted = videoMuted;
@@ -663,7 +843,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
         else slot0ClipIdRef.current = nextClip.id;
       }
     }
-  }, [resolved, activeMedia, clips, videoMuted, videoVolume, activeVolume, preloadSlot, getMediaById]);
+  }, [resolved, activeMedia, clips, videoMuted, videoVolume, activeVolume, preloadSlot, getMediaById, resolvePreviewSource]);
 
   // Synchronize audio volume and mute across dual slots (standby is always muted)
   useEffect(() => {
@@ -1730,19 +1910,30 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
             open={tool === "ai"}
             onClose={() => setTool(null)}
             mediaType={activeMedia?.type === "image" ? "image" : "video"}
-            currentMediaUrlOrBase64={activeMedia?.url || undefined}
-            onApplyResult={(resData) => {
-              if (resData?.outputVideoBase64OrUrl && activeMedia) {
-                updateMediaItem(activeMedia.id, { url: resData.outputVideoBase64OrUrl });
-                if (videoRefA.current) {
-                  videoRefA.current.src = resData.outputVideoBase64OrUrl;
-                  videoRefA.current.load();
+            currentMediaUrlOrBase64={
+              resolved?.clip
+                ? resolvePreviewSource(resolved.clip.id) || activeMedia?.url || undefined
+                : activeMedia?.url || undefined
+            }
+            onApplyResult={async (resData) => {
+              if (resData?.outputVideoBase64OrUrl && resolved?.clip?.id) {
+                const targetClipId = resolved.clip.id;
+                const blob = resData.blob || resData.outputBlob;
+                const applied = await applyProcessedVideoToEditor(
+                  blob || resData.outputVideoBase64OrUrl,
+                  targetClipId
+                );
+                if (applied) {
+                  playSfx("success");
+                  toast.success(
+                    getLang() === "ar"
+                      ? "تم تطبيق الفيديو المعالج وتحديث شاشة المعاينة بنجاح!"
+                      : "Processed video applied and verified in preview!"
+                  );
                 }
-                if (videoRefB.current) {
-                  videoRefB.current.src = resData.outputVideoBase64OrUrl;
-                  videoRefB.current.load();
-                }
-                toast.success(getLang() === "ar" ? "تم تحديث فيديو المقطع بنتيجة المعالجة الذكية!" : "Updated video clip with AI result!");
+              } else if (resData?.outputImageBase64OrUrl && activeMedia) {
+                updateMediaItem(activeMedia.id, { url: resData.outputImageBase64OrUrl });
+                toast.success(getLang() === "ar" ? "تم تحديث الصورة بنتيجة المعالجة الذكية!" : "Updated image with AI result!");
               }
             }}
           />

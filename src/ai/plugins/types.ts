@@ -43,6 +43,8 @@ export interface AIVideoPayload {
 
 export interface AIVideoResult {
   outputVideoBase64OrUrl: string;
+  blob?: Blob;
+  outputBlob?: Blob;
   mimeType: string;
   width: number;
   height: number;
@@ -69,7 +71,6 @@ export type ImageActionType =
   | "face-enhance"
   | "object-remove"
   | "denoise"
-  | "upscale"
   | "composite-enhance";
 
 export type ImageBgEngine = "RMBG-2.0" | "Bria-RMBG" | "Gemini-Vision";
@@ -87,7 +88,6 @@ export interface AIImagePayload {
   denoiseIntensity?: number; // 0.0 to 1.0
   enhanceFaceLevel?: number; // 0.0 to 1.0
   preferredEngine?: string;
-  [key: string]: any;
 }
 
 export interface AIImageResult {
@@ -104,7 +104,6 @@ export interface AIImageResult {
     originalHeight?: number;
     isLocalExecution?: boolean;
     psnrEstimateDb?: number;
-    [key: string]: any;
   };
 }
 

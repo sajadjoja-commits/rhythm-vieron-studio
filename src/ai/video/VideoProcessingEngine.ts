@@ -23,6 +23,7 @@ import { VideoEnhancementEngine } from "./VideoEnhancementEngine";
 import { VideoSegmentationEngine } from "./VideoSegmentationEngine";
 import { VideoEncoderEngine } from "./VideoEncoderEngine";
 import { VideoOutputVerifier, VideoSampleFrame } from "./VideoOutputVerifier";
+import { VideoWorkerManager } from "./VideoWorkerManager";
 
 export class VideoProcessingEngine {
   private static instance: VideoProcessingEngine;
@@ -35,6 +36,7 @@ export class VideoProcessingEngine {
   private segmentationEngine = VideoSegmentationEngine.getInstance();
   private encoderEngine = VideoEncoderEngine.getInstance();
   private verifier = VideoOutputVerifier.getInstance();
+  private workerManager = VideoWorkerManager.getInstance();
 
   private activeJobs = new Map<string, { abortController: AbortController }>();
 
@@ -112,6 +114,8 @@ export class VideoProcessingEngine {
 
     logStage("INIT", { timestamp: new Date().toISOString() });
 
+    let sourceVideoFps = options?.targetFps || 30;
+
     const emitProgress = (
       stage: VideoProgressEvent["stage"],
       percentage: number,
@@ -126,6 +130,7 @@ export class VideoProcessingEngine {
       const msPerFrame = elapsedMs / framesDone;
       const remainingFrames = Math.max(0, totalFrames - currentFrame);
       const etaSeconds = Math.round((remainingFrames * msPerFrame) / 1000);
+      const processingFps = elapsedMs > 500 ? Number((framesDone / (elapsedMs / 1000)).toFixed(1)) : 0;
 
       options?.onProgress?.({
         jobId,
@@ -134,7 +139,9 @@ export class VideoProcessingEngine {
         percentage: Math.min(100, Math.max(0, Math.round(percentage))),
         currentFrame,
         totalFrames,
-        fps: Math.round(1000 / (msPerFrame || 33)),
+        sourceFps: sourceVideoFps,
+        processingFps,
+        fps: sourceVideoFps,
         elapsedMs,
         etaSeconds,
         message,
@@ -166,6 +173,7 @@ export class VideoProcessingEngine {
       const totalFrames = meta.totalFrames;
       const durationSeconds = meta.durationSeconds;
       const fps = meta.fps;
+      sourceVideoFps = fps;
 
       logStage("DECODER_READY", { width, height, durationSeconds, fps, totalFrames, hasAudio: meta.hasAudio });
 
@@ -207,6 +215,20 @@ export class VideoProcessingEngine {
       let prevAlphaBuffer: Float32Array | null = null;
       const inputSampleFrames: VideoSampleFrame[] = [];
 
+      // Sample frames at 0%, 25%, 50%, 75%, 100%
+      const sampleIndices = new Set([
+        0,
+        Math.floor(totalFrames * 0.25),
+        Math.floor(totalFrames * 0.5),
+        Math.floor(totalFrames * 0.75),
+        Math.max(0, totalFrames - 1),
+      ]);
+
+      let maxMeanDiff = 0;
+      let maxChangedPct = 0;
+      let minAlphaMean = 255;
+      let maxTransparentPct = 0;
+
       // 5. Sequential Frame Processing Loop (Zero frame accumulation in RAM)
       try {
         logStage("PROCESSING", { totalFrames });
@@ -226,7 +248,7 @@ export class VideoProcessingEngine {
           const timestampSeconds = (frameIdx / fps);
           const timestampMicros = Math.round(timestampSeconds * 1_000_000);
 
-          // Seek video
+          // Seek video with strict verification
           await this.frameExtractor.seekToTimestamp(video, timestampSeconds);
 
           // Draw current frame into processing canvas
@@ -236,9 +258,10 @@ export class VideoProcessingEngine {
           // Fetch ImageData
           const imageData = ctx.getImageData(0, 0, width, height);
 
-          // Sample frames (start, midpoint, end) for authentic output verification
-          const isSampleFrame = frameIdx === 0 || frameIdx === Math.floor(totalFrames / 2) || frameIdx === totalFrames - 1;
-          if (isSampleFrame && inputSampleFrames.length < 3) {
+          // Sample frames (0%, 25%, 50%, 75%, 100%) for authentic verification
+          const isSampleFrame = sampleIndices.has(frameIdx);
+          const origDataCopy = isSampleFrame ? new Uint8ClampedArray(imageData.data) : null;
+          if (isSampleFrame && inputSampleFrames.length < 5) {
             inputSampleFrames.push({
               timestampSeconds,
               data: new Uint8ClampedArray(imageData.data),
@@ -247,31 +270,79 @@ export class VideoProcessingEngine {
             });
           }
 
-          // Apply task-specific processing
+          // Apply task-specific processing via Dedicated Worker / Hybrid pipeline
           if (taskType === "enhance-video") {
-            const origDataCopy = isSampleFrame ? new Uint8ClampedArray(imageData.data) : null;
-            const res = this.enhancementEngine.processFrame(imageData, options, prevLuminanceBuffer);
+            const res = await this.workerManager.processEnhanceFrame(
+              width,
+              height,
+              imageData,
+              options,
+              prevLuminanceBuffer,
+              origDataCopy
+            );
             prevLuminanceBuffer = res.currentLuminance;
 
-            if (isSampleFrame && origDataCopy) {
-              const metrics = this.enhancementEngine.calculateFrameMetrics(origDataCopy, imageData.data);
+            if (isSampleFrame && res.metrics) {
+              if (res.metrics.meanPixelDifference > maxMeanDiff) maxMeanDiff = res.metrics.meanPixelDifference;
+              if (res.metrics.changedPixelPercentage > maxChangedPct) maxChangedPct = res.metrics.changedPixelPercentage;
               console.log(
-                `[VideoProcessingEngine] Frame ${frameIdx + 1}/${totalFrames} [Enhance]: meanDiff=${metrics.meanPixelDifference.toFixed(2)}, changed%=${metrics.changedPixelPercentage.toFixed(1)}%, lum=[${metrics.luminanceOriginal.toFixed(1)}->${metrics.luminanceProcessed.toFixed(1)}], contrast=[${metrics.contrastOriginal.toFixed(1)}->${metrics.contrastProcessed.toFixed(1)}]`
+                `[VideoProcessingEngine] Frame ${frameIdx + 1}/${totalFrames} [Enhance]: meanDiff=${res.metrics.meanPixelDifference.toFixed(2)}, changed%=${res.metrics.changedPixelPercentage.toFixed(1)}%, lum=[${res.metrics.luminanceOriginal.toFixed(1)}->${res.metrics.luminanceProcessed.toFixed(1)}], contrast=[${res.metrics.contrastOriginal.toFixed(1)}->${res.metrics.contrastProcessed.toFixed(1)}]`
               );
             }
 
             ctx.clearRect(0, 0, width, height);
             ctx.putImageData(imageData, 0, 0);
           } else if (taskType === "remove-video-background") {
-            const res = await this.segmentationEngine.processFrame(
-              processCanvas,
-              imageData,
-              { ...options, frameIndex: frameIdx },
-              prevAlphaBuffer
-            );
-            prevAlphaBuffer = res.currentAlphaBuffer;
+            try {
+              const segmenter = await this.segmentationEngine.getSegmenter();
+              const maskResult = await segmenter.segmentForVideo(processCanvas, timestampMicros / 1000);
+              const rawMaskData = maskResult.confidenceMasks?.[0]?.getAsFloat32Array?.();
+              const maskWidth = maskResult.confidenceMasks?.[0]?.width || width;
+              const maskHeight = maskResult.confidenceMasks?.[0]?.height || height;
 
-            // CRITICAL: Clear canvas completely before putting modified image data so no original frame remnants exist underneath!
+              if (rawMaskData) {
+                const compRes = await this.workerManager.processSegmentationComposition(
+                  width,
+                  height,
+                  imageData,
+                  rawMaskData,
+                  maskWidth,
+                  maskHeight,
+                  { ...options, frameIndex: frameIdx },
+                  prevAlphaBuffer,
+                  origDataCopy
+                );
+                prevAlphaBuffer = compRes.currentAlpha;
+
+                if (isSampleFrame && compRes.stats) {
+                  const s = compRes.stats;
+                  if (s.alphaMean < minAlphaMean) minAlphaMean = s.alphaMean;
+                  if (s.transparentPercentage > maxTransparentPct) maxTransparentPct = s.transparentPercentage;
+                  console.log(
+                    `[VideoProcessingEngine] Frame ${frameIdx + 1}/${totalFrames} [Segmentation]: alphaMean=${s.alphaMean.toFixed(1)}, transparent=${s.transparentPercentage.toFixed(1)}%, foreground=${s.foregroundPercentage.toFixed(1)}%`
+                  );
+                }
+              } else {
+                const res = await this.segmentationEngine.processFrame(
+                  processCanvas,
+                  imageData,
+                  { ...options, frameIndex: frameIdx },
+                  prevAlphaBuffer
+                );
+                prevAlphaBuffer = res.currentAlphaBuffer;
+              }
+            } catch (segErr) {
+              console.warn("[VideoProcessingEngine] Direct segmenter call failed, falling back to engine:", segErr);
+              const res = await this.segmentationEngine.processFrame(
+                processCanvas,
+                imageData,
+                { ...options, frameIndex: frameIdx },
+                prevAlphaBuffer
+              );
+              prevAlphaBuffer = res.currentAlphaBuffer;
+            }
+
+            // Clear canvas completely before putting modified image data so no original frame remnants exist underneath
             ctx.clearRect(0, 0, width, height);
             ctx.putImageData(imageData, 0, 0);
           }
@@ -297,6 +368,18 @@ export class VideoProcessingEngine {
               totalFrames,
               `معالجة الإطار ${frameIdx + 1} من ${totalFrames}...`
             );
+          }
+        }
+
+        // VALIDATION CHECK BEFORE COMPLETION:
+        if (taskType === "remove-video-background") {
+          const isTransparent = !options?.backgroundColor || options.backgroundColor === "transparent";
+          if (isTransparent && minAlphaMean >= 254.9 && maxTransparentPct < 0.05) {
+            throw new Error("PROCESSING_FAILED: فحص إزالة الخلفية فشل - لم يتم رصد أي تفريغ لقناة الشفافية (Alpha ظلت 255 في جميع الإطارات المختبرة).");
+          }
+        } else if (taskType === "enhance-video") {
+          if (maxMeanDiff < 0.15 && maxChangedPct < 0.35) {
+            throw new Error("FAILED: لم ينتج عن معالجة تحسين الفيديو أي اختلاف ملحوظ في الألوان أو الإضاءة - تم إيقاف العملية لمنع تكرار الإخراج.");
           }
         }
 

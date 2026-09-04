@@ -113,7 +113,7 @@ export const ImageExportPanel: React.FC<ImageExportPanelProps> = ({
 
   const handleCopy = async () => {
     try {
-      playSfx("click");
+      playSfx("tap");
       const blob = await generateExportBlob("png");
       await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
       setCopied(true);
@@ -127,7 +127,7 @@ export const ImageExportPanel: React.FC<ImageExportPanelProps> = ({
 
   const handleShare = async () => {
     try {
-      playSfx("click");
+      playSfx("tap");
       const blob = await generateExportBlob(exportFormat, jpgBgColor);
       const ext = exportFormat === "jpeg" ? "jpg" : exportFormat;
       const file = new File([blob], `vireon_cutout_${Date.now()}.${ext}`, {
@@ -297,7 +297,7 @@ export const ImageExportPanel: React.FC<ImageExportPanelProps> = ({
         <button
           type="button"
           onClick={() => {
-            playSfx("pop");
+            playSfx("select");
             onApplyToProject();
           }}
           className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg shadow-emerald-900/30 flex items-center justify-center gap-2 transition active:scale-95 min-h-[44px]"

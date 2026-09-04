@@ -103,7 +103,7 @@ export const BackgroundRemovalResult: React.FC<BackgroundRemovalResultProps> = (
           <button
             type="button"
             onClick={() => {
-              playSfx("click");
+              playSfx("tap");
               setViewMode("slider");
             }}
             className={`flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-lg transition ${
@@ -118,7 +118,7 @@ export const BackgroundRemovalResult: React.FC<BackgroundRemovalResultProps> = (
           <button
             type="button"
             onClick={() => {
-              playSfx("click");
+              playSfx("tap");
               setViewMode("result");
             }}
             className={`px-2.5 py-1 text-xs font-bold rounded-lg transition ${
@@ -132,7 +132,7 @@ export const BackgroundRemovalResult: React.FC<BackgroundRemovalResultProps> = (
           <button
             type="button"
             onClick={() => {
-              playSfx("click");
+              playSfx("tap");
               setViewMode("mask-editor");
             }}
             className={`flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-lg transition ${
@@ -260,7 +260,7 @@ export const BackgroundRemovalResult: React.FC<BackgroundRemovalResultProps> = (
           <button
             type="button"
             onClick={() => {
-              playSfx("pop");
+              playSfx("select");
               onApply(currentResultUrl);
             }}
             className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold shadow-lg shadow-emerald-900/30 transition active:scale-95 min-h-[44px]"

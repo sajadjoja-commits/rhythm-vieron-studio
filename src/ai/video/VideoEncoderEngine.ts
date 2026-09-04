@@ -238,10 +238,21 @@ export class VideoEncoderEngine {
       throw new Error(`[VideoEncoderEngine] WebCodecs does not support codecs for ${format}`);
     }
 
+    let hasGeneratedKeyFrame = false;
+
     const videoEncoder = new VideoEncoder({
       output: (chunk, meta) => {
         if (state !== EncoderState.PROCESSING && state !== EncoderState.FLUSHING) return;
         try {
+          if (chunk.byteLength <= 0) {
+            throw new Error(`Encoder produced empty chunk with byteLength <= 0 (ts=${chunk.timestamp}µs)`);
+          }
+          if (chunk.type === "key") {
+            hasGeneratedKeyFrame = true;
+          }
+          console.log(
+            `[VideoEncoderEngine] Output chunk: ts=${chunk.timestamp}µs, size=${chunk.byteLength}B, type=${chunk.type}`
+          );
           if (isWebm && webmMuxer) {
             webmMuxer.addVideoChunk(chunk, meta);
           } else if (mp4Muxer) {
@@ -288,7 +299,7 @@ export class VideoEncoderEngine {
         throw new Error("Cannot call encode: Encoder was CANCELLED.");
       }
       if (state === EncoderState.CLOSED || state === EncoderState.FLUSHING) {
-        throw new Error(`Cannot call encode on a ${String(state).toLowerCase()} codec`);
+        throw new Error(`Cannot call encode on a ${state.toLowerCase()} codec`);
       }
       if (state !== EncoderState.PROCESSING) {
         throw new Error(`Cannot call encode on encoder in ${state} state.`);
@@ -300,7 +311,7 @@ export class VideoEncoderEngine {
         if (state !== EncoderState.PROCESSING) {
           if (state === EncoderState.ERROR) throw lastError || new Error("Encoder encountered error while waiting for queue.");
           if (state === EncoderState.CANCELLED) throw new Error("Encoder was cancelled while waiting for queue.");
-          throw new Error(`Cannot call encode on a ${String(state).toLowerCase()} codec`);
+          throw new Error(`Cannot call encode on a ${state.toLowerCase()} codec`);
         }
         await new Promise((r) => setTimeout(r, 10));
         waitCount++;
@@ -313,7 +324,7 @@ export class VideoEncoderEngine {
       }
 
       if (state !== EncoderState.PROCESSING) {
-        throw new Error(`Cannot call encode on a ${String(state).toLowerCase()} codec`);
+        throw new Error(`Cannot call encode on a ${state.toLowerCase()} codec`);
       }
 
       // 3. Construct VideoFrame, encode, and dispose synchronously
@@ -325,7 +336,7 @@ export class VideoEncoderEngine {
 
       try {
         if (state !== EncoderState.PROCESSING) {
-          throw new Error(`Cannot call encode on a ${String(state).toLowerCase()} codec`);
+          throw new Error(`Cannot call encode on a ${state.toLowerCase()} codec`);
         }
         if (videoEncoder.state !== "configured") {
           throw new Error(`Cannot encode frame: VideoEncoder is in '${videoEncoder.state}' state (expected 'configured')`);
@@ -403,8 +414,12 @@ export class VideoEncoderEngine {
 
           await videoEncoder.flush();
 
-          if ((state as EncoderState) === EncoderState.ERROR) {
+          if (state === EncoderState.ERROR) {
             throw lastError || new Error("Encoder error occurred during flush.");
+          }
+
+          if (!hasGeneratedKeyFrame && frameIndex > 0) {
+            throw new Error("فشل توليد الإطارات الأساسية (Keyframes) أثناء تشفير الفيديو.");
           }
 
           let buffer: ArrayBuffer;
@@ -416,6 +431,10 @@ export class VideoEncoderEngine {
             buffer = mp4Muxer.target.buffer;
           } else {
             throw new Error("No muxer target output available.");
+          }
+
+          if (!buffer || buffer.byteLength <= 0) {
+            throw new Error("فشل تكوين ملف الفيديو: حجم البيانات المُنتجة 0 بايت.");
           }
 
           try {

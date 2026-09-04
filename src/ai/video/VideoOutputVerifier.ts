@@ -127,6 +127,10 @@ export class VideoOutputVerifier {
             const ctx = checkCanvas.getContext("2d", { willReadFrequently: true });
 
             if (ctx) {
+              let maxAvgDiff = 0;
+              let maxChangedPct = 0;
+              let hasComparedAnySample = false;
+
               const samplesToCheck = options.inputSampleFrames && options.inputSampleFrames.length > 0
                 ? options.inputSampleFrames
                 : [{ timestampSeconds: Math.min(duration * 0.5, Math.max(0.05, duration - 0.1)), data: new Uint8ClampedArray(0), width: 0, height: 0 }];
@@ -200,9 +204,27 @@ export class VideoOutputVerifier {
                       const avgDiff = diffSum / totalCheckPixels;
                       const changedPct = (changedCount / totalCheckPixels) * 100;
                       console.log(`[VideoOutputVerifier] Decoded output frame verification at ${sampleTime.toFixed(2)}s: avgDiff=${avgDiff.toFixed(2)}, changedPixels=${changedPct.toFixed(1)}%`);
+                      if (avgDiff > maxAvgDiff) maxAvgDiff = avgDiff;
+                      if (changedPct > maxChangedPct) maxChangedPct = changedPct;
+                      hasComparedAnySample = true;
                     }
                   }
                 }
+              }
+
+              // STRICT VALIDATION: If compared against original and no difference detected
+              if (hasComparedAnySample && maxAvgDiff < 0.15 && maxChangedPct < 0.4) {
+                clearTimeout(timeoutId);
+                cleanup();
+                resolve({
+                  valid: false,
+                  fileSizeBytes: blob.size,
+                  width,
+                  height,
+                  durationSeconds: duration,
+                  error: "Output identical to original - processing did not take effect",
+                });
+                return;
               }
             }
           }

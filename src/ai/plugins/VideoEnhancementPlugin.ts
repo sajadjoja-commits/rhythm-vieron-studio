@@ -203,6 +203,8 @@ export class VideoEnhancementPlugin extends BasePlugin {
       const executionTimeMs = Date.now() - startTime;
       const result: AIVideoResult = {
         outputVideoBase64OrUrl: res.outputUrl,
+        blob: res.blob,
+        outputBlob: res.blob,
         mimeType: res.mimeType,
         width: res.width,
         height: res.height,

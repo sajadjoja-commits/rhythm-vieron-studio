@@ -231,7 +231,7 @@ interface AIToolsPanelProps {
   onClose: () => void;
   mediaType: "video" | "image" | "audio";
   currentMediaUrlOrBase64?: string;
-  onApplyResult?: (resultData: any) => void;
+  onApplyResult?: (resultData: any) => void | Promise<void | boolean>;
 }
 
 export const AIToolsPanel = ({
@@ -346,17 +346,19 @@ export const AIToolsPanel = ({
         cachedData
       );
 
-      playSfx("success");
-      toast.success(
-        en
-          ? "Result fetched instantly from AICache ⚡"
-          : "تم استرجاع النتيجة فوراً من التخزين المؤقت (AICache) ⚡"
-      );
-
       setIsExecuting(false);
       setActiveToolId(null);
       activeAbortRef.current = null;
-      if (onApplyResult) onApplyResult(cachedData);
+      if (onApplyResult) {
+        await onApplyResult(cachedData);
+      } else {
+        playSfx("success");
+        toast.success(
+          en
+            ? "Result fetched instantly from AICache ⚡"
+            : "تم استرجاع النتيجة فوراً من التخزين المؤقت (AICache) ⚡"
+        );
+      }
       return;
     }
 
@@ -430,12 +432,14 @@ export const AIToolsPanel = ({
           "completed"
         );
 
-        playSfx("success");
-        toast.success(
-          en ? `${toolConfig.titleEn} completed!` : `تم تنفيذ ${toolConfig.titleAr} بنجاح!`
-        );
-
-        if (onApplyResult) onApplyResult(response.data);
+        if (onApplyResult) {
+          await onApplyResult(response.data);
+        } else {
+          playSfx("success");
+          toast.success(
+            en ? `${toolConfig.titleEn} completed!` : `تم تنفيذ ${toolConfig.titleAr} بنجاح!`
+          );
+        }
       } else {
         const errorMsg = response.error?.message || "Execution failed";
         setLastError(errorMsg);

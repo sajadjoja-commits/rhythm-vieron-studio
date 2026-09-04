@@ -3,7 +3,6 @@ import { X, Check, RotateCcw, Maximize, RefreshCw, Scissors } from "lucide-react
 import { Clip, MediaItem } from "@/context/MediaContext";
 import { getLang } from "@/lib/i18n";
 import { playSfx } from "@/lib/soundFx";
-import { toast } from "sonner";
 
 interface CropOverlayProps {
   open: boolean;

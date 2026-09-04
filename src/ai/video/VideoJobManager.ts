@@ -31,6 +31,8 @@ export interface VideoJobRecord {
   stageMessage: string;
   currentFrame: number;
   totalFrames: number;
+  sourceFps: number;
+  processingFps: number;
   fps: number;
   elapsedMs: number;
   etaSeconds: number;
@@ -105,6 +107,8 @@ export class VideoJobManager {
       stageMessage: "جاري جدولة مهمة الفيديو بالذكاء الاصطناعي...",
       currentFrame: 0,
       totalFrames: 0,
+      sourceFps: 0,
+      processingFps: 0,
       fps: 0,
       elapsedMs: 0,
       etaSeconds: 0,
@@ -216,7 +220,9 @@ export class VideoJobManager {
     job.progress = Math.min(100, Math.max(0, p.percentage));
     job.currentFrame = p.currentFrame;
     job.totalFrames = p.totalFrames;
-    job.fps = p.fps;
+    job.sourceFps = p.sourceFps || p.fps;
+    job.processingFps = p.processingFps || 0;
+    job.fps = p.sourceFps || p.fps;
     job.elapsedMs = p.elapsedMs;
     job.etaSeconds = p.etaSeconds;
     job.stageMessage = p.message;

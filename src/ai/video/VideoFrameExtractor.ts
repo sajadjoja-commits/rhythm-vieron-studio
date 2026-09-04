@@ -139,30 +139,93 @@ export class VideoFrameExtractor {
   }
 
   /**
-   * Seeks the video element to an exact timestamp and returns when the frame is ready.
+   * Seeks the video element to an exact timestamp and returns when the frame is authentically ready.
+   * NEVER resolves purely on timeout; verifies currentTime is close to target timestamp.
+   * Throws an error if seeking times out or fails, preventing processing of old/corrupted frames.
    */
-  public seekToTimestamp(video: HTMLVideoElement, timestampSeconds: number): Promise<void> {
-    return new Promise((resolve) => {
-      const targetTime = Math.max(0, Math.min(video.duration - 0.001, timestampSeconds));
+  public seekToTimestamp(
+    video: HTMLVideoElement,
+    timestampSeconds: number,
+    timeoutMs = 4500
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const duration = video.duration || 1;
+      const targetTime = Math.max(0, Math.min(duration - 0.001, timestampSeconds));
+      const tolerance = 0.08;
 
-      // If already at or very close to timestamp
-      if (Math.abs(video.currentTime - targetTime) < 0.005 && video.readyState >= 2) {
+      // If already at or sufficiently close to timestamp with ready data
+      if (Math.abs(video.currentTime - targetTime) <= 0.015 && video.readyState >= 2) {
         resolve();
         return;
       }
 
-      const timeoutId = setTimeout(() => {
-        video.removeEventListener("seeked", onSeeked);
-        resolve(); // Fallback resolution on slow hardware
-      }, 500);
+      let timeoutId: any = null;
+      let rvfcId: number | null = null;
+      let settled = false;
 
-      const onSeeked = () => {
+      const cleanup = () => {
+        settled = true;
+        if (timeoutId) clearTimeout(timeoutId);
         video.removeEventListener("seeked", onSeeked);
-        clearTimeout(timeoutId);
-        resolve();
+        video.removeEventListener("error", onError);
+        if (rvfcId !== null && "cancelVideoFrameCallback" in video) {
+          (video as any).cancelVideoFrameCallback(rvfcId);
+          rvfcId = null;
+        }
       };
 
-      video.addEventListener("seeked", onSeeked, { once: true });
+      const verifyAndResolve = () => {
+        if (settled) return;
+        const diff = Math.abs(video.currentTime - targetTime);
+        if (diff <= tolerance || video.ended || targetTime >= duration - 0.02) {
+          cleanup();
+          resolve();
+        }
+      };
+
+      const onSeeked = () => {
+        verifyAndResolve();
+        if (!settled) {
+          if ("requestVideoFrameCallback" in video) {
+            rvfcId = (video as any).requestVideoFrameCallback(() => {
+              verifyAndResolve();
+              if (!settled) {
+                if (Math.abs(video.currentTime - targetTime) <= tolerance * 1.5) {
+                  cleanup();
+                  resolve();
+                }
+              }
+            });
+          } else {
+            requestAnimationFrame(() => {
+              verifyAndResolve();
+            });
+          }
+        }
+      };
+
+      const onError = () => {
+        cleanup();
+        reject(new Error(`خطأ في فك ترميز مشغل الفيديو عند الزمن ${targetTime.toFixed(3)}s.`));
+      };
+
+      // Configurable timeout appropriate for slower mobile/Android devices (default 4500ms)
+      timeoutId = setTimeout(() => {
+        cleanup();
+        const finalDiff = Math.abs(video.currentTime - targetTime);
+        if (finalDiff <= tolerance) {
+          resolve();
+        } else {
+          reject(
+            new Error(
+              `فشل الانتقال إلى الإطار المطلوب: تجاوزت مهلة التزامن (${timeoutMs}ms) عند الزمن ${targetTime.toFixed(3)}s (الموقع الحالي: ${video.currentTime.toFixed(3)}s).`
+            )
+          );
+        }
+      }, timeoutMs);
+
+      video.addEventListener("seeked", onSeeked);
+      video.addEventListener("error", onError, { once: true });
       video.currentTime = targetTime;
     });
   }

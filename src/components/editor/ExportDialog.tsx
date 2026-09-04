@@ -1360,8 +1360,8 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
             ctx.translate(ox, oy);
             ctx.rotate(((o.rotation ?? 0) * Math.PI) / 180);
 
-            const flipH = (o as any).flipH ?? false;
-            const flipV = (o as any).flipV ?? false;
+            const flipH = o.flipH ?? false;
+            const flipV = o.flipV ?? false;
             ctx.scale(flipH ? -1 : 1, flipV ? -1 : 1);
             ctx.globalAlpha = o.opacity ?? 1;
 
@@ -1597,7 +1597,7 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
 
         for (let i = 0; i < totalFrames; i++) {
           if (abortControllerRef.current) {
-            cleanupRef.current?.();
+            cleanup();
             setExporting(false);
             setProgress(0);
             setEstimatedTimeLeft(null);
@@ -1839,7 +1839,7 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
       setProgress(0);
       setEstimatedTimeLeft(null);
     } finally {
-      cleanupRef.current?.();
+      cleanup();
       // Clean up virtual filesystem files to avoid memory leaks
       if (ffmpegRef.current && writtenFilesRef.current.size > 0) {
         try {
@@ -2202,7 +2202,7 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
               </div>
 
               <button 
-                onClick={() => startExport()}
+                onClick={startExport}
                 className="w-full py-4 rounded-2xl bg-primary text-primary-foreground font-bold text-sm hover:opacity-90 active:scale-98 transition-all flex items-center justify-center gap-2 shadow-xl shadow-primary/25"
               >
                 <Download className="w-5 h-5 animate-bounce" /> {t("export.saveToGallery")}

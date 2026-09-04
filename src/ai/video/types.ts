@@ -42,7 +42,9 @@ export interface VideoProgressEvent {
   percentage: number; // 0 - 100
   currentFrame: number;
   totalFrames: number;
-  fps: number;
+  sourceFps: number; // e.g. 30 (source video frame rate)
+  processingFps: number; // e.g. 7.4 (actual processing speed in frames/sec)
+  fps: number; // Backwards compatible alias to sourceFps
   elapsedMs: number;
   etaSeconds: number;
   message: string;
@@ -69,8 +71,6 @@ export interface VideoAIOptions {
   edgeFeather?: number; // 0 - 5 px (Default: 2)
   backgroundColor?: string; // "transparent" or hex color / backdrop
   returnMaskOnly?: boolean;
-  frameIndex?: number;
-  [key: string]: any;
 }
 
 export interface VideoAIResult {

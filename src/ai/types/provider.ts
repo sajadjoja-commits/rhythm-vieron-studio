@@ -21,6 +21,4 @@ export interface AIProvider {
     payload: TPayload,
     options?: AITaskOptions
   ): Promise<AIResponse<TResult>>;
-
-  supportsTask?(taskType: AITaskType): boolean;
 }
