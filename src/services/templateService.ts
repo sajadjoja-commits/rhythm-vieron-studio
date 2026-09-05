@@ -54,7 +54,7 @@ export async function publishTemplateToSupabase(
     } else if (data) {
       return {
         ...newTemplate,
-        ...data,
+        ...(data as any),
       };
     }
   } catch (err) {
@@ -116,18 +116,19 @@ export async function fetchTemplateById(id: string): Promise<PublishedTemplate |
       .single();
 
     if (!error && data) {
+      const row = data as any;
       const remoteTemplate: PublishedTemplate = {
-        id: data.id,
-        user_id: data.user_id,
-        title: data.title,
-        hashtags: data.hashtags || [],
-        cover_url: data.cover_url,
-        creator_name: data.creator_name || "Creator",
-        creator_email: data.creator_email || "",
-        created_at: data.created_at,
-        views_count: data.views_count || 0,
-        uses_count: data.uses_count || 0,
-        project_data: data.project_data,
+        id: row.id,
+        user_id: row.user_id,
+        title: row.title,
+        hashtags: row.hashtags || [],
+        cover_url: row.cover_url,
+        creator_name: row.creator_name || "Creator",
+        creator_email: row.creator_email || "",
+        created_at: row.created_at,
+        views_count: row.views_count || 0,
+        uses_count: row.uses_count || 0,
+        project_data: row.project_data,
       };
       saveTemplateLocally(remoteTemplate);
       return remoteTemplate;

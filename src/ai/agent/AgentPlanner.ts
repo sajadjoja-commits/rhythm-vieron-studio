@@ -42,7 +42,7 @@ export class DefaultAgentPlanner implements ILLMPlanner {
 
         return {
           ...step,
-          executionMode: capability?.executionMode || "auto",
+          executionMode: (capability?.executionMode as any) || "auto",
         };
       });
 
@@ -131,7 +131,7 @@ export class DefaultAgentPlanner implements ILLMPlanner {
         actionName,
         dependsOn: previousStepId ? [previousStepId] : undefined,
         inputPipeFromStepId: previousStepId,
-        executionMode: capability.executionMode,
+        executionMode: capability.executionMode as any,
         outputField: mediaType === "image" ? "outputImageBase64OrUrl" : mediaType === "video" ? "outputVideoBase64OrUrl" : "enhancedAudioUrlOrBase64",
       });
 

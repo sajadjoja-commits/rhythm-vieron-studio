@@ -1,10 +1,12 @@
 // Global UI and Video sound-effects library for Vireon AI.
 export type SfxName = 
   | "click" | "success" | "error" | "pop" | "swipe" | "applause" 
-  | "whoosh" | "camera-shutter" | "glitch" | "sparkle" | "heartbeat" | "notification";
+  | "whoosh" | "camera-shutter" | "glitch" | "sparkle" | "heartbeat" | "notification" | "tap" | "select";
 
 export const SFX_PATHS: Record<SfxName, string> = {
   click: "/audio/sfx/click.mp3",
+  tap: "/audio/sfx/click.mp3",
+  select: "/audio/sfx/pop.mp3",
   success: "/audio/sfx/success.mp3",
   error: "/audio/sfx/error.mp3",
   pop: "/audio/sfx/pop.mp3",

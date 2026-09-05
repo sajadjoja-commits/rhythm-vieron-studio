@@ -47,6 +47,7 @@ export interface VideoProgressEvent {
   fps: number; // Backwards compatible alias to sourceFps
   elapsedMs: number;
   etaSeconds: number;
+  progress?: number;
   message: string;
 }
 
@@ -71,6 +72,8 @@ export interface VideoAIOptions {
   edgeFeather?: number; // 0 - 5 px (Default: 2)
   backgroundColor?: string; // "transparent" or hex color / backdrop
   returnMaskOnly?: boolean;
+  frameIndex?: number;
+  [key: string]: any;
 }
 
 export interface VideoAIResult {

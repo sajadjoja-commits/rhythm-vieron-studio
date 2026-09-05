@@ -8,6 +8,7 @@ export type AgentIntentType =
   | "podcast-cleaner"
   | "short-video-enhancer"
   | "bg-remove-upscale"
+  | "bg-remove-enhance"
   | "auto-captioning"
   | "custom-workflow"
   | "unknown";
@@ -20,7 +21,7 @@ export interface AgentRequestOptions {
   denoiseIntensity?: number;
   targetFps?: 30 | 60 | 120;
   targetLanguage?: string;
-  executionMode?: "local" | "remote" | "auto";
+  executionMode?: "local" | "remote" | "auto" | "cloud";
   [key: string]: any;
 }
 

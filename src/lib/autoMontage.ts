@@ -308,7 +308,7 @@ export async function runAutoMontage(
   // 1. Optional Beat Detection
   let beatTimes: number[] = [];
   if (musicTrackUrl || ai.musicSync) {
-    const targetUrl = musicTrackUrl || media.find(m => m.type === "audio")?.url;
+    const targetUrl = musicTrackUrl || media.find((m) => (m.type as string) === "audio")?.url;
     if (targetUrl) {
       try {
         const beatRes = await analyzeAudioTrack(targetUrl);

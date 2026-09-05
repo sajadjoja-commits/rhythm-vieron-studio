@@ -39,6 +39,7 @@ export interface AIVideoPayload {
   backgroundColor?: string;
   preserveAudio?: boolean;
   preferredEngine?: string;
+  [key: string]: any;
 }
 
 export interface AIVideoResult {
@@ -59,6 +60,7 @@ export interface AIVideoResult {
     originalFps?: number;
     totalFramesProcessed?: number;
     isLocalExecution?: boolean;
+    [key: string]: any;
   };
   error?: string;
 }
@@ -68,6 +70,7 @@ export interface AIVideoResult {
 export type ImageActionType =
   | "remove-background"
   | "enhance"
+  | "upscale"
   | "face-enhance"
   | "object-remove"
   | "denoise"
@@ -99,6 +102,7 @@ export interface AIImageResult {
   appliedEngine: string;
   executionTimeMs: number;
   qualityMetrics?: {
+    [key: string]: any;
     scaleFactor?: number;
     originalWidth?: number;
     originalHeight?: number;
