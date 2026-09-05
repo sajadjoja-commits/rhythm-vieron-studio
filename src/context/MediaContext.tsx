@@ -18,6 +18,9 @@ export interface MediaItem {
   thumbnail?: string;
   mediaRevision?: number;
   processedUrl?: string;
+  width?: number;
+  height?: number;
+  editable?: boolean;
 }
 
 export type TransitionType = 
@@ -91,6 +94,9 @@ export interface Clip {
   speedCurve?: { id: string; timePct: number; value: number }[];
   mediaRevision?: number;
   processedUrl?: string;
+  editable?: boolean;
+  url?: string;
+  duration?: number;
 }
 
 export function interpolateKeyframes(
@@ -150,6 +156,7 @@ export const clipTimelineLen = (c: Clip) => Math.max(0, c.out - c.in) / (c.speed
 export type CaptionAnimation = "none" | "fade" | "slide-up" | "slide-down" | "pop" | "typewriter" | "bounce" | "glitch" | "zoom-fade" | "scale-up" | "rotate-in" | "blur-in" | "elastic-drop" | "swing-in" | "reveal-left" | "reveal-right" | "heartbeat" | "neon-flicker" | "3d-flip" | "wave-bounce" | "curtain-reveal" | "shatter-pop";
 
 export interface Caption {
+  editable?: boolean;
   id: string;
   start: number;
   end: number;
@@ -641,9 +648,9 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
         if (session?.user) {
           supabase.from("projects").upsert({
             id: projectId, name: projectName, export_preset: exportPreset,
-            clips_json: clips, captions_json: captions, caption_style_json: captionStyle,
+            clips_json: clips as unknown as any, captions_json: captions as unknown as any, caption_style_json: captionStyle as unknown as any,
             audio_tracks_json: audioTracks.map((a) => ({ id: a.id, name: a.name, start: a.start, offset: a.offset, duration: a.duration, sourceDuration: a.sourceDuration, volume: a.volume, muted: a.muted, fx: a.fx, color: a.color, kind: a.kind, url: a.file ? null : a.url })),
-            filters_json: filters, vfx_json: vfx, cover_image: effectiveCover,
+            filters_json: filters as unknown as any, vfx_json: vfx as unknown as any, cover_image: effectiveCover,
             duration: totalDuration, updated_at: new Date().toISOString(),
           }).then(({ error }) => { if (error) console.warn("cloud sync failed", error.message); });
         }
