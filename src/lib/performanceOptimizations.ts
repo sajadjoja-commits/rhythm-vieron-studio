@@ -50,8 +50,7 @@ export const initializePerformanceOptimizations = () => {
   // 4. Request Idle Callback for non-critical tasks
   const scheduleIdleTask = (callback: () => void) => {
     if ('requestIdleCallback' in window) {
-      // @ts-expect-error - requestIdleCallback is not standard in lib.dom.d.ts
-      requestIdleCallback(callback);
+      (window as any).requestIdleCallback(callback);
     } else {
       setTimeout(callback, 0);
     }
@@ -102,9 +101,10 @@ export const logPerformanceMetrics = () => {
     console.log(`  Connect Time: ${connectTime}ms`);
     console.log(`  Render Time: ${renderTime}ms`);
     
-    if (performance.memory) {
-      console.log(`  Memory Used: ${(performance.memory.usedJSHeapSize / 1048576).toFixed(2)}MB`);
-      console.log(`  Memory Limit: ${(performance.memory.jsHeapSizeLimit / 1048576).toFixed(2)}MB`);
+    const perf = performance as any;
+    if (perf.memory) {
+      console.log(`  Memory Used: ${(perf.memory.usedJSHeapSize / 1048576).toFixed(2)}MB`);
+      console.log(`  Memory Limit: ${(perf.memory.jsHeapSizeLimit / 1048576).toFixed(2)}MB`);
     }
   }
 };
@@ -162,8 +162,7 @@ export const enableGarbageCollectionHints = () => {
   setInterval(() => {
     if (typeof window !== 'undefined' && 'gc' in window) {
       try {
-        // @ts-expect-error - gc is a non-standard browser debugging API
-        window.gc();
+        (window as any).gc();
       } catch (e) {
         // GC not available in production
       }
