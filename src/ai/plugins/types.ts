@@ -39,6 +39,7 @@ export interface AIVideoPayload {
   backgroundColor?: string;
   preserveAudio?: boolean;
   preferredEngine?: string;
+  [key: string]: any;
 }
 
 export interface AIVideoResult {
@@ -101,6 +102,7 @@ export interface AIImageResult {
   appliedEngine: string;
   executionTimeMs: number;
   qualityMetrics?: {
+    [key: string]: any;
     scaleFactor?: number;
     originalWidth?: number;
     originalHeight?: number;

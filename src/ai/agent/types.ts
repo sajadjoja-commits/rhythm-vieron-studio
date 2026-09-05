@@ -21,7 +21,7 @@ export interface AgentRequestOptions {
   denoiseIntensity?: number;
   targetFps?: 30 | 60 | 120;
   targetLanguage?: string;
-  executionMode?: "local" | "remote" | "auto";
+  executionMode?: "local" | "remote" | "auto" | "cloud";
   [key: string]: any;
 }
 
