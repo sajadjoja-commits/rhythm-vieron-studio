@@ -59,6 +59,7 @@ export interface AIVideoResult {
     originalFps?: number;
     totalFramesProcessed?: number;
     isLocalExecution?: boolean;
+    [key: string]: any;
   };
   error?: string;
 }
@@ -68,6 +69,7 @@ export interface AIVideoResult {
 export type ImageActionType =
   | "remove-background"
   | "enhance"
+  | "upscale"
   | "face-enhance"
   | "object-remove"
   | "denoise"
