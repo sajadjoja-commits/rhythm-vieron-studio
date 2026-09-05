@@ -43,6 +43,7 @@ export interface VideoJobRecord {
   outputUrl?: string;
   outputBlob?: Blob;
   result?: VideoAIResult;
+  hasAlpha?: boolean;
   error?: string;
   startedAt: number;
   completedAt?: number;
@@ -165,6 +166,7 @@ export class VideoJobManager {
         jobRecord.outputUrl = result.outputUrl;
         jobRecord.outputBlob = result.blob;
         jobRecord.result = result;
+        jobRecord.hasAlpha = result.hasAlpha;
         jobRecord.completedAt = Date.now();
         jobRecord.elapsedMs = Date.now() - jobRecord.startedAt;
 

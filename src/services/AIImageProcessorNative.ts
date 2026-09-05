@@ -160,9 +160,6 @@ export async function removeBackgroundAndroidNative(
     });
 
     return {
-      success: true,
-      mimeType: "image/png",
-      taskType: "remove-background",
       outputDataUrl,
       width: nativeResponse.width,
       height: nativeResponse.height,
@@ -170,10 +167,8 @@ export async function removeBackgroundAndroidNative(
       originalHeight: nativeResponse.height,
       engineName: "Google ML Kit Subject Segmentation (Android Native)",
       executionTimeMs: nativeResponse.processingTime || totalTime,
-      executionProvider: "Android Native ML Kit (GPU/NPU)" as any,
+      executionProvider: "Android Native ML Kit (GPU/NPU)",
       metrics: {
-        deviceTier: "HIGH" as const,
-        isLocal: true,
         foregroundPixelCount: nativeResponse.metrics?.foregroundPixels || 0,
         backgroundPixelCount: nativeResponse.metrics?.transparentPixels || 0,
         alphaMattingApplied: true,

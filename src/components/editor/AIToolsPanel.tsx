@@ -231,6 +231,8 @@ interface AIToolsPanelProps {
   onClose: () => void;
   mediaType: "video" | "image" | "audio";
   currentMediaUrlOrBase64?: string;
+  targetClipId?: string;
+  targetMediaId?: string;
   onApplyResult?: (resultData: any) => void | Promise<void | boolean>;
 }
 
@@ -239,6 +241,8 @@ export const AIToolsPanel = ({
   onClose,
   mediaType,
   currentMediaUrlOrBase64,
+  targetClipId,
+  targetMediaId,
   onApplyResult,
 }: AIToolsPanelProps) => {
   const [isExecuting, setIsExecuting] = useState(false);
@@ -353,6 +357,8 @@ export const AIToolsPanel = ({
           taskType: toolConfig.actionName === "video-bg-removal" ? "remove-video-background" : "enhance-video",
           toolId: toolConfig.id,
           actionName: toolConfig.actionName,
+          targetClipId,
+          targetMediaId,
           videoInput: mediaInput,
           options: {
             ...toolConfig.payload,
@@ -382,6 +388,9 @@ export const AIToolsPanel = ({
           height: videoResult.height,
           durationSeconds: videoResult.durationSeconds,
           fps: videoResult.fps,
+          hasAlpha: videoResult.hasAlpha,
+          targetClipId,
+          targetMediaId,
         };
 
         if (onApplyResult) {

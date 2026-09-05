@@ -10,10 +10,8 @@ export const usePerformanceOptimization = () => {
   // Monitor memory usage and warn if approaching limits
   useEffect(() => {
     const checkMemory = () => {
-      const nav = navigator as any;
-      const perf = performance as any;
-      if (nav.deviceMemory) {
-        const availableMemory = nav.deviceMemory;
+      if (navigator.deviceMemory) {
+        const availableMemory = navigator.deviceMemory;
         
         // If device has less than 4GB, show warning
         if (availableMemory < 4 && !memoryWarningShown.current) {
@@ -23,8 +21,8 @@ export const usePerformanceOptimization = () => {
       }
 
       // Check performance metrics
-      if (perf.memory) {
-        const usagePercent = (perf.memory.usedJSHeapSize / perf.memory.jsHeapSizeLimit) * 100;
+      if (performance.memory) {
+        const usagePercent = (performance.memory.usedJSHeapSize / performance.memory.jsHeapSizeLimit) * 100;
         if (usagePercent > 85) {
           console.warn(`⚠️ High memory usage: ${usagePercent.toFixed(1)}%. Consider closing other apps.`);
         }
@@ -40,7 +38,8 @@ export const usePerformanceOptimization = () => {
   const cleanupMemory = useCallback(async () => {
     if (typeof window !== 'undefined' && 'gc' in window) {
       try {
-        (window as any).gc();
+        // @ts-expect-error - gc is only available in dev/debug mode
+        window.gc();
         console.log('✓ Garbage collection triggered');
       } catch (e) {
         console.debug('GC not available (normal in production)');

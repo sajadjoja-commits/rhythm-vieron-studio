@@ -413,7 +413,9 @@ export class VideoProcessingEngine {
         const executionTimeMs = Date.now() - startTime;
         const sizeMB = Number((outputBlob.size / (1024 * 1024)).toFixed(2));
 
-        logStage("COMPLETED", { outputUrl, sizeMB, executionTimeMs });
+        const hasAlpha = taskType === "remove-video-background" && (!options?.backgroundColor || options.backgroundColor === "transparent");
+
+        logStage("COMPLETED", { outputUrl, sizeMB, executionTimeMs, hasAlpha });
         emitProgress("COMPLETED", 100, totalFrames, totalFrames, "اكتملت معالجة الفيديو بنجاح!");
 
         return {
@@ -430,6 +432,7 @@ export class VideoProcessingEngine {
           taskType,
           appliedEngine: profile.hasWebCodecs ? "WebCodecs Hardware AI Pipeline" : "Optimized Media Muxer AI Pipeline",
           verified: true,
+          hasAlpha,
         };
       } catch (loopErr) {
         encoderSession.cancel();

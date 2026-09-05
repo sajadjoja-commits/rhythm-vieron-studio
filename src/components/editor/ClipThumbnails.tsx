@@ -36,12 +36,21 @@ const ClipThumbnails = memo(({ clip, media, pxPerSec, isDragging, isInteracting 
       return;
     }
 
-    const key = `${media.id}-${clip.in.toFixed(2)}-${clip.out.toFixed(2)}-${count}`;
+    const shouldUseProcessed = clip.useProcessed !== false;
+    const effectiveVideoUrl = (shouldUseProcessed && (clip.processedUrl || media.processedUrl))
+      ? (clip.processedUrl || media.processedUrl!)
+      : (clip.originalUrl || media.originalUrl || media.url);
+
+    const revision = clip.mediaRevision || media.mediaRevision || 0;
+    const procFlag = (shouldUseProcessed && (clip.processedUrl || media.processedUrl)) ? "proc" : "raw";
+    const mediaKey = `${media.id}_${clip.id}_r${revision}_${procFlag}`;
+
+    const key = `${mediaKey}-${clip.in.toFixed(2)}-${clip.out.toFixed(2)}-${count}`;
     if (key === lastKey.current) return;
     lastKey.current = key;
 
     if (media.type === "image") {
-      const arr = Array(count).fill(media.url);
+      const arr = Array(count).fill(effectiveVideoUrl);
       cachedSnapshotRef.current = arr;
       setThumbs(arr);
       return;
@@ -61,7 +70,7 @@ const ClipThumbnails = memo(({ clip, media, pxPerSec, isDragging, isInteracting 
     }
 
     generateThumbnails(
-      media.url,
+      effectiveVideoUrl,
       count,
       clip.in,
       clip.out,
@@ -80,7 +89,7 @@ const ClipThumbnails = memo(({ clip, media, pxPerSec, isDragging, isInteracting 
         });
       },
       {
-        mediaKey: `${media.id}`,
+        mediaKey,
         signal,
       }
     ).then((t) => {
@@ -104,10 +113,39 @@ const ClipThumbnails = memo(({ clip, media, pxPerSec, isDragging, isInteracting 
         abortControllerRef.current = null;
       }
     };
-  }, [media.id, media.url, media.type, clip.in, clip.out, count, interacting]);
+  }, [
+    media.id,
+    media.url,
+    media.type,
+    media.processedUrl,
+    media.originalUrl,
+    media.mediaRevision,
+    clip.id,
+    clip.in,
+    clip.out,
+    clip.processedUrl,
+    clip.originalUrl,
+    clip.useProcessed,
+    clip.mediaRevision,
+    count,
+    interacting,
+  ]);
 
   return (
-    <div className="flex h-full w-full overflow-hidden pointer-events-none select-none" dir="ltr">
+    <div
+      className="flex h-full w-full overflow-hidden pointer-events-none select-none relative"
+      dir="ltr"
+      style={clip.hasAlpha ? {
+        backgroundImage: `
+          linear-gradient(45deg, rgba(255,255,255,0.08) 25%, transparent 25%), 
+          linear-gradient(-45deg, rgba(255,255,255,0.08) 25%, transparent 25%), 
+          linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.08) 75%), 
+          linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.08) 75%)
+        `,
+        backgroundSize: "12px 12px",
+        backgroundPosition: "0 0, 0 6px, 6px -6px, -6px 0px",
+      } : undefined}
+    >
       {thumbs.map((src, i) => 
         !src ? (
           <div key={i} className="flex-1 h-full bg-secondary/40 animate-pulse border-r border-background/20 last:border-0" />

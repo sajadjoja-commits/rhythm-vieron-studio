@@ -375,7 +375,7 @@ export class ImageEnhancementPlugin extends BasePlugin {
     }
 
     // Step 3: Adaptive HDR contrast & detail sharpen
-    const enhanceRes = await this.runEnhance({ ...payload, imageBase64OrUrl: currentImg, contrastBoost: 0.65, detailSharpen: 0.7 } as any, options);
+    const enhanceRes = await this.runEnhance({ ...payload, imageBase64OrUrl: currentImg, contrastBoost: 0.65, detailSharpen: 0.7 }, options);
 
     return {
       outputImageBase64OrUrl: enhanceRes.outputImageBase64OrUrl,

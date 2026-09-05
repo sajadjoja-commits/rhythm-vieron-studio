@@ -238,6 +238,10 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
   const [showSafeguardModal, setShowSafeguardModal] = useState<boolean>(false);
   const [safeguardDetails, setSafeguardDetails] = useState<{ estFrames: number; estMB: number; resName: string; fpsVal: number } | null>(null);
 
+  // Background removal / transparency export options
+  const hasTransparentClip = useMemo(() => clips.some((c) => c.hasAlpha), [clips]);
+  const [exportBgMode, setExportBgMode] = useState<"green" | "black" | "white">("green");
+
   // Auto-capture or pick cover image from video / media if user didn't set one explicitly
   useEffect(() => {
     if (!open) return;
@@ -650,11 +654,14 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
 
     clips.forEach(c => {
       const m = media.find(item => item.id === c.mediaId);
-      if (m) {
-        itemsToPreload.add({ idOrUrl: c.mediaId, type: m.type as any, url: m.url });
-      } else {
-        itemsToPreload.add({ idOrUrl: c.mediaId, type: "image", url: c.mediaId });
-      }
+      const shouldUseProcessed = c.useProcessed !== false;
+      const effectiveUrl = (shouldUseProcessed && (c.processedUrl || m?.processedUrl))
+        ? (c.processedUrl || m?.processedUrl || "")
+        : (c.originalUrl || m?.originalUrl || m?.url || c.mediaId);
+      const effectiveType = (m?.type as any) || "video";
+
+      itemsToPreload.add({ idOrUrl: c.id, type: effectiveType, url: effectiveUrl });
+      itemsToPreload.add({ idOrUrl: c.mediaId, type: effectiveType, url: effectiveUrl });
     });
 
     overlays.forEach(o => {
@@ -1138,7 +1145,7 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
 
       // Seek active video if needed
       if (resClip && activeMedia && activeMedia.type === "video") {
-        const preloadedVid = preloadedMap[resClip.clip.mediaId] as HTMLVideoElement;
+        const preloadedVid = (preloadedMap[resClip.clip.id] || preloadedMap[resClip.clip.mediaId]) as HTMLVideoElement;
         if (preloadedVid) {
           preloadedVid.muted = true;
           preloadedVid.playbackRate = resClip.clip.speed && resClip.clip.speed > 0 ? resClip.clip.speed : 1;
@@ -1146,8 +1153,18 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
         }
       }
 
-      // Clear offscreen canvas
-      ctx.fillStyle = "#000000";
+      // Clear offscreen canvas with appropriate background color
+      let bgFillColor = "#000000";
+      if (resClip?.clip?.hasAlpha) {
+        if (exportBgMode === "green") bgFillColor = "#00FF00";
+        else if (exportBgMode === "white") bgFillColor = "#FFFFFF";
+        else if (resClip.clip.previewBgMode === "green") bgFillColor = "#00FF00";
+        else if (resClip.clip.previewBgMode === "white") bgFillColor = "#FFFFFF";
+        else if (resClip.clip.previewBgMode === "custom") bgFillColor = resClip.clip.previewBgColor || "#00FF00";
+        else bgFillColor = "#000000";
+      }
+
+      ctx.fillStyle = bgFillColor;
       ctx.fillRect(0, 0, exportWidth, exportHeight);
 
       // Oscillate microscopic pixel color
@@ -1204,7 +1221,7 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
 
         // 4. Render actual preloaded media layer
         if (activeMedia.type === "video") {
-          const preloadedVid = preloadedMap[clip.mediaId] as HTMLVideoElement;
+          const preloadedVid = (preloadedMap[clip.id] || preloadedMap[clip.mediaId]) as HTMLVideoElement;
           if (preloadedVid && preloadedVid.videoWidth > 0) {
             const vw = preloadedVid.videoWidth;
             const vh = preloadedVid.videoHeight;
@@ -1212,7 +1229,7 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
             ctx.drawImage(preloadedVid, -drawW / 2, -drawH / 2, drawW, drawH);
           }
         } else if (activeMedia.type === "image") {
-          const preloadedImg = preloadedMap[clip.mediaId] as HTMLImageElement;
+          const preloadedImg = (preloadedMap[clip.id] || preloadedMap[clip.mediaId]) as HTMLImageElement;
           if (preloadedImg && (preloadedImg.complete || preloadedImg.naturalWidth > 0)) {
             const iw = preloadedImg.naturalWidth || 1080;
             const ih = preloadedImg.naturalHeight || 1920;
@@ -2217,6 +2234,63 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
                     ))}
                   </div>
                 </div>
+
+                {hasTransparentClip && (
+                  <div className="space-y-2 p-3 rounded-2xl bg-secondary/40 border border-primary/20">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] font-bold text-foreground flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-primary" />
+                        {isRTL() ? "خلفية الفيديو المفرّغ (Alpha Backdrop)" : "Transparent Clip Background"}
+                      </p>
+                      <span className="text-[10px] font-semibold text-primary px-1.5 py-0.5 rounded-md bg-primary/10">
+                        {isRTL() ? "مكتشف" : "AI Detected"}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setExportBgMode("green")}
+                        className={`py-2 px-1 rounded-xl text-xs font-bold border transition-all text-center flex items-center justify-center gap-1.5 ${
+                          exportBgMode === "green"
+                            ? "border-emerald-500 bg-emerald-500/20 text-emerald-400 shadow-sm"
+                            : "border-border/60 bg-secondary/30 text-foreground"
+                        }`}
+                      >
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
+                        <span>{isRTL() ? "كروما خضراء" : "Green Screen"}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setExportBgMode("black")}
+                        className={`py-2 px-1 rounded-xl text-xs font-bold border transition-all text-center flex items-center justify-center gap-1.5 ${
+                          exportBgMode === "black"
+                            ? "border-primary bg-primary/20 text-primary shadow-sm"
+                            : "border-border/60 bg-secondary/30 text-foreground"
+                        }`}
+                      >
+                        <span className="w-2.5 h-2.5 rounded-full bg-black border border-white/40 inline-block"></span>
+                        <span>{isRTL() ? "أسود" : "Black"}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setExportBgMode("white")}
+                        className={`py-2 px-1 rounded-xl text-xs font-bold border transition-all text-center flex items-center justify-center gap-1.5 ${
+                          exportBgMode === "white"
+                            ? "border-primary bg-primary/20 text-primary shadow-sm"
+                            : "border-border/60 bg-secondary/30 text-foreground"
+                        }`}
+                      >
+                        <span className="w-2.5 h-2.5 rounded-full bg-white inline-block"></span>
+                        <span>{isRTL() ? "أبيض" : "White"}</span>
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground leading-tight">
+                      {isRTL()
+                        ? "يتم دمج هذه الخلفية بدقة خلف المقاطع المفرغة لضمان تشغيل الفيديو على جميع الأجهزة."
+                        : "Composites chosen background behind transparent subjects for universal video playback."}
+                    </p>
+                  </div>
+                )}
               </div>
 
               <button 

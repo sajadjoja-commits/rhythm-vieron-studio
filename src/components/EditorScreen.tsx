@@ -558,19 +558,86 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     if (!clipId) return "";
     const clip = clips.find((c) => c.id === clipId);
     if (!clip) return "";
-    if (clip.processedUrl) return clip.processedUrl;
+
     const mediaItem = getMediaById(clip.mediaId);
+    const originalUrl = clip.originalUrl || mediaItem?.originalUrl || mediaItem?.url || "";
+
+    // If comparing raw or user toggled off processed version for this clip
+    if (compareRaw || clip.useProcessed === false) {
+      return originalUrl;
+    }
+
+    if (clip.processedUrl) return clip.processedUrl;
     if (mediaItem?.processedUrl) return mediaItem.processedUrl;
-    return mediaItem?.url || "";
-  }, [clips, getMediaById]);
+
+    return originalUrl;
+  }, [clips, getMediaById, compareRaw]);
+
+  // Preview background mode and custom color
+  const [editorBgMode, setEditorBgMode] = useState<"checkerboard" | "black" | "green" | "white" | "custom">("checkerboard");
+  const [customBgColor, setCustomBgColor] = useState<string>("#00FF00");
+
+  const setClipBgMode = useCallback((clipId: string, mode: "checkerboard" | "black" | "green" | "white" | "custom", color?: string) => {
+    setClips((prev) =>
+      prev.map((c) => {
+        if (c.id !== clipId) return c;
+        return {
+          ...c,
+          previewBgMode: mode,
+          ...(color ? { previewBgColor: color } : {}),
+        };
+      })
+    );
+  }, [setClips]);
+
+  const toggleClipProcessed = useCallback((clipId: string) => {
+    setClips((prev) =>
+      prev.map((c) => {
+        if (c.id !== clipId) return c;
+        const nextVal = c.useProcessed === false ? true : false;
+        return {
+          ...c,
+          useProcessed: nextVal,
+        };
+      })
+    );
+  }, [setClips]);
+
+  const getPreviewBgStyle = useCallback((): React.CSSProperties => {
+    const activeClip = resolved?.clip;
+    const mode = activeClip?.previewBgMode || (activeClip?.hasAlpha ? editorBgMode : "black");
+    switch (mode) {
+      case "checkerboard":
+        return {
+          backgroundImage: `
+            linear-gradient(45deg, #2b2b2b 25%, transparent 25%), 
+            linear-gradient(-45deg, #2b2b2b 25%, transparent 25%), 
+            linear-gradient(45deg, transparent 75%, #2b2b2b 75%), 
+            linear-gradient(-45deg, transparent 75%, #2b2b2b 75%)
+          `,
+          backgroundSize: "20px 20px",
+          backgroundPosition: "0 0, 0 10px, 10px -10px, -10px 0px",
+          backgroundColor: "#141414",
+        };
+      case "green":
+        return { backgroundColor: "#00FF00" };
+      case "white":
+        return { backgroundColor: "#FFFFFF" };
+      case "custom":
+        return { backgroundColor: activeClip?.previewBgColor || customBgColor || "#00FF00" };
+      case "black":
+      default:
+        return { backgroundColor: "#000000" };
+    }
+  }, [resolved?.clip, editorBgMode, customBgColor]);
 
   /**
    * Apply AI-Processed Video to Editor Pipeline (Requirement 8 & 10)
    * Real end-to-end synchronization:
    * 1. Validate video decodability and dimensions via probe element
-   * 2. Update media item state & revision
+   * 2. Update media item state & revision, preserving originalUrl
    * 3. Invalidate clip cache
-   * 4. Update timeline clip with processedUrl and new mediaRevision
+   * 4. Update timeline clip with processedUrl, useProcessed, hasAlpha and new mediaRevision
    * 5. Update active slot (A or B)
    * 6. Force video element reload
    * 7. Preserve current playback position, volume, mute, speed
@@ -578,7 +645,11 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
    */
   const applyProcessedVideoToEditor = useCallback(async (
     resultVideoBlobOrUrl: Blob | string,
-    clipId?: string
+    clipId?: string,
+    options?: {
+      hasAlpha?: boolean;
+      previewBgMode?: "checkerboard" | "black" | "green" | "white" | "custom";
+    }
   ): Promise<boolean> => {
     try {
       // Resiliently resolve target clip
@@ -601,6 +672,9 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
       if (!newBlobUrl || typeof newBlobUrl !== "string") {
         throw new Error(getLang() === "ar" ? "رابط الفيديو الناتج غير صالح." : "Invalid output video URL");
       }
+
+      // Ensure active ObjectURL is not collected by background video cleaner while editing
+      VideoMemoryManager.getInstance().untrackObjectUrl(newBlobUrl);
 
       // Probe decodability and duration in an isolated video element before applying
       const probeVideo = document.createElement("video");
@@ -645,26 +719,42 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
       });
 
       const mediaItem = getMediaById(clip.mediaId);
+      const originalUrl = clip.originalUrl || mediaItem?.originalUrl || mediaItem?.url || "";
       const oldProcessedUrl = clip.processedUrl || mediaItem?.processedUrl;
+      const isAlpha = options?.hasAlpha ?? (clip.hasAlpha || false);
 
-      // 1. Update media item state with revision
+      // 1. Update media item state with revision and preserve original source
       const newRevision = (clip.mediaRevision || mediaItem?.mediaRevision || 0) + 1;
       if (mediaItem) {
         updateMediaItem(mediaItem.id, {
           url: newBlobUrl,
+          originalUrl,
           processedUrl: newBlobUrl,
           mediaRevision: newRevision,
+          hasAlpha: isAlpha,
         });
       }
 
-      // 2. Invalidate clip cache & 3. Update timeline clip
+      // 2. Invalidate clip cache & 3. Update timeline clip with processed state
       setClips((prevClips) =>
         prevClips.map((c) =>
           c.id === clip.id
-            ? { ...c, processedUrl: newBlobUrl, mediaRevision: newRevision }
+            ? {
+                ...c,
+                originalUrl,
+                processedUrl: newBlobUrl,
+                useProcessed: true,
+                mediaRevision: newRevision,
+                hasAlpha: isAlpha,
+                previewBgMode: isAlpha ? (c.previewBgMode || "checkerboard") : c.previewBgMode,
+              }
             : c
         )
       );
+
+      if (isAlpha) {
+        setEditorBgMode("checkerboard");
+      }
 
       // Invalidate ping-pong preloaded slots cache for this clip
       slot0ClipIdRef.current = null;
@@ -893,6 +983,25 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     }
   }, [resolved, activeMedia, clips, videoMuted, videoVolume, activeVolume, preloadSlot, getMediaById, resolvePreviewSource]);
 
+  // Seamless source swap when toggling between original and processed AI video
+  useEffect(() => {
+    if (!resolved?.clip) return;
+    const curSlot = activeSlotRef.current;
+    const activeEl = curSlot === 0 ? videoRefA.current : videoRefB.current;
+    if (!activeEl) return;
+
+    const targetUrl = resolvePreviewSource(resolved.clip.id);
+    if (targetUrl && activeEl.src !== targetUrl) {
+      const currentTimePos = activeEl.currentTime;
+      const wasPlaying = isPlayingRef.current && !activeEl.paused;
+      activeEl.src = targetUrl;
+      try { activeEl.currentTime = currentTimePos; } catch {}
+      if (wasPlaying) {
+        activeEl.play().catch(() => {});
+      }
+    }
+  }, [resolved?.clip, resolvePreviewSource]);
+
   // Synchronize audio volume and mute across dual slots (standby is always muted)
   useEffect(() => {
     const vA = videoRefA.current;
@@ -1015,8 +1124,9 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     videoRef.current = videoRefA.current;
 
     if (m?.type === "video" && videoRefA.current) {
-      if (videoRefA.current.src !== m.url) {
-        videoRefA.current.src = m.url;
+      const activeVideoUrl = resolvePreviewSource(r.clip.id);
+      if (videoRefA.current.src !== activeVideoUrl && activeVideoUrl) {
+        videoRefA.current.src = activeVideoUrl;
         videoRefA.current.preload = "auto";
       }
       try { videoRefA.current.currentTime = r.mediaTime || 0.001; } catch {}
@@ -1031,8 +1141,9 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
       const nextC = clips[nextIdx];
       const nextM = getMediaById(nextC.mediaId);
       if (nextM?.type === "video" && videoRefB.current) {
-        if (videoRefB.current.src !== nextM.url) {
-          videoRefB.current.src = nextM.url;
+        const nextVideoUrl = resolvePreviewSource(nextC.id);
+        if (videoRefB.current.src !== nextVideoUrl && nextVideoUrl) {
+          videoRefB.current.src = nextVideoUrl;
           videoRefB.current.preload = "auto";
         }
         videoRefB.current.muted = true;
@@ -1041,7 +1152,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
         slot1ClipIdRef.current = nextC.id;
       }
     }
-  }, [resolveTimelineTime, getMediaById, clips, videoMuted]);
+  }, [resolveTimelineTime, getMediaById, clips, videoMuted, resolvePreviewSource]);
 
   const formatTime = (s: number) => {
     const min = Math.floor(s / 60), sec = Math.floor(s % 60), ms = Math.floor((s % 1) * 10);
@@ -1448,9 +1559,69 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
               </div>
             )}
 
+            {/* AI Processed & Background Toggle Overlay on Active Clip */}
+            {resolved?.clip && (resolved.clip.processedUrl || activeMedia?.processedUrl) && (
+              <div className="absolute top-1 end-2 z-20 flex items-center gap-1.5 animate-in fade-in duration-200">
+                {/* AI / Original Toggle Button */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleClipProcessed(resolved.clip.id);
+                  }}
+                  className={`px-2 py-0.5 rounded-lg backdrop-blur-md border text-[10px] font-bold shadow-md flex items-center gap-1 transition-all active:scale-95 ${
+                    resolved.clip.useProcessed !== false
+                      ? "bg-primary/90 text-primary-foreground border-primary/40"
+                      : "bg-black/75 text-white/80 border-white/20 hover:text-white"
+                  }`}
+                  title={
+                    resolved.clip.useProcessed !== false
+                      ? (isRTL() ? "التبديل إلى الفيديو الأصلي" : "Switch to Original Video")
+                      : (isRTL() ? "التبديل إلى نتيجة الذكاء الاصطناعي" : "Switch to AI Processed Video")
+                  }
+                >
+                  <Sparkles className="w-3 h-3" />
+                  <span>
+                    {resolved.clip.useProcessed !== false
+                      ? (isRTL() ? "النتيجة الذكية" : "AI Result")
+                      : (isRTL() ? "الأصلي" : "Original")}
+                  </span>
+                </button>
+
+                {/* Alpha Backdrop Selector (if background removed) */}
+                {resolved.clip.hasAlpha && resolved.clip.useProcessed !== false && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const curMode = resolved.clip.previewBgMode || "checkerboard";
+                      const modes: Array<"checkerboard" | "green" | "black" | "white"> = ["checkerboard", "green", "black", "white"];
+                      const nextIdx = (modes.indexOf(curMode as any) + 1) % modes.length;
+                      setClipBgMode(resolved.clip.id, modes[nextIdx]);
+                    }}
+                    className="px-1.5 py-0.5 rounded-lg bg-black/75 backdrop-blur-md border border-white/20 text-[10px] font-bold text-white shadow-md flex items-center gap-1 transition-all hover:bg-black/90 active:scale-95"
+                    title={isRTL() ? "تغيير خلفية المعاينة للمفرّغ" : "Change transparent backdrop"}
+                  >
+                    <span className="text-[11px]">
+                      {(resolved.clip.previewBgMode || "checkerboard") === "checkerboard" && "🏁"}
+                      {resolved.clip.previewBgMode === "green" && "🟩"}
+                      {resolved.clip.previewBgMode === "black" && "⬛"}
+                      {resolved.clip.previewBgMode === "white" && "⬜"}
+                    </span>
+                    <span className="text-[9px] font-medium hidden xs:inline">
+                      {(resolved.clip.previewBgMode || "checkerboard") === "checkerboard" && (isRTL() ? "شطرنج" : "Alpha")}
+                      {resolved.clip.previewBgMode === "green" && (isRTL() ? "كروما" : "Green")}
+                      {resolved.clip.previewBgMode === "black" && (isRTL() ? "أسود" : "Black")}
+                      {resolved.clip.previewBgMode === "white" && (isRTL() ? "أبيض" : "White")}
+                    </span>
+                  </button>
+                )}
+              </div>
+            )}
+
             <div
               ref={previewRef}
-              className={`rounded-2xl bg-black overflow-hidden relative transition-all duration-200 flex items-center justify-center shadow-2xl ${showFrame ? "border-2 border-primary/80 ring-2 ring-primary/30" : "border border-border/70"}`}
+              className={`rounded-2xl overflow-hidden relative transition-all duration-200 flex items-center justify-center shadow-2xl ${showFrame ? "border-2 border-primary/80 ring-2 ring-primary/30" : "border border-border/70"}`}
               style={{
                 aspectRatio: `${ASPECT_RATIOS[activeRatio]?.w ?? 16} / ${ASPECT_RATIOS[activeRatio]?.h ?? 9}`,
                 height: "100%",
@@ -1459,6 +1630,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
                 width: "auto",
                 flexGrow: 0,
                 flexShrink: 1,
+                ...getPreviewBgStyle(),
               }}
               onTouchStart={onPreviewTouchStart}
               onTouchMove={onPreviewTouchMove}
@@ -1958,6 +2130,8 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
             open={tool === "ai"}
             onClose={() => setTool(null)}
             mediaType={activeMedia?.type === "image" ? "image" : "video"}
+            targetClipId={resolved?.clip?.id}
+            targetMediaId={resolved?.clip?.mediaId || activeMedia?.id}
             currentMediaUrlOrBase64={
               resolved?.clip
                 ? resolvePreviewSource(resolved.clip.id) || activeMedia?.processedUrl || activeMedia?.url || undefined
@@ -1965,12 +2139,15 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
             }
             onApplyResult={async (resData) => {
               if (resData?.outputVideoBase64OrUrl) {
-                const targetClip = resolved?.clip || clips[0];
+                const targetClip = (resData.targetClipId ? clips.find((c) => c.id === resData.targetClipId) : null) || resolved?.clip || clips[0];
                 const targetClipId = targetClip?.id;
                 const blob = resData.blob || resData.outputBlob;
                 const applied = await applyProcessedVideoToEditor(
                   blob || resData.outputVideoBase64OrUrl,
-                  targetClipId
+                  targetClipId,
+                  {
+                    hasAlpha: resData.hasAlpha,
+                  }
                 );
                 if (applied) {
                   playSfx("success");

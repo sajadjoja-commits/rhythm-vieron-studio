@@ -90,6 +90,14 @@ export class VideoMemoryManager {
   }
 
   /**
+   * Untracks an Object URL so it won't be automatically revoked when batch cleaning.
+   */
+  public untrackObjectUrl(url?: string | null): void {
+    if (!url) return;
+    this.trackedObjectUrls.delete(url);
+  }
+
+  /**
    * Runs an operation inside a scoped memory container, ensuring all allocated
    * resources in the scope are purged when completed or on error.
    */

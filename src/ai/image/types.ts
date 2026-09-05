@@ -6,13 +6,12 @@
 export type ImageAITaskType =
   | "remove-background"
   | "enhance"
-  | "upscale"
   | "face-enhance"
   | "object-remove";
 
 export type DeviceTier = "LOW" | "MEDIUM" | "HIGH" | "ULTRA";
 
-export type ExecutionProvider = "webgpu" | "webgl" | "wasm" | "cpu" | (string & {});
+export type ExecutionProvider = "webgpu" | "webgl" | "wasm" | "cpu";
 
 export type ImageAIProgressStage =
   | "preparing"
@@ -111,7 +110,6 @@ export interface ImageAIOptions {
   forceProvider?: ExecutionProvider;
   maskDataUrl?: string;
   brushRadius?: number;
-  [key: string]: any;
 }
 
 export interface ImageAIResult {
@@ -135,7 +133,6 @@ export interface ImageAIResult {
     totalMs: number;
   };
   metrics: {
-    [key: string]: any;
     deviceTier: DeviceTier;
     isLocal: boolean;
     hasAlphaChannel: boolean;

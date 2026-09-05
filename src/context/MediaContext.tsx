@@ -18,9 +18,8 @@ export interface MediaItem {
   thumbnail?: string;
   mediaRevision?: number;
   processedUrl?: string;
-  width?: number;
-  height?: number;
-  editable?: boolean;
+  originalUrl?: string;
+  hasAlpha?: boolean;
 }
 
 export type TransitionType = 
@@ -94,9 +93,11 @@ export interface Clip {
   speedCurve?: { id: string; timePct: number; value: number }[];
   mediaRevision?: number;
   processedUrl?: string;
-  editable?: boolean;
-  url?: string;
-  duration?: number;
+  originalUrl?: string;
+  useProcessed?: boolean;
+  hasAlpha?: boolean;
+  previewBgMode?: "checkerboard" | "black" | "green" | "white" | "custom";
+  previewBgColor?: string;
 }
 
 export function interpolateKeyframes(
@@ -156,7 +157,6 @@ export const clipTimelineLen = (c: Clip) => Math.max(0, c.out - c.in) / (c.speed
 export type CaptionAnimation = "none" | "fade" | "slide-up" | "slide-down" | "pop" | "typewriter" | "bounce" | "glitch" | "zoom-fade" | "scale-up" | "rotate-in" | "blur-in" | "elastic-drop" | "swing-in" | "reveal-left" | "reveal-right" | "heartbeat" | "neon-flicker" | "3d-flip" | "wave-bounce" | "curtain-reveal" | "shatter-pop";
 
 export interface Caption {
-  editable?: boolean;
   id: string;
   start: number;
   end: number;
@@ -214,7 +214,6 @@ export interface CaptionTemplate {
   badgePosition?: "left" | "right" | "top";
   sampleText?: string;
   sampleTextAr?: string;
-  sampleTextEn?: string;
 }
 
 export interface CaptionStyle {
@@ -234,12 +233,6 @@ export interface CaptionStyle {
   textTransform?: "none" | "uppercase" | "lowercase" | "capitalize";
   bgRadius?: number;
   bgPadding?: number;
-  badgeIcon?: string;
-  isMultiLine?: boolean;
-  flipH?: boolean;
-  flipV?: boolean;
-  rotation?: number;
-  scale?: number;
 }
 
 export type AudioFxType =
@@ -278,7 +271,6 @@ export interface AudioTrackItem {
   keyframes?: Keyframe[];
   beats?: number[];
   bpm?: number;
-  end?: number;
 }
 
 export type FilterType = "brightness" | "contrast" | "saturate" | "grayscale" | "sepia" | "blur" | "hue-rotate" | "invert" | "vintage" | "warm" | "cool" | "dramatic" | "noir" | "fade-edge" | "duotone" | "dream" | "neon" | "sepia-blue";
@@ -315,7 +307,6 @@ export interface OverlayItem {
   start: number; end: number; x: number; y: number; scale: number;
   opacity?: number; rotation?: number; blend?: string; brightness?: number;
   keyframes?: Keyframe[];
-  flipH?: boolean; flipV?: boolean; duration?: number;
 }
 
 export type ExportPreset = "reels-15" | "reels-30" | "reels-60" | "story-60" | "full";
@@ -657,9 +648,9 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
         if (session?.user) {
           supabase.from("projects").upsert({
             id: projectId, name: projectName, export_preset: exportPreset,
-            clips_json: clips as unknown as any, captions_json: captions as unknown as any, caption_style_json: captionStyle as unknown as any,
+            clips_json: clips, captions_json: captions, caption_style_json: captionStyle,
             audio_tracks_json: audioTracks.map((a) => ({ id: a.id, name: a.name, start: a.start, offset: a.offset, duration: a.duration, sourceDuration: a.sourceDuration, volume: a.volume, muted: a.muted, fx: a.fx, color: a.color, kind: a.kind, url: a.file ? null : a.url })),
-            filters_json: filters as unknown as any, vfx_json: vfx as unknown as any, cover_image: effectiveCover,
+            filters_json: filters, vfx_json: vfx, cover_image: effectiveCover,
             duration: totalDuration, updated_at: new Date().toISOString(),
           }).then(({ error }) => { if (error) console.warn("cloud sync failed", error.message); });
         }
@@ -732,7 +723,17 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const updateMediaItem = useCallback((id: string, patch: Partial<MediaItem>) => {
-    setMedia((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
+    setMedia((prev) =>
+      prev.map((m) => {
+        if (m.id !== id) return m;
+        const originalUrl = m.originalUrl || (patch.processedUrl && patch.processedUrl !== m.url ? m.url : undefined);
+        return {
+          ...m,
+          ...patch,
+          ...(originalUrl ? { originalUrl } : {}),
+        };
+      })
+    );
   }, []);
 
   const removeMedia = useCallback((id: string) => {
