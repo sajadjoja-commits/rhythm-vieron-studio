@@ -214,6 +214,7 @@ export interface CaptionTemplate {
   badgePosition?: "left" | "right" | "top";
   sampleText?: string;
   sampleTextAr?: string;
+  sampleTextEn?: string;
 }
 
 export interface CaptionStyle {
@@ -233,6 +234,12 @@ export interface CaptionStyle {
   textTransform?: "none" | "uppercase" | "lowercase" | "capitalize";
   bgRadius?: number;
   bgPadding?: number;
+  badgeIcon?: string;
+  isMultiLine?: boolean;
+  flipH?: boolean;
+  flipV?: boolean;
+  rotation?: number;
+  scale?: number;
 }
 
 export type AudioFxType =
@@ -271,6 +278,7 @@ export interface AudioTrackItem {
   keyframes?: Keyframe[];
   beats?: number[];
   bpm?: number;
+  end?: number;
 }
 
 export type FilterType = "brightness" | "contrast" | "saturate" | "grayscale" | "sepia" | "blur" | "hue-rotate" | "invert" | "vintage" | "warm" | "cool" | "dramatic" | "noir" | "fade-edge" | "duotone" | "dream" | "neon" | "sepia-blue";
@@ -307,6 +315,7 @@ export interface OverlayItem {
   start: number; end: number; x: number; y: number; scale: number;
   opacity?: number; rotation?: number; blend?: string; brightness?: number;
   keyframes?: Keyframe[];
+  flipH?: boolean; flipV?: boolean; duration?: number;
 }
 
 export type ExportPreset = "reels-15" | "reels-30" | "reels-60" | "story-60" | "full";

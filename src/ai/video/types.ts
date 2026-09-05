@@ -47,6 +47,7 @@ export interface VideoProgressEvent {
   fps: number; // Backwards compatible alias to sourceFps
   elapsedMs: number;
   etaSeconds: number;
+  progress?: number;
   message: string;
 }
 
