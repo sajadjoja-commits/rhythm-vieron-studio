@@ -323,6 +323,7 @@ export interface OverlayItem {
   start: number; end: number; x: number; y: number; scale: number;
   opacity?: number; rotation?: number; blend?: string; brightness?: number;
   keyframes?: Keyframe[];
+  duration?: number;
 }
 
 export type ExportPreset = "reels-15" | "reels-30" | "reels-60" | "story-60" | "full";
