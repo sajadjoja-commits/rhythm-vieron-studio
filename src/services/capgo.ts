@@ -90,11 +90,18 @@ class CapgoService {
       this.updater = CapacitorUpdater;
 
       // 1. Notify Capgo that the app booted successfully.
+      // This prevents automatic rollback to the previous version.
       await this.updater.notifyAppReady();
+      console.log("[Capgo] App notified ready (Success confirmation)");
 
       // 2. Fetch current bundle info
       this.currentBundle = await this.updater.current();
-      console.log("[Capgo] App ready. Current bundle:", this.currentBundle);
+      const channel = await this.updater.getChannel();
+      console.log("[Capgo] Startup Audit:", {
+        bundle: this.currentBundle,
+        channel: channel,
+        isNative: Capacitor.isNativePlatform()
+      });
 
       // 3. Setup listeners
       this.updater.addListener("download", (info: any) => {
@@ -137,9 +144,9 @@ class CapgoService {
 
     try {
       const latest = await this.updater.getLatest();
-      console.log("[Capgo] Check result:", latest);
+      console.log("[Capgo] Update check success:", latest);
 
-      if (latest.kind === "up_to_date") {
+      if (!latest || latest.kind === "up_to_date") {
         this.setState({ status: "no-update" });
         return false;
       }

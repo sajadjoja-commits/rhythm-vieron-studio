@@ -12,6 +12,7 @@ interface SettingsScreenProps {
 }
 
 import { applyThemeToDOM } from "@/lib/theme";
+import buildInfo from "@/build_info.json";
 
 const SettingsScreen = ({ session, isGuest, onLogout }: SettingsScreenProps) => {
   const { installed, install, isNative } = useInstallPrompt();
@@ -22,6 +23,7 @@ const SettingsScreen = ({ session, isGuest, onLogout }: SettingsScreenProps) => 
   const [storageUsed, setStorageUsed] = useState("...");
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<string | null>(null);
+  const [showDebug, setShowDebug] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -185,7 +187,42 @@ const SettingsScreen = ({ session, isGuest, onLogout }: SettingsScreenProps) => 
         </div>
       </div>
       <div className="bg-card border border-border rounded-2xl p-4 mb-4">
-        <div className="flex items-center gap-3"><VireonLogo className="w-8 h-8" /><div className="flex-1"><p className="text-sm font-bold text-foreground">Vireon AI</p><p className="text-[10px] text-muted-foreground">v1.0.0</p></div><Info className="w-4 h-4 text-muted-foreground" /></div>
+        <button
+          onClick={() => setShowDebug(!showDebug)}
+          className="w-full flex items-center gap-3"
+        >
+          <VireonLogo className="w-8 h-8" />
+          <div className="flex-1 text-start">
+            <p className="text-sm font-bold text-foreground">Vireon AI Studio</p>
+            <p className="text-[10px] text-muted-foreground">{buildInfo.native} (Build {buildInfo.build})</p>
+          </div>
+          <Info className={`w-4 h-4 transition-colors ${showDebug ? 'text-primary' : 'text-muted-foreground'}`} />
+        </button>
+
+        {showDebug && (
+          <div className="mt-4 pt-4 border-t border-border space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="flex justify-between items-center text-[10px]">
+              <span className="text-muted-foreground">Web Version</span>
+              <span className="font-mono text-foreground">{buildInfo.web}</span>
+            </div>
+            <div className="flex justify-between items-center text-[10px]">
+              <span className="text-muted-foreground">Git SHA</span>
+              <span className="font-mono text-foreground">{buildInfo.git}</span>
+            </div>
+            <div className="flex justify-between items-center text-[10px]">
+              <span className="text-muted-foreground">Channel</span>
+              <span className="font-mono text-foreground">{buildInfo.channel}</span>
+            </div>
+            <div className="flex justify-between items-center text-[10px]">
+              <span className="text-muted-foreground">Build Time</span>
+              <span className="text-foreground">{new Date(buildInfo.timestamp).toLocaleString()}</span>
+            </div>
+            <div className="mt-2 p-2 bg-secondary/50 rounded-lg">
+              <p className="text-[8px] text-muted-foreground mb-1">Asset Fingerprint</p>
+              <p className="text-[8px] font-mono text-foreground break-all leading-tight">{buildInfo.fingerprint}</p>
+            </div>
+          </div>
+        )}
       </div>
       <button onClick={onLogout} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-destructive/10 text-destructive font-bold text-sm hover:bg-destructive/20 transition-all"><LogOut className="w-4 h-4" />{isGuest ? t("settings.guestLogout") : t("settings.logout")}</button>
     </div>

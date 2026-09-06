@@ -67,6 +67,20 @@ dependencies {
     implementation project(':capacitor-cordova-android-plugins')
 }
 
+task verifyWebAssets(type: Exec) {
+    group = "vieron"
+    description = "Verifies that Android web assets match the latest web build"
+    workingDir "../../"
+    if (System.getProperty('os.name').toLowerCase().contains('windows')) {
+        commandLine 'cmd', '/c', 'node scripts/verify-web-assets.cjs'
+    } else {
+        commandLine 'node', 'scripts/verify-web-assets.cjs'
+    }
+}
+
+// Ensure web assets are verified before any build happens
+preBuild.dependsOn verifyWebAssets
+
 apply from: 'capacitor.build.gradle'
 
 try {
