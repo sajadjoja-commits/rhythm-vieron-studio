@@ -95,10 +95,10 @@ export class AIDebugLogger {
       console.log("Final Sent Prompt (Post-merge):", fullEntry.finalPrompt);
       console.log("Negative Prompt:", fullEntry.negativePrompt || "(None)");
       console.log("Parameters:", fullEntry.parameters);
-      if (fullEntry.errorDetails) {
+      if (fullEntry.status === "error" && fullEntry.errorDetails) {
         console.error("Provider Error:", fullEntry.errorDetails);
       }
-      if (fullEntry.stackTrace) {
+      if (fullEntry.status === "error" && fullEntry.stackTrace) {
         console.error("Stack Trace:", fullEntry.stackTrace);
       }
       if (fullEntry.resultUrl) {
@@ -124,7 +124,7 @@ export class AIDebugLogger {
         console.log("Raw User Prompt:", updated.rawPrompt);
         console.log("Final Sent Prompt:", updated.finalPrompt);
         console.log("Parameters:", updated.parameters);
-        if (updated.errorDetails) console.error("Error:", updated.errorDetails);
+        if (updated.status === "error" && updated.errorDetails) console.error("Error:", updated.errorDetails);
         if (updated.resultUrl) console.log("Result URL:", updated.resultUrl);
         console.groupEnd();
       }

@@ -191,12 +191,28 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
     try {
       let blob: Blob;
       try {
-        const resp = await fetch(imageUrl);
+        const resp = await fetch(imageUrl, { mode: "cors" });
         blob = await resp.blob();
       } catch {
-        // Proxy fallback if direct fetch hits CORS
-        const proxyResp = await fetch(`https://corsproxy.io/?${encodeURIComponent(imageUrl)}`);
-        blob = await proxyResp.blob();
+        // Safe canvas fallback if direct fetch hits CORS
+        blob = await new Promise<Blob>((resolve, reject) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => {
+            const canvas = document.createElement("canvas");
+            canvas.width = img.naturalWidth || img.width;
+            canvas.height = img.naturalHeight || img.height;
+            const ctx = canvas.getContext("2d");
+            if (!ctx) return reject(new Error("Canvas context unavailable"));
+            ctx.drawImage(img, 0, 0);
+            canvas.toBlob((b) => {
+              if (b) resolve(b);
+              else reject(new Error("Canvas blob conversion failed"));
+            }, `image/${outputFormat}`);
+          };
+          img.onerror = () => reject(new Error("Failed to load image for storage"));
+          img.src = imageUrl;
+        });
       }
       const file = new File([blob], `${name}_${Date.now()}.${outputFormat}`, { type: blob.type || `image/${outputFormat}` });
       await addFiles([file]);

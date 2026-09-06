@@ -266,7 +266,6 @@ export class FluxProvider extends RemoteProvider {
     const requestPaths = [
       `/api/bfl/${selectedModel}`,
       `${this.baseUrl}/${selectedModel}`,
-      `https://corsproxy.io/?${encodeURIComponent(`${this.baseUrl}/${selectedModel}`)}`,
     ];
 
     for (const reqUrl of requestPaths) {
@@ -312,7 +311,6 @@ export class FluxProvider extends RemoteProvider {
         executionTimeMs,
         resultUrl: fallbackUrl,
         modelName: `${selectedModel} (Cloud Synthesis Fallback)`,
-        errorDetails: directError || undefined,
       });
 
       return {
@@ -395,7 +393,6 @@ export class FluxProvider extends RemoteProvider {
       const pollPaths = [
         `/api/bfl/get_result?id=${encodeURIComponent(requestId)}`,
         `${this.baseUrl}/get_result?id=${encodeURIComponent(requestId)}`,
-        `https://corsproxy.io/?${encodeURIComponent(`${this.baseUrl}/get_result?id=${encodeURIComponent(requestId)}`)}`,
       ];
 
       let pollData: any = null;
