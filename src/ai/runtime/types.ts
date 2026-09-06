@@ -33,12 +33,18 @@ export interface AICapability {
 }
 
 export interface AIJobProgress {
-  jobId: string;
-  percentage: number;
-  currentStage: string;
+  jobId?: string;
+  percentage?: number;
+  currentStage?: string;
   estimatedTimeRemainingMs?: number;
-  status: JobStatus;
+  status?: JobStatus;
   error?: AIError;
+  taskId?: string;
+  taskType?: string;
+  stage?: string;
+  progress?: number;
+  message?: string;
+  metadata?: Record<string, any>;
 }
 
 export interface AIJobOptions {
@@ -48,6 +54,10 @@ export interface AIJobOptions {
   enableCache?: boolean;
   timeoutMs?: number;
   onProgress?: (progress: AIJobProgress) => void;
+  jobId?: string;
+  signal?: AbortSignal;
+  abortSignal?: AbortSignal;
+  [key: string]: any;
 }
 
 export interface AIJobRecord<TPayload = any, TResult = any> {
