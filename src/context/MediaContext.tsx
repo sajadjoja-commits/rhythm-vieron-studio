@@ -20,6 +20,9 @@ export interface MediaItem {
   processedUrl?: string;
   originalUrl?: string;
   hasAlpha?: boolean;
+  width?: number;
+  height?: number;
+  editable?: boolean;
 }
 
 export type TransitionType = 
@@ -98,6 +101,9 @@ export interface Clip {
   hasAlpha?: boolean;
   previewBgMode?: "checkerboard" | "black" | "green" | "white" | "custom";
   previewBgColor?: string;
+  editable?: boolean;
+  url?: string;
+  duration?: number;
 }
 
 export function interpolateKeyframes(
@@ -191,6 +197,7 @@ export interface Caption {
   badgeIcon?: string;
   badgePosition?: "left" | "right" | "top";
   presetCategory?: string;
+  editable?: boolean;
 }
 
 export interface CaptionTemplate {
@@ -214,6 +221,7 @@ export interface CaptionTemplate {
   badgePosition?: "left" | "right" | "top";
   sampleText?: string;
   sampleTextAr?: string;
+  sampleTextEn?: string;
 }
 
 export interface CaptionStyle {
@@ -233,6 +241,13 @@ export interface CaptionStyle {
   textTransform?: "none" | "uppercase" | "lowercase" | "capitalize";
   bgRadius?: number;
   bgPadding?: number;
+  badgeIcon?: string;
+  badgePosition?: "left" | "right" | "top";
+  rotation?: number;
+  scale?: number;
+  flipH?: boolean;
+  flipV?: boolean;
+  isMultiLine?: boolean;
 }
 
 export type AudioFxType =
@@ -271,6 +286,7 @@ export interface AudioTrackItem {
   keyframes?: Keyframe[];
   beats?: number[];
   bpm?: number;
+  end?: number;
 }
 
 export type FilterType = "brightness" | "contrast" | "saturate" | "grayscale" | "sepia" | "blur" | "hue-rotate" | "invert" | "vintage" | "warm" | "cool" | "dramatic" | "noir" | "fade-edge" | "duotone" | "dream" | "neon" | "sepia-blue";
