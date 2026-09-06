@@ -10,3 +10,4 @@ export * from "./VideoOutputVerifier";
 export * from "./VideoProcessingEngine";
 export * from "./VideoWorkerManager";
 export * from "./VideoJobManager";
+export * from "./VideoPreviewErrors";

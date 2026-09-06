@@ -59,7 +59,6 @@ export interface AIVideoResult {
     originalFps?: number;
     totalFramesProcessed?: number;
     isLocalExecution?: boolean;
-    [key: string]: any;
   };
   error?: string;
 }
@@ -72,8 +71,7 @@ export type ImageActionType =
   | "face-enhance"
   | "object-remove"
   | "denoise"
-  | "composite-enhance"
-  | "upscale";
+  | "composite-enhance";
 
 export type ImageBgEngine = "RMBG-2.0" | "Bria-RMBG" | "Gemini-Vision";
 export type ImageUpscaleEngine = "Real-ESRGAN" | "Gemini-SuperRes";
@@ -86,8 +84,6 @@ export interface AIImagePayload {
   mimeType?: string;
   action?: ImageActionType;
   upscaleFactor?: 2 | 4;
-  contrastBoost?: number;
-  [key: string]: any;
   maskBase64OrUrl?: string; // For object removal / inpainting
   denoiseIntensity?: number; // 0.0 to 1.0
   enhanceFaceLevel?: number; // 0.0 to 1.0
@@ -108,7 +104,6 @@ export interface AIImageResult {
     originalHeight?: number;
     isLocalExecution?: boolean;
     psnrEstimateDb?: number;
-    [key: string]: any;
   };
 }
 

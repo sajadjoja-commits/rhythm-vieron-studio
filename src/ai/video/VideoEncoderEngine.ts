@@ -167,11 +167,44 @@ export class VideoEncoderEngine {
       }
     }
 
+    // Candidate codecs for negotiation
+    const candidateCodecs = isWebm
+      ? ["vp09.00.10.08", "vp8"]
+      : ["avc1.4D401E", "avc1.42E01E", "avc1.64001F"];
+
+    let chosenCodec = candidateCodecs[0];
+    let isSupported = false;
+
+    for (const candidate of candidateCodecs) {
+      try {
+        const testConfig: VideoEncoderConfig = {
+          codec: candidate,
+          width,
+          height,
+          bitrate,
+          framerate: fps,
+          hardwareAcceleration: "prefer-hardware",
+          latencyMode: "realtime",
+        };
+        const check = await VideoEncoder.isConfigSupported(testConfig);
+        if (check && check.supported) {
+          chosenCodec = candidate;
+          isSupported = true;
+          break;
+        }
+      } catch {}
+    }
+
+    if (!isSupported) {
+      throw new Error(`[VideoEncoderEngine] WebCodecs does not support codecs for ${format}`);
+    }
+
     if (isWebm) {
+      const webmCodec = chosenCodec.startsWith("vp09") ? "V_VP9" : "V_VP8";
       webmMuxer = new WebmMuxer({
         target: new WebmArrayBufferTarget(),
         video: {
-          codec: "V_VP9",
+          codec: webmCodec,
           width,
           height,
           frameRate: fps,
@@ -207,38 +240,6 @@ export class VideoEncoderEngine {
           : {}),
         fastStart: "in-memory",
       });
-    }
-
-    // Candidate codecs for negotiation
-    const candidateCodecs = isWebm
-      ? ["vp09.00.10.08", "vp8"]
-      : ["avc1.4D401E", "avc1.42E01E", "avc1.64001F"];
-
-    let chosenCodec = candidateCodecs[0];
-    let isSupported = false;
-
-    for (const candidate of candidateCodecs) {
-      try {
-        const testConfig: VideoEncoderConfig = {
-          codec: candidate,
-          width,
-          height,
-          bitrate,
-          framerate: fps,
-          hardwareAcceleration: "prefer-hardware",
-          latencyMode: "realtime",
-        };
-        const check = await VideoEncoder.isConfigSupported(testConfig);
-        if (check && check.supported) {
-          chosenCodec = candidate;
-          isSupported = true;
-          break;
-        }
-      } catch {}
-    }
-
-    if (!isSupported) {
-      throw new Error(`[VideoEncoderEngine] WebCodecs does not support codecs for ${format}`);
     }
 
     let hasGeneratedKeyFrame = false;
@@ -332,10 +333,14 @@ export class VideoEncoderEngine {
 
       // 3. Construct VideoFrame, encode, and dispose synchronously
       const keyFrame = isKeyFrame || frameIndex % Math.max(1, fps * 2) === 0;
-      const frame = new VideoFrame(canvasSource as any, {
+      const frameInit: any = {
         timestamp: timestampMicros,
         duration: Math.round(1_000_000 / fps),
-      });
+      };
+      if (isWebm) {
+        frameInit.alpha = "keep";
+      }
+      const frame = new VideoFrame(canvasSource as any, frameInit);
 
       try {
         if (state !== EncoderState.PROCESSING) {

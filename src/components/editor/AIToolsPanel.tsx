@@ -18,7 +18,9 @@ import {
   CheckCircle2,
   History,
   HardDrive,
-  Info
+  Info,
+  ArrowUpRight,
+  Clock
 } from "lucide-react";
 import { toast } from "sonner";
 import { getLang } from "@/lib/i18n";
@@ -284,6 +286,16 @@ export const AIToolsPanel = ({
 
   if (!open) return null;
 
+  const handleExitAndBackground = () => {
+    playSfx("click");
+    toast.info(
+      en
+        ? "AI is continuing to process in the background. You can continue editing freely."
+        : "يستمر الذكاء الاصطناعي في المعالجة بالخلفية. يمكنك متابعة العمل بحرية."
+    );
+    onClose();
+  };
+
   const handleCancelExecution = () => {
     try {
       VideoJobManager.getInstance().cancelActiveJob();
@@ -380,6 +392,7 @@ export const AIToolsPanel = ({
         }
 
         const resData = {
+          jobId,
           outputVideoBase64OrUrl: videoResult.outputUrl,
           blob: videoResult.blob,
           outputBlob: videoResult.blob,
@@ -624,9 +637,17 @@ export const AIToolsPanel = ({
           <button
             onClick={() => {
               playSfx("click");
+              if (isExecuting) {
+                toast.info(
+                  en
+                    ? "AI is continuing to process in the background."
+                    : "الذكاء الاصطناعي مستمر بالمعالجة في الخلفية."
+                );
+              }
               onClose();
             }}
             className="w-8 h-8 rounded-full bg-secondary/80 hover:bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground transition-all"
+            title={en ? "Close panel" : "إغلاق الواجهة"}
           >
             <X className="w-4 h-4" />
           </button>
@@ -641,15 +662,26 @@ export const AIToolsPanel = ({
               <Loader2 className="w-4 h-4 animate-spin text-primary shrink-0" />
               <span className="truncate">{statusText || (en ? "Processing..." : "جاري المعالجة...")}</span>
             </span>
-            <div className="flex items-center gap-3">
-              <span className="font-mono text-sm">{executingProgress}%</span>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-sm font-black">{executingProgress}%</span>
+              
+              {/* Exit and Wait Button (Replaces red destructive delete button) */}
+              <button
+                onClick={handleExitAndBackground}
+                className="px-3 py-1.5 text-xs rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 font-bold transition-all flex items-center gap-1.5 shadow-md active:scale-95"
+                title={en ? "Exit and continue working while AI processes in background" : "خروج والانتظار - المتابعة بالخلفية أثناء العمل في المحرر"}
+              >
+                <ArrowUpRight className="w-3.5 h-3.5" />
+                <span>{en ? "Exit & Wait (Background)" : "خروج والانتظار"}</span>
+              </button>
+
+              {/* Optional Subtle Cancel if user wants to abort */}
               <button
                 onClick={handleCancelExecution}
-                className="px-2.5 py-1 text-[11px] rounded-lg bg-destructive/15 hover:bg-destructive/25 text-destructive font-medium border border-destructive/20 transition-all flex items-center gap-1"
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/15 transition-all flex items-center justify-center"
                 title={en ? "Cancel processing" : "إلغاء المعالجة"}
               >
-                <X className="w-3 h-3" />
-                <span>{en ? "Cancel" : "إلغاء"}</span>
+                <X className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
@@ -772,19 +804,37 @@ export const AIToolsPanel = ({
                   </p>
 
                   <button
-                    onClick={() => handleRunTool(tool)}
-                    disabled={isExecuting}
+                    onClick={() => {
+                      if (isActive) {
+                        handleExitAndBackground();
+                      } else {
+                        handleRunTool(tool);
+                      }
+                    }}
                     className={`w-full py-2 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 transition-all active:scale-95 shadow-md ${
                       isActive
-                        ? "bg-primary text-white"
+                        ? "bg-primary text-white hover:bg-primary/90"
                         : "gradient-primary text-white hover:opacity-95 disabled:opacity-50"
                     }`}
                   >
                     {isActive ? (
-                      <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        <span>{en ? "Processing..." : "جاري المعالجة..."}</span>
-                      </>
+                      <div className="flex items-center justify-between w-full px-1">
+                        <span className="flex items-center gap-1.5">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>{en ? "Processing..." : "جاري المعالجة..."}</span>
+                        </span>
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleExitAndBackground();
+                          }}
+                          className="text-[10px] px-2 py-0.5 rounded-lg bg-white/25 hover:bg-white/35 flex items-center gap-1 font-bold cursor-pointer transition-all shadow-sm"
+                          title={en ? "Exit & Wait in background" : "خروج والانتظار في الخلفية"}
+                        >
+                          <ArrowUpRight className="w-3 h-3" />
+                          <span>{en ? "Exit & Wait" : "خروج والانتظار"}</span>
+                        </span>
+                      </div>
                     ) : (
                       <>
                         <Sparkles className="w-3.5 h-3.5" />
@@ -800,12 +850,10 @@ export const AIToolsPanel = ({
       </div>
 
       {/* Footer Info */}
-      <div className="px-5 py-2.5 border-t border-border/40 bg-secondary/20 flex items-center justify-between text-[10px] text-muted-foreground">
-        <span className="flex items-center gap-1.5">
-          <Info className="w-3 h-3 text-primary" />
-          {en
-            ? "Results are automatically cached for fast reuse."
-            : "يتم التخزين المؤقت للنتائج تلقائياً في AICache لإعادة الاستخدام السريع."}
+      <div className="px-5 py-2 border-t border-border/40 bg-secondary/20 flex items-center justify-between text-[10px] text-muted-foreground">
+        <span className="flex items-center gap-1.5 text-primary font-medium">
+          <Sparkles className="w-3 h-3" />
+          {en ? "Background AI Processing Active" : "المعالجة الذكية بالخلفية مفعّلة"}
         </span>
         <span className="font-mono text-primary font-bold">{mediaType.toUpperCase()} MODE</span>
       </div>

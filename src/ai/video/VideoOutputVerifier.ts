@@ -258,6 +258,9 @@ export class VideoOutputVerifier {
       };
 
       video.src = url;
+      try {
+        video.load();
+      } catch {}
     });
   }
 }

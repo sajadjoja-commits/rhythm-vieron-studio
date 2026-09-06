@@ -49,6 +49,8 @@ export interface VideoJobRecord {
   completedAt?: number;
 }
 
+export type PreviewAttacher = (job: VideoJobRecord, result: VideoAIResult) => Promise<boolean>;
+
 export class VideoJobManager {
   private static instance: VideoJobManager;
 
@@ -58,11 +60,13 @@ export class VideoJobManager {
   private jobs = new Map<string, VideoJobRecord>();
   private activeJobId: string | null = null;
   private activeAbortControllers = new Map<string, AbortController>();
+  private appliedJobIds = new Set<string>();
 
   private activeListeners = new Set<(activeJob: VideoJobRecord | null) => void>();
   private jobListeners = new Map<string, Set<(job: VideoJobRecord) => void>>();
   private allJobsListeners = new Set<(jobs: VideoJobRecord[]) => void>();
   private completionListeners = new Set<(job: VideoJobRecord) => void>();
+  private previewAttachers = new Set<PreviewAttacher>();
 
   public static getInstance(): VideoJobManager {
     if (!VideoJobManager.instance) {
@@ -73,6 +77,21 @@ export class VideoJobManager {
 
   private constructor() {
     console.log("[VideoJobManager] Global Video Job Manager initialized.");
+  }
+
+  public registerPreviewAttacher(attacher: PreviewAttacher): () => void {
+    this.previewAttachers.add(attacher);
+    return () => {
+      this.previewAttachers.delete(attacher);
+    };
+  }
+
+  public isJobApplied(jobId: string): boolean {
+    return this.appliedJobIds.has(jobId);
+  }
+
+  public markJobApplied(jobId: string): void {
+    this.appliedJobIds.add(jobId);
   }
 
   public subscribeCompleted(listener: (job: VideoJobRecord) => void): () => void {
@@ -159,14 +178,38 @@ export class VideoJobManager {
               onProgress: (p) => this.handleEngineProgress(jobId, p, options?.onProgress),
             });
 
-        // Update Job Record on Success
-        jobRecord.status = "COMPLETED";
-        jobRecord.progress = 100;
-        jobRecord.stageMessage = "اكتملت معالجة الفيديو بنجاح!";
+        // 1. Stage: ATTACHING_PREVIEW
+        jobRecord.status = "ATTACHING_PREVIEW";
+        jobRecord.progress = 96;
+        jobRecord.stageMessage = "جاري ربط الفيديو المُعالج بنافذة المعاينة والخط الزمني...";
         jobRecord.outputUrl = result.outputUrl;
         jobRecord.outputBlob = result.blob;
         jobRecord.result = result;
         jobRecord.hasAlpha = result.hasAlpha;
+        this.notifyJobChange(jobRecord);
+
+        // 2. Stage: VERIFYING_PREVIEW
+        jobRecord.status = "VERIFYING_PREVIEW";
+        jobRecord.progress = 98;
+        jobRecord.stageMessage = "جاري التحقق من فك ترميز وعرض الفيديو في نافذة المعاينة...";
+        this.notifyJobChange(jobRecord);
+
+        // Run registered preview attachers (e.g. from active EditorScreen)
+        if (this.previewAttachers.size > 0) {
+          console.log(`[VideoJobManager] Executing ${this.previewAttachers.size} preview attachers for job ${jobId}`);
+          for (const attacher of this.previewAttachers) {
+            const attached = await attacher(jobRecord, result);
+            if (!attached) {
+              throw new Error("PREVIEW_ATTACH_FAILED: فشل ربط أو فك ترميز الفيديو المعالج داخل شاشة المعاينة.");
+            }
+          }
+          this.markJobApplied(jobId);
+        }
+
+        // 3. Stage: COMPLETED (Only reached after Engine + Verification + Preview Attachment succeed)
+        jobRecord.status = "COMPLETED";
+        jobRecord.progress = 100;
+        jobRecord.stageMessage = "اكتملت معالجة الفيديو وتحديث نافذة المعاينة بنجاح!";
         jobRecord.completedAt = Date.now();
         jobRecord.elapsedMs = Date.now() - jobRecord.startedAt;
 

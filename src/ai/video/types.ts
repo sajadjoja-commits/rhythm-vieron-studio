@@ -15,6 +15,8 @@ export type VideoAIStage =
   | "PROCESSING"
   | "ENCODING"
   | "VERIFYING"
+  | "ATTACHING_PREVIEW"
+  | "VERIFYING_PREVIEW"
   | "COMPLETED"
   | "FAILED"
   | "CANCELLED";

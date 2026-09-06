@@ -4,7 +4,7 @@ import {
   Image as ImageIcon, Video, Plus, Wand2, Loader2, Palette, Activity, Layers,
   Gauge, Zap, Clapperboard, Undo2, Redo2, Eye, EyeOff, RotateCw, Diamond, Minus, Trash2, Maximize2,
 } from "lucide-react";
-import { useMedia, TransitionType, Clip, MediaItem, OverlayItem, interpolateKeyframes } from "@/context/MediaContext";
+import { useMedia, TransitionType, Clip, interpolateKeyframes } from "@/context/MediaContext";
 import { computeVfxState } from "@/lib/vfxEngine";
 import MediaPicker from "@/components/MediaPicker";
 import Timeline from "@/components/editor/Timeline";
@@ -34,17 +34,17 @@ import { AIToolsPanel } from "@/components/editor/AIToolsPanel";
 import { toast } from "sonner";
 import { playSfx } from "@/lib/soundFx";
 import { attachFxChain } from "@/lib/audioFx";
-import { analyzeBeats, analyzeBeatsFromUrl, getAudioContext } from "@/lib/audioAnalysis";
+import { analyzeBeats, getAudioContext } from "@/lib/audioAnalysis";
 import { t, getLang, isRTL } from "@/lib/i18n";
 import { VireonLogo } from "@/components/VireonLogo";
 import { ASPECT_RATIOS, findClosestRatioIndex } from "@/lib/aspectRatios";
-import { VideoJobManager } from "@/ai/video";
+import { VideoJobManager, VideoMemoryManager, PreviewIntegrationError } from "@/ai/video";
 
 interface EditorScreenProps {
   onBack: () => void;
 }
 
-type Tool = "transition" | "caption" | "music" | "filter" | "vfx" | "ratio" | "overlay" | "speed" | "cover" | "ai" | "keyframe" | null;
+type Tool = "transition" | "caption" | "music" | "filter" | "vfx" | "ratio" | "overlay" | "speed" | "cover" | "ai" | null;
 
 // Which timeline track is focused — determines which handles are visible
 type FocusedTrack = "video" | "caption" | "audio" | "filter" | "vfx" | "overlay" | null;
@@ -643,203 +643,365 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
    * 7. Preserve current playback position, volume, mute, speed
    * 8. Trigger editor redraw
    */
+  const appliedJobsRef = useRef<Set<string>>(new Set());
+
+  /**
+   * Apply AI-Processed Video to Editor Pipeline
+   * Real end-to-end synchronization:
+   * 1. Validate target clip and payload blob/URL with strict diagnostic reporting
+   * 2. Prevent duplicate application (jobId tracking)
+   * 3. Untrack ObjectURL from memory manager auto-GC
+   * 4. Update MediaItem and Timeline Clip (processedUrl, useProcessed, mediaRevision, hasAlpha)
+   * 5. Apply new source directly to active video slot (A or B) and trigger .load()
+   * 6. Await loadedmetadata with real decodability and error verification
+   * 7. Verify dimensions, duration, readyState, and source matching
+   * 8. Restore playback position, volume, muted, speed, and playing state
+   * 9. Clean standby slot to prevent stale frames
+   * 10. Revoke old ObjectURL only after successful verification
+   */
   const applyProcessedVideoToEditor = useCallback(async (
     resultVideoBlobOrUrl: Blob | string,
     clipId?: string,
     options?: {
       hasAlpha?: boolean;
       previewBgMode?: "checkerboard" | "black" | "green" | "white" | "custom";
+      jobId?: string;
+      mimeType?: string;
     }
   ): Promise<boolean> => {
-    try {
-      // Resiliently resolve target clip
-      const clip = (clipId ? clips.find((c) => c.id === clipId) : null)
-        || resolved?.clip
-        || clips[0];
+    const jobId = options?.jobId;
+    const curSlot = activeSlotRef.current;
+    const activeEl = curSlot === 0 ? videoRefA.current : videoRefB.current;
+    const standbyEl = curSlot === 0 ? videoRefB.current : videoRefA.current;
 
-      if (!clip) {
-        throw new Error(getLang() === "ar" ? "لم يتم العثور على المقطع في الخط الزمني." : "Clip not found in timeline");
-      }
-
-      // Convert Blob to Object URL or use provided URL
-      let newBlobUrl: string;
-      if (resultVideoBlobOrUrl instanceof Blob) {
-        newBlobUrl = URL.createObjectURL(resultVideoBlobOrUrl);
-      } else {
-        newBlobUrl = resultVideoBlobOrUrl;
-      }
-
-      if (!newBlobUrl || typeof newBlobUrl !== "string") {
-        throw new Error(getLang() === "ar" ? "رابط الفيديو الناتج غير صالح." : "Invalid output video URL");
-      }
-
-      // Ensure active ObjectURL is not collected by background video cleaner while editing
-      try { (window as any).__vireonUntrackUrl?.(newBlobUrl); } catch { /* noop */ }
-
-      // Probe decodability and duration in an isolated video element before applying
-      const probeVideo = document.createElement("video");
-      probeVideo.preload = "auto";
-      probeVideo.muted = true;
-      probeVideo.playsInline = true;
-
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          cleanup();
-          // Even if probe timed out, proceed if readyState is at least HAVE_METADATA
-          if (probeVideo.readyState >= 1 || probeVideo.videoWidth > 0) {
-            resolve();
-          } else {
-            reject(new Error(getLang() === "ar" ? "انتهت مهلة التحقق من إمكانية فك ترميز الفيديو المعالج." : "Timed out validating processed video."));
-          }
-        }, 5000);
-
-        const onMeta = () => {
-          cleanup();
-          if (probeVideo.videoWidth > 0 && probeVideo.videoHeight > 0) {
-            resolve();
-          } else {
-            reject(new Error(getLang() === "ar" ? "أبعاد الفيديو الناتج غير صالحة." : "Invalid video dimensions in output."));
-          }
-        };
-
-        const onErr = () => {
-          cleanup();
-          reject(new Error(getLang() === "ar" ? "فشل متصفح الويب في قراءة الفيديو المعالج." : "Browser failed to decode processed video output."));
-        };
-
-        const cleanup = () => {
-          clearTimeout(timeout);
-          probeVideo.removeEventListener("loadedmetadata", onMeta);
-          probeVideo.removeEventListener("error", onErr);
-        };
-
-        probeVideo.addEventListener("loadedmetadata", onMeta, { once: true });
-        probeVideo.addEventListener("error", onErr, { once: true });
-        probeVideo.src = newBlobUrl;
-      });
-
-      const mediaItem = getMediaById(clip.mediaId);
-      const originalUrl = clip.originalUrl || mediaItem?.originalUrl || mediaItem?.url || "";
-      const oldProcessedUrl = clip.processedUrl || mediaItem?.processedUrl;
-      const isAlpha = options?.hasAlpha ?? (clip.hasAlpha || false);
-
-      // 1. Update media item state with revision and preserve original source
-      const newRevision = (clip.mediaRevision || mediaItem?.mediaRevision || 0) + 1;
-      if (mediaItem) {
-        updateMediaItem(mediaItem.id, {
-          url: newBlobUrl,
-          originalUrl,
-          processedUrl: newBlobUrl,
-          mediaRevision: newRevision,
-          hasAlpha: isAlpha,
-        });
-      }
-
-      // 2. Invalidate clip cache & 3. Update timeline clip with processed state
-      setClips((prevClips) =>
-        prevClips.map((c) =>
-          c.id === clip.id
-            ? {
-                ...c,
-                originalUrl,
-                processedUrl: newBlobUrl,
-                useProcessed: true,
-                mediaRevision: newRevision,
-                hasAlpha: isAlpha,
-                previewBgMode: isAlpha ? (c.previewBgMode || "checkerboard") : c.previewBgMode,
-              }
-            : c
-        )
-      );
-
-      if (isAlpha) {
-        setEditorBgMode("checkerboard");
-      }
-
-      // Invalidate ping-pong preloaded slots cache for this clip
-      slot0ClipIdRef.current = null;
-      slot1ClipIdRef.current = null;
-
-      // Revoke previous blob url if it was AI generated
-      if (oldProcessedUrl && oldProcessedUrl.startsWith("blob:") && oldProcessedUrl !== newBlobUrl) {
-        try {
-          URL.revokeObjectURL(oldProcessedUrl);
-        } catch {}
-      }
-
-      // 4. Determine target video slot (active slot)
-      const curSlot = activeSlotRef.current;
-      const activeEl = curSlot === 0 ? videoRefA.current : videoRefB.current;
-      const standbyEl = curSlot === 0 ? videoRefB.current : videoRefA.current;
-
-      if (activeEl) {
-        const wasPlaying = isPlayingRef.current && !activeEl.paused;
-        const preservedPlaybackPos = activeEl.currentTime || (resolved?.mediaTime || clip.in || 0);
-        const preservedVolume = activeEl.volume;
-        const preservedMuted = activeEl.muted;
-        const preservedPlaybackRate = activeEl.playbackRate || (clip.speed || 1);
-
-        activeEl.pause();
-        activeEl.src = newBlobUrl;
-        activeEl.preload = "auto";
-        activeEl.load();
-
-        await new Promise<void>((resolve) => {
-          const timeout = setTimeout(() => {
-            activeEl.removeEventListener("loadedmetadata", onMeta);
-            resolve();
-          }, 3000);
-
-          const onMeta = () => {
-            clearTimeout(timeout);
-            activeEl.removeEventListener("loadedmetadata", onMeta);
-            resolve();
-          };
-
-          activeEl.addEventListener("loadedmetadata", onMeta, { once: true });
-        });
-
-        try {
-          activeEl.currentTime = Math.min(activeEl.duration || Infinity, preservedPlaybackPos);
-        } catch {}
-
-        activeEl.volume = preservedVolume;
-        activeEl.muted = preservedMuted;
-        activeEl.playbackRate = preservedPlaybackRate;
-
-        if (wasPlaying) {
-          try {
-            await activeEl.play();
-          } catch {}
-        }
-      }
-
-      // Refresh standby slot to prevent old video flash
-      if (standbyEl) {
-        try {
-          standbyEl.pause();
-          standbyEl.removeAttribute("src");
-          standbyEl.src = "";
-          standbyEl.load();
-        } catch {}
-      }
-
-      // Trigger editor redraw
-      setMediaReady(true);
-      setMediaError(false);
-
+    // 1. Prevent duplicate application
+    if (jobId && (appliedJobsRef.current.has(jobId) || VideoJobManager.getInstance().isJobApplied(jobId))) {
+      console.log(`[applyProcessedVideoToEditor] Job ${jobId} already applied to editor, returning success.`);
       return true;
-    } catch (err: any) {
-      console.error("[applyProcessedVideoToEditor] Error:", err);
-      toast.error(err?.message || (getLang() === "ar" ? "فشل عرض الفيديو المعالج في نافذة المعاينة" : "Processed video failed to render in preview"));
-      return false;
     }
+
+    // 2. Resiliently resolve target clip
+    const clip = (clipId ? clips.find((c) => c.id === clipId) : null)
+      || resolved?.clip
+      || clips[0];
+
+    if (!clip) {
+      const err = new PreviewIntegrationError(
+        "PREVIEW_CLIP_NOT_FOUND",
+        getLang() === "ar" ? "لم يتم العثور على المقطع في الخط الزمني." : "Clip not found in timeline",
+        { jobId, clipId, activeSlot: curSlot }
+      );
+      err.logDiagnostic();
+      toast.error(err.getLocalizedMessage(getLang() as "ar" | "en"));
+      throw err;
+    }
+
+    const mediaItem = getMediaById(clip.mediaId);
+    const mediaId = clip.mediaId;
+
+    // 3. Convert Blob to Object URL or validate URL string
+    let newBlobUrl: string;
+    let blobSize = 0;
+    if (resultVideoBlobOrUrl instanceof Blob) {
+      blobSize = resultVideoBlobOrUrl.size;
+      if (blobSize <= 0) {
+        const err = new PreviewIntegrationError(
+          "PREVIEW_BLOB_INVALID",
+          getLang() === "ar" ? "ملف الفيديو الناتج فارغ أو تالف." : "Processed video blob is empty or corrupt",
+          { jobId, clipId: clip.id, mediaId, blobSize, activeSlot: curSlot }
+        );
+        err.logDiagnostic();
+        toast.error(err.getLocalizedMessage(getLang() as "ar" | "en"));
+        throw err;
+      }
+      newBlobUrl = URL.createObjectURL(resultVideoBlobOrUrl);
+    } else if (typeof resultVideoBlobOrUrl === "string" && resultVideoBlobOrUrl.trim().length > 0) {
+      newBlobUrl = resultVideoBlobOrUrl.trim();
+    } else {
+      const err = new PreviewIntegrationError(
+        "PREVIEW_BLOB_INVALID",
+        getLang() === "ar" ? "رابط الفيديو الناتج غير صالح أو فارغ." : "Processed video URL is empty or invalid",
+        { jobId, clipId: clip.id, mediaId, activeSlot: curSlot }
+      );
+      err.logDiagnostic();
+      toast.error(err.getLocalizedMessage(getLang() as "ar" | "en"));
+      throw err;
+    }
+
+    // Ensure active ObjectURL is not collected by background video cleaner while editing
+    VideoMemoryManager.getInstance().untrackObjectUrl(newBlobUrl);
+
+    // 4. Verify active slot element availability
+    if (!activeEl) {
+      const err = new PreviewIntegrationError(
+        "PREVIEW_ACTIVE_SLOT_FAILED",
+        getLang() === "ar" ? "تعذر العثور على عنصر مشغل المعاينة النشط." : "Active video preview slot element not available",
+        { jobId, clipId: clip.id, mediaId, processedUrl: newBlobUrl, activeSlot: curSlot }
+      );
+      err.logDiagnostic();
+      toast.error(err.getLocalizedMessage(getLang() as "ar" | "en"));
+      throw err;
+    }
+
+    const originalUrl = clip.originalUrl || mediaItem?.originalUrl || mediaItem?.url || "";
+    const oldProcessedUrl = clip.processedUrl || mediaItem?.processedUrl;
+    const isAlpha = options?.hasAlpha ?? (clip.hasAlpha || false);
+    const newRevision = (clip.mediaRevision || mediaItem?.mediaRevision || 0) + 1;
+
+    // 5. Update media item state with revision and preserve original source
+    if (mediaItem) {
+      updateMediaItem(mediaItem.id, {
+        url: newBlobUrl,
+        originalUrl,
+        processedUrl: newBlobUrl,
+        mediaRevision: newRevision,
+        hasAlpha: isAlpha,
+      });
+    }
+
+    // 6. Invalidate clip cache & update timeline clip with processed state
+    setClips((prevClips) =>
+      prevClips.map((c) =>
+        c.id === clip.id
+          ? {
+              ...c,
+              originalUrl,
+              processedUrl: newBlobUrl,
+              useProcessed: true,
+              mediaRevision: newRevision,
+              hasAlpha: isAlpha,
+              previewBgMode: isAlpha ? (c.previewBgMode || "checkerboard") : c.previewBgMode,
+            }
+          : c
+      )
+    );
+
+    if (isAlpha) {
+      setEditorBgMode("checkerboard");
+    }
+
+    // Invalidate preloaded slots cache for this clip
+    slot0ClipIdRef.current = curSlot === 0 ? clip.id : null;
+    slot1ClipIdRef.current = curSlot === 1 ? clip.id : null;
+
+    // 7. Apply to active HTMLVideoElement and verify decode
+    const wasPlaying = isPlayingRef.current && !activeEl.paused;
+    const preservedPlaybackPos = activeEl.currentTime || (resolved?.mediaTime || clip.in || 0);
+    const preservedVolume = activeEl.volume;
+    const preservedMuted = activeEl.muted;
+    const preservedPlaybackRate = activeEl.playbackRate || (clip.speed || 1);
+
+    try {
+      activeEl.pause();
+    } catch {}
+
+    activeEl.src = newBlobUrl;
+    activeEl.preload = "auto";
+    try {
+      activeEl.load();
+    } catch {}
+
+    // Wait for loadedmetadata with real error listener & timeout
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const timeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (activeEl.readyState >= HTMLMediaElement.HAVE_METADATA && activeEl.videoWidth > 0) {
+          resolve();
+        } else {
+          const timeoutErr = new PreviewIntegrationError(
+            "PREVIEW_METADATA_TIMEOUT",
+            getLang() === "ar"
+              ? "انتهت مهلة تحميل بيانات الفيديو المعالج في شاشة المعاينة."
+              : "Timed out waiting for video metadata in editor preview",
+            {
+              jobId,
+              clipId: clip.id,
+              mediaId,
+              processedUrl: newBlobUrl,
+              mimeType: options?.mimeType,
+              blobSize,
+              videoWidth: activeEl.videoWidth,
+              videoHeight: activeEl.videoHeight,
+              duration: activeEl.duration,
+              readyState: activeEl.readyState,
+              networkState: activeEl.networkState,
+              activeSlot: curSlot,
+            }
+          );
+          timeoutErr.logDiagnostic();
+          reject(timeoutErr);
+        }
+      }, 5000);
+
+      const onMeta = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve();
+      };
+
+      const onErr = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        const mediaErr = activeEl.error;
+        const err = new PreviewIntegrationError(
+          "PREVIEW_DECODE_FAILED",
+          mediaErr?.message || (getLang() === "ar" ? "فشل متصفح الويب في فك ترميز الفيديو المعالج." : "Browser failed to decode processed video output"),
+          {
+            jobId,
+            clipId: clip.id,
+            mediaId,
+            processedUrl: newBlobUrl,
+            mimeType: options?.mimeType,
+            blobSize,
+            readyState: activeEl.readyState,
+            networkState: activeEl.networkState,
+            activeSlot: curSlot,
+            mediaErrorCode: mediaErr?.code,
+            mediaErrorMessage: mediaErr?.message,
+          }
+        );
+        err.logDiagnostic();
+        reject(err);
+      };
+
+      const cleanup = () => {
+        clearTimeout(timeout);
+        activeEl.removeEventListener("loadedmetadata", onMeta);
+        activeEl.removeEventListener("error", onErr);
+      };
+
+      activeEl.addEventListener("loadedmetadata", onMeta, { once: true });
+      activeEl.addEventListener("error", onErr, { once: true });
+    });
+
+    // 8. Verify active video element properties (Requirement 6)
+    if (activeEl.videoWidth <= 0 || activeEl.videoHeight <= 0) {
+      const err = new PreviewIntegrationError(
+        "PREVIEW_DECODE_FAILED",
+        getLang() === "ar" ? "أبعاد الفيديو المعالج غير صالحة." : "Invalid video dimensions in preview output",
+        {
+          jobId,
+          clipId: clip.id,
+          mediaId,
+          processedUrl: newBlobUrl,
+          videoWidth: activeEl.videoWidth,
+          videoHeight: activeEl.videoHeight,
+          duration: activeEl.duration,
+          readyState: activeEl.readyState,
+          networkState: activeEl.networkState,
+          activeSlot: curSlot,
+        }
+      );
+      err.logDiagnostic();
+      toast.error(err.getLocalizedMessage(getLang() as "ar" | "en"));
+      throw err;
+    }
+
+    if (!activeEl.currentSrc || (!activeEl.currentSrc.includes(newBlobUrl) && activeEl.src !== newBlobUrl)) {
+      const err = new PreviewIntegrationError(
+        "PREVIEW_SOURCE_MISMATCH",
+        getLang() === "ar" ? "عدم تطابق رابط الفيديو المعالج في شاشة المعاينة." : "Active video preview source mismatch",
+        {
+          jobId,
+          clipId: clip.id,
+          mediaId,
+          processedUrl: newBlobUrl,
+          activeSlot: curSlot,
+          details: `currentSrc=${activeEl.currentSrc}`,
+        }
+      );
+      err.logDiagnostic();
+      toast.error(err.getLocalizedMessage(getLang() as "ar" | "en"));
+      throw err;
+    }
+
+    // 9. Restore playback position and state
+    try {
+      activeEl.currentTime = Math.min(activeEl.duration || Infinity, Math.max(0, preservedPlaybackPos));
+    } catch {}
+    activeEl.volume = preservedVolume;
+    activeEl.muted = preservedMuted;
+    activeEl.playbackRate = preservedPlaybackRate;
+
+    if (wasPlaying) {
+      try {
+        await activeEl.play();
+      } catch {}
+    }
+
+    // 10. Clean standby slot to prevent stale flash
+    if (standbyEl) {
+      try {
+        standbyEl.pause();
+        standbyEl.removeAttribute("src");
+        standbyEl.src = "";
+        standbyEl.load();
+      } catch {}
+    }
+
+    // 11. Revoke previous blob url ONLY after new video is verified on active slot
+    if (oldProcessedUrl && oldProcessedUrl.startsWith("blob:") && oldProcessedUrl !== newBlobUrl) {
+      try {
+        URL.revokeObjectURL(oldProcessedUrl);
+      } catch {}
+    }
+
+    // 12. Mark job applied to prevent duplicate execution
+    if (jobId) {
+      appliedJobsRef.current.add(jobId);
+      VideoJobManager.getInstance().markJobApplied(jobId);
+    }
+
+    // 13. Trigger editor redraw
+    setMediaReady(true);
+    setMediaError(false);
+
+    console.log(`[EditorScreen] Processed video successfully attached and verified in preview for clip ${clip.id}`);
+    return true;
   }, [clips, getMediaById, updateMediaItem, setClips, resolved]);
 
-  // Subscribe to background Video Job Manager completions
+  // Register direct preview attacher with VideoJobManager
+  useEffect(() => {
+    const unregisterAttacher = VideoJobManager.getInstance().registerPreviewAttacher(async (job, result) => {
+      console.log(`[EditorScreen] Executing direct preview attacher for job ${job.id}`);
+      const targetClip = (job.targetClipId ? clips.find((c) => c.id === job.targetClipId) : null)
+        || resolved?.clip
+        || clips[0];
+      if (!targetClip) {
+        throw new PreviewIntegrationError(
+          "PREVIEW_CLIP_NOT_FOUND",
+          "Target timeline clip could not be located",
+          { jobId: job.id, clipId: job.targetClipId }
+        );
+      }
+      return await applyProcessedVideoToEditor(
+        result.blob || result.outputUrl,
+        targetClip.id,
+        {
+          jobId: job.id,
+          hasAlpha: result.hasAlpha ?? job.hasAlpha,
+          mimeType: result.mimeType,
+        }
+      );
+    });
+
+    return () => {
+      unregisterAttacher();
+    };
+  }, [applyProcessedVideoToEditor, clips, resolved]);
+
+  // Subscribe to background Video Job Manager completions (for jobs completed while elsewhere)
   useEffect(() => {
     const unsubscribe = VideoJobManager.getInstance().subscribeCompleted(async (job) => {
       if (job.result && (job.result.blob || job.result.outputUrl)) {
+        if (job.id && (appliedJobsRef.current.has(job.id) || VideoJobManager.getInstance().isJobApplied(job.id))) {
+          return;
+        }
         const targetClip = (job.targetClipId ? clips.find((c) => c.id === job.targetClipId) : null)
           || resolved?.clip
           || clips[0];
@@ -848,7 +1010,12 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
           console.log(`[EditorScreen] Video job ${job.id} completed. Applying output to clip ${targetClip.id}`);
           const applied = await applyProcessedVideoToEditor(
             job.result.blob || job.result.outputUrl!,
-            targetClip.id
+            targetClip.id,
+            {
+              jobId: job.id,
+              hasAlpha: job.hasAlpha,
+              mimeType: job.result.mimeType,
+            }
           );
           if (applied) {
             playSfx("success");
@@ -1548,17 +1715,6 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
           </div>
         ) : (
           <div className="h-full flex flex-col items-center justify-center gap-1 w-full relative">
-            {/* Current Aspect Ratio Overlay Indicator Badge */}
-            {activeMedia && (
-              <div className="absolute top-1 start-2 z-20 pointer-events-none">
-                <div className="px-2 py-0.5 rounded-lg bg-black/75 backdrop-blur-md border border-white/20 text-[10px] font-bold text-white shadow-md flex items-center gap-1.5 animate-in fade-in duration-150">
-                  <span>{ASPECT_RATIOS[activeRatio]?.emoji || "🖥️"}</span>
-                  <span className="font-extrabold">{ASPECT_RATIOS[activeRatio]?.label || "16:9"}</span>
-                  <span className="text-white/60 text-[9px] font-medium hidden sm:inline">· {ASPECT_RATIOS[activeRatio]?.primaryPlatform}</span>
-                </div>
-              </div>
-            )}
-
             {/* AI Processed & Background Toggle Overlay on Active Clip */}
             {resolved?.clip && (resolved.clip.processedUrl || activeMedia?.processedUrl) && (
               <div className="absolute top-1 end-2 z-20 flex items-center gap-1.5 animate-in fade-in duration-200">
@@ -2134,8 +2290,8 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
             targetMediaId={resolved?.clip?.mediaId || activeMedia?.id}
             currentMediaUrlOrBase64={
               resolved?.clip
-                ? resolvePreviewSource(resolved.clip.id) || activeMedia?.processedUrl || activeMedia?.url || undefined
-                : activeMedia?.processedUrl || activeMedia?.url || undefined
+                ? resolvePreviewSource(resolved.clip.id) || activeMedia?.url || undefined
+                : activeMedia?.url || undefined
             }
             onApplyResult={async (resData) => {
               if (resData?.outputVideoBase64OrUrl) {
@@ -2146,7 +2302,9 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
                   blob || resData.outputVideoBase64OrUrl,
                   targetClipId,
                   {
+                    jobId: resData.jobId,
                     hasAlpha: resData.hasAlpha,
+                    mimeType: resData.mimeType,
                   }
                 );
                 if (applied) {

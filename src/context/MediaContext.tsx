@@ -20,9 +20,6 @@ export interface MediaItem {
   processedUrl?: string;
   originalUrl?: string;
   hasAlpha?: boolean;
-  width?: number;
-  height?: number;
-  editable?: boolean;
 }
 
 export type TransitionType = 
@@ -101,9 +98,6 @@ export interface Clip {
   hasAlpha?: boolean;
   previewBgMode?: "checkerboard" | "black" | "green" | "white" | "custom";
   previewBgColor?: string;
-  editable?: boolean;
-  url?: string;
-  duration?: number;
 }
 
 export function interpolateKeyframes(
@@ -197,7 +191,6 @@ export interface Caption {
   badgeIcon?: string;
   badgePosition?: "left" | "right" | "top";
   presetCategory?: string;
-  editable?: boolean;
 }
 
 export interface CaptionTemplate {
@@ -221,7 +214,6 @@ export interface CaptionTemplate {
   badgePosition?: "left" | "right" | "top";
   sampleText?: string;
   sampleTextAr?: string;
-  sampleTextEn?: string;
 }
 
 export interface CaptionStyle {
@@ -241,13 +233,6 @@ export interface CaptionStyle {
   textTransform?: "none" | "uppercase" | "lowercase" | "capitalize";
   bgRadius?: number;
   bgPadding?: number;
-  badgeIcon?: string;
-  badgePosition?: "left" | "right" | "top";
-  rotation?: number;
-  scale?: number;
-  flipH?: boolean;
-  flipV?: boolean;
-  isMultiLine?: boolean;
 }
 
 export type AudioFxType =
@@ -286,7 +271,6 @@ export interface AudioTrackItem {
   keyframes?: Keyframe[];
   beats?: number[];
   bpm?: number;
-  end?: number;
 }
 
 export type FilterType = "brightness" | "contrast" | "saturate" | "grayscale" | "sepia" | "blur" | "hue-rotate" | "invert" | "vintage" | "warm" | "cool" | "dramatic" | "noir" | "fade-edge" | "duotone" | "dream" | "neon" | "sepia-blue";
@@ -323,7 +307,6 @@ export interface OverlayItem {
   start: number; end: number; x: number; y: number; scale: number;
   opacity?: number; rotation?: number; blend?: string; brightness?: number;
   keyframes?: Keyframe[];
-  duration?: number;
 }
 
 export type ExportPreset = "reels-15" | "reels-30" | "reels-60" | "story-60" | "full";
@@ -665,9 +648,9 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
         if (session?.user) {
           supabase.from("projects").upsert({
             id: projectId, name: projectName, export_preset: exportPreset,
-            clips_json: clips as unknown as any, captions_json: captions as unknown as any, caption_style_json: captionStyle as unknown as any,
+            clips_json: clips, captions_json: captions, caption_style_json: captionStyle,
             audio_tracks_json: audioTracks.map((a) => ({ id: a.id, name: a.name, start: a.start, offset: a.offset, duration: a.duration, sourceDuration: a.sourceDuration, volume: a.volume, muted: a.muted, fx: a.fx, color: a.color, kind: a.kind, url: a.file ? null : a.url })),
-            filters_json: filters as unknown as any, vfx_json: vfx as unknown as any, cover_image: effectiveCover,
+            filters_json: filters, vfx_json: vfx, cover_image: effectiveCover,
             duration: totalDuration, updated_at: new Date().toISOString(),
           }).then(({ error }) => { if (error) console.warn("cloud sync failed", error.message); });
         }
