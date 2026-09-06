@@ -7,11 +7,12 @@ export type ImageAITaskType =
   | "remove-background"
   | "enhance"
   | "face-enhance"
-  | "object-remove";
+  | "object-remove"
+  | "upscale";
 
 export type DeviceTier = "LOW" | "MEDIUM" | "HIGH" | "ULTRA";
 
-export type ExecutionProvider = "webgpu" | "webgl" | "wasm" | "cpu";
+export type ExecutionProvider = "webgpu" | "webgl" | "wasm" | "cpu" | (string & {});
 
 export type ImageAIProgressStage =
   | "preparing"
