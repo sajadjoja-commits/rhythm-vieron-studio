@@ -11,26 +11,6 @@ export default defineConfig(({ mode }) => ({
     hmr: {
       overlay: false,
     },
-    proxy: {
-      "/api/bfl": {
-        target: "https://api.bfl.ml",
-        changeOrigin: true,
-        rewrite: (p) => p.replace(/^\/api\/bfl/, "/v1"),
-        secure: true,
-        configure: (proxy) => {
-          proxy.on("error", (err, _req, res) => {
-            if (res && !("headersSent" in res && res.headersSent)) {
-              try {
-                res.writeHead(502, { "Content-Type": "application/json" });
-                res.end(JSON.stringify({ error: "FLUX API proxy connection timeout", details: err?.message }));
-              } catch {
-                // ignore
-              }
-            }
-          });
-        },
-      },
-    },
   },
   plugins: [
     react(),

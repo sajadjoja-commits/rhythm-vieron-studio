@@ -264,7 +264,6 @@ export class FluxProvider extends RemoteProvider {
     let directError: string | null = null;
 
     const requestPaths = [
-      `/api/bfl/${selectedModel}`,
       `${this.baseUrl}/${selectedModel}`,
     ];
 
@@ -391,7 +390,6 @@ export class FluxProvider extends RemoteProvider {
       await new Promise((res) => setTimeout(res, pollIntervalMs));
 
       const pollPaths = [
-        `/api/bfl/get_result?id=${encodeURIComponent(requestId)}`,
         `${this.baseUrl}/get_result?id=${encodeURIComponent(requestId)}`,
       ];
 
