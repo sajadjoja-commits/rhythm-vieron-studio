@@ -100,7 +100,22 @@ export class VideoFrameExtractor {
     const width = video.videoWidth || 1280;
     const height = video.videoHeight || 720;
     const durationSeconds = video.duration && !isNaN(video.duration) && video.duration > 0 ? video.duration : 1;
-    const fps = targetFps || 30;
+
+    // Detect actual frame rate from video tracks if available
+    let detectedFps = targetFps;
+    if (!detectedFps && typeof (video as any).captureStream === "function") {
+      try {
+        const stream = (video as any).captureStream();
+        const track = stream?.getVideoTracks()?.[0];
+        const fr = track?.getSettings()?.frameRate;
+        if (fr && fr >= 15 && fr <= 120) {
+          detectedFps = Math.round(fr);
+        }
+        track?.stop?.();
+      } catch {}
+    }
+
+    const fps = detectedFps || 30;
     const totalFrames = Math.max(1, Math.floor(durationSeconds * fps));
 
     // Try extracting audio buffer
@@ -151,10 +166,10 @@ export class VideoFrameExtractor {
     return new Promise((resolve, reject) => {
       const duration = video.duration || 1;
       const targetTime = Math.max(0, Math.min(duration - 0.001, timestampSeconds));
-      const tolerance = 0.08;
+      const tolerance = 0.025;
 
       // If already at or sufficiently close to timestamp with ready data
-      if (Math.abs(video.currentTime - targetTime) <= 0.015 && video.readyState >= 2) {
+      if (Math.abs(video.currentTime - targetTime) <= 0.005 && video.readyState >= 2) {
         resolve();
         return;
       }
@@ -174,33 +189,23 @@ export class VideoFrameExtractor {
         }
       };
 
-      const verifyAndResolve = () => {
+      const finishFrame = () => {
         if (settled) return;
-        const diff = Math.abs(video.currentTime - targetTime);
-        if (diff <= tolerance || video.ended || targetTime >= duration - 0.02) {
-          cleanup();
-          resolve();
-        }
+        cleanup();
+        resolve();
       };
 
       const onSeeked = () => {
-        verifyAndResolve();
-        if (!settled) {
-          if ("requestVideoFrameCallback" in video) {
-            rvfcId = (video as any).requestVideoFrameCallback(() => {
-              verifyAndResolve();
-              if (!settled) {
-                if (Math.abs(video.currentTime - targetTime) <= tolerance * 1.5) {
-                  cleanup();
-                  resolve();
-                }
-              }
-            });
-          } else {
-            requestAnimationFrame(() => {
-              verifyAndResolve();
-            });
-          }
+        if (settled) return;
+        // Wait for browser compositor to actually present the newly seeked frame
+        if ("requestVideoFrameCallback" in video) {
+          rvfcId = (video as any).requestVideoFrameCallback(() => {
+            finishFrame();
+          });
+        } else {
+          requestAnimationFrame(() => {
+            finishFrame();
+          });
         }
       };
 
@@ -213,7 +218,7 @@ export class VideoFrameExtractor {
       timeoutId = setTimeout(() => {
         cleanup();
         const finalDiff = Math.abs(video.currentTime - targetTime);
-        if (finalDiff <= tolerance) {
+        if (finalDiff <= tolerance * 2) {
           resolve();
         } else {
           reject(
@@ -224,7 +229,7 @@ export class VideoFrameExtractor {
         }
       }, timeoutMs);
 
-      video.addEventListener("seeked", onSeeked);
+      video.addEventListener("seeked", onSeeked, { once: true });
       video.addEventListener("error", onError, { once: true });
       video.currentTime = targetTime;
     });

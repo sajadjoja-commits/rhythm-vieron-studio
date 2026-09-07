@@ -74,6 +74,7 @@ export class VideoEncoderEngine {
           bitrate,
           format,
           audioBuffer: preserveAudio ? audioBuffer : null,
+          options,
         });
       } catch (err) {
         console.warn("[VideoEncoderEngine] WebCodecs initialization failed, falling back to MediaRecorder:", err);
@@ -88,6 +89,7 @@ export class VideoEncoderEngine {
       bitrate,
       format,
       audioBuffer: preserveAudio ? audioBuffer : null,
+      options,
     });
   }
 
@@ -101,6 +103,7 @@ export class VideoEncoderEngine {
     bitrate: number;
     format: "mp4" | "webm";
     audioBuffer?: AudioBuffer | null;
+    options?: VideoAIOptions;
   }): Promise<EncoderSession> {
     const { width, height, fps, bitrate, format } = params;
 
@@ -174,6 +177,8 @@ export class VideoEncoderEngine {
 
     let chosenCodec = candidateCodecs[0];
     let isSupported = false;
+    const wantAlpha = isWebm && (!params.options?.backgroundColor || params.options.backgroundColor === "transparent");
+    let supportsAlpha = false;
 
     for (const candidate of candidateCodecs) {
       try {
@@ -190,6 +195,17 @@ export class VideoEncoderEngine {
         if (check && check.supported) {
           chosenCodec = candidate;
           isSupported = true;
+          if (wantAlpha) {
+            try {
+              const alphaCheck = await VideoEncoder.isConfigSupported({
+                ...testConfig,
+                alpha: "keep",
+              });
+              if (alphaCheck && alphaCheck.supported) {
+                supportsAlpha = true;
+              }
+            } catch {}
+          }
           break;
         }
       } catch {}
@@ -198,6 +214,8 @@ export class VideoEncoderEngine {
     if (!isSupported) {
       throw new Error(`[VideoEncoderEngine] WebCodecs does not support codecs for ${format}`);
     }
+
+    const useAlphaInMuxer = isWebm && wantAlpha && supportsAlpha;
 
     if (isWebm) {
       const webmCodec = chosenCodec.startsWith("vp09") ? "V_VP9" : "V_VP8";
@@ -208,7 +226,7 @@ export class VideoEncoderEngine {
           width,
           height,
           frameRate: fps,
-          alpha: true,
+          alpha: useAlphaInMuxer,
         },
         ...(audioEncoderReady
           ? {
@@ -283,12 +301,63 @@ export class VideoEncoderEngine {
       framerate: fps,
       hardwareAcceleration: "prefer-hardware",
       latencyMode: "realtime",
+      ...(useAlphaInMuxer ? { alpha: "keep" } : { alpha: "discard" }),
     });
 
     state = EncoderState.CONFIGURED;
     state = EncoderState.PROCESSING;
 
     let frameIndex = 0;
+    let audioSampleOffset = 0;
+
+    // Helper to progressively encode audio interleaved with video frames
+    const encodeAudioUpTo = (targetTimestampMicros: number) => {
+      if (!audioEncoderReady || !audioEncoder || !params.audioBuffer || audioEncoderError) return;
+      const audioBuffer = params.audioBuffer;
+      const sampleRate = audioBuffer.sampleRate;
+      const numberOfChannels = audioChannels;
+      const totalSamples = audioBuffer.length;
+      const targetSample = Math.min(totalSamples, Math.floor((targetTimestampMicros / 1_000_000) * sampleRate));
+      const frameSize = 1024;
+
+      while (audioSampleOffset < targetSample) {
+        if (audioEncoderError) break;
+        const chunkSize = Math.min(frameSize, totalSamples - audioSampleOffset);
+        const planarData = new Float32Array(chunkSize * numberOfChannels);
+
+        for (let ch = 0; ch < numberOfChannels; ch++) {
+          const channelData = audioBuffer.getChannelData(ch);
+          const destOffset = ch * chunkSize;
+          for (let s = 0; s < chunkSize; s++) {
+            const sample = channelData[audioSampleOffset + s];
+            if (Number.isNaN(sample) || !Number.isFinite(sample)) {
+              planarData[destOffset + s] = 0;
+            } else {
+              planarData[destOffset + s] = Math.max(-1.0, Math.min(1.0, sample));
+            }
+          }
+        }
+
+        const audioTimestampMicros = Math.round((audioSampleOffset / sampleRate) * 1_000_000);
+        const audioData = new AudioData({
+          format: "f32-planar",
+          sampleRate,
+          numberOfFrames: chunkSize,
+          numberOfChannels,
+          timestamp: audioTimestampMicros,
+          data: planarData,
+        });
+
+        try {
+          audioEncoder.encode(audioData);
+        } catch (e: any) {
+          console.warn("[VideoEncoderEngine] Audio encode error:", e);
+        } finally {
+          audioData.close();
+        }
+        audioSampleOffset += chunkSize;
+      }
+    };
 
     const addFrame = async (
       canvasSource: HTMLCanvasElement | OffscreenCanvas,
@@ -331,14 +400,19 @@ export class VideoEncoderEngine {
         throw new Error(`Cannot call encode on a ${state.toLowerCase()} codec`);
       }
 
+      // Progressively encode audio interleaved with video frames
+      encodeAudioUpTo(timestampMicros + Math.round(1_000_000 / fps));
+
       // 3. Construct VideoFrame, encode, and dispose synchronously
-      const keyFrame = isKeyFrame || frameIndex % Math.max(1, fps * 2) === 0;
+      const keyFrame = isKeyFrame || frameIndex % Math.max(1, fps) === 0;
       const frameInit: any = {
         timestamp: timestampMicros,
         duration: Math.round(1_000_000 / fps),
       };
-      if (isWebm) {
+      if (useAlphaInMuxer) {
         frameInit.alpha = "keep";
+      } else {
+        frameInit.alpha = "discard";
       }
       const frame = new VideoFrame(canvasSource as any, frameInit);
 
@@ -351,7 +425,7 @@ export class VideoEncoderEngine {
         }
 
         // Diagnostic tracing before encoder.encode(frame)
-        if (frameIndex === 0 || isKeyFrame || frameIndex % Math.max(1, Math.floor(fps * 2)) === 0) {
+        if (frameIndex === 0 || isKeyFrame || frameIndex % Math.max(1, fps) === 0) {
           console.log(
             `[VideoEncoderEngine] Encode frame ${frameIndex}: ts=${timestampMicros}µs, size=${frame.displayWidth || width}x${frame.displayHeight || height}, format=${(frame as any).format || "canvas/RGBA"}, encoderState=${videoEncoder.state}, sessionState=${state}, keyFrame=${keyFrame}`
           );
@@ -378,62 +452,17 @@ export class VideoEncoderEngine {
 
       finishPromise = (async () => {
         try {
-          // If audio encoder was active, encode audio buffer and flush
-          if (audioEncoderReady && audioEncoder && params.audioBuffer) {
+          // Flush any remaining audio interleaved
+          encodeAudioUpTo(Infinity);
+          if (audioEncoderReady && audioEncoder) {
             try {
-              const audioBuffer = params.audioBuffer;
-              const sampleRate = audioBuffer.sampleRate;
-              const numberOfChannels = audioChannels;
-              const totalSamples = audioBuffer.length;
-              const frameSize = 1024;
-
-              for (let offset = 0; offset < totalSamples; offset += frameSize) {
-                if (audioEncoderError) {
-                  throw audioEncoderError;
-                }
-
-                const chunkSize = Math.min(frameSize, totalSamples - offset);
-                const planarData = new Float32Array(chunkSize * numberOfChannels);
-
-                for (let ch = 0; ch < numberOfChannels; ch++) {
-                  const channelData = audioBuffer.getChannelData(ch);
-                  const destOffset = ch * chunkSize;
-                  for (let s = 0; s < chunkSize; s++) {
-                    const sample = channelData[offset + s];
-                    if (Number.isNaN(sample) || !Number.isFinite(sample)) {
-                      planarData[destOffset + s] = 0;
-                    } else {
-                      planarData[destOffset + s] = Math.max(-1.0, Math.min(1.0, sample));
-                    }
-                  }
-                }
-
-                const audioTimestampMicros = Math.round((offset / sampleRate) * 1_000_000);
-                const audioData = new AudioData({
-                  format: "f32-planar",
-                  sampleRate,
-                  numberOfFrames: chunkSize,
-                  numberOfChannels,
-                  timestamp: audioTimestampMicros,
-                  data: planarData,
-                });
-
-                audioEncoder.encode(audioData);
-                audioData.close();
-              }
-
               await audioEncoder.flush();
-              if (audioEncoderError) {
-                throw audioEncoderError;
-              }
-              audioEncoder.close();
             } catch (audioFlushErr) {
-              console.error("[VideoEncoderEngine] Audio encoding error:", audioFlushErr);
-              try {
-                audioEncoder.close();
-              } catch {}
-              throw audioFlushErr;
+              console.warn("[VideoEncoderEngine] Audio flush warning:", audioFlushErr);
             }
+            try {
+              audioEncoder.close();
+            } catch {}
           }
 
           await videoEncoder.flush();

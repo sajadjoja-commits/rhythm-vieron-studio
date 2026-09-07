@@ -230,6 +230,8 @@ export class VideoProcessingEngine {
       let maxChangedPct = 0;
       let minAlphaMean = 255;
       let maxTransparentPct = 0;
+      let totalForegroundPixelsAllFrames = 0;
+      let maxForegroundPct = 0;
 
       // 5. Sequential Frame Processing Loop (Zero frame accumulation in RAM)
       try {
@@ -298,11 +300,25 @@ export class VideoProcessingEngine {
             try {
               const segmenter = await this.segmentationEngine.getSegmenter();
               const maskResult = segmenter.segment(processCanvas);
-              const rawMaskData = maskResult.confidenceMasks?.[0]?.getAsFloat32Array?.();
-              const maskWidth = maskResult.confidenceMasks?.[0]?.width || width;
-              const maskHeight = maskResult.confidenceMasks?.[0]?.height || height;
+              const labels = typeof (segmenter as any).getLabels === "function" ? (segmenter as any).getLabels() : [];
+              let maskIdx = 0;
+              if (labels.length > 1) {
+                const personIdx = labels.findIndex((l: string) => /person|selfie|subject|human/i.test(l));
+                if (personIdx >= 0) maskIdx = personIdx;
+              }
+              const activeConfidenceMask = maskResult.confidenceMasks?.[maskIdx] || maskResult.confidenceMasks?.[0];
+              const rawMaskData = activeConfidenceMask?.getAsFloat32Array?.();
+              const maskWidth = activeConfidenceMask?.width || width;
+              const maskHeight = activeConfidenceMask?.height || height;
 
               if (rawMaskData) {
+                // Strict mask verification & per-frame diagnostic metrics
+                const maskStats = this.segmentationEngine.verifyMask(rawMaskData, maskWidth, maskHeight, frameIdx);
+                totalForegroundPixelsAllFrames += maskStats.foregroundPixelCount;
+                if (maskStats.foregroundPercentage > maxForegroundPct) {
+                  maxForegroundPct = maskStats.foregroundPercentage;
+                }
+
                 const compRes = await this.workerManager.processSegmentationComposition(
                   width,
                   height,
@@ -333,6 +349,10 @@ export class VideoProcessingEngine {
                 );
                 prevAlphaBuffer = res.currentAlphaBuffer;
               }
+
+              try {
+                activeConfidenceMask?.close?.();
+              } catch {}
             } catch (segErr) {
               console.warn("[VideoProcessingEngine] Direct segmenter call failed, falling back to engine:", segErr);
               const res = await this.segmentationEngine.processFrame(
@@ -376,6 +396,9 @@ export class VideoProcessingEngine {
         // VALIDATION CHECK BEFORE COMPLETION:
         if (taskType === "remove-video-background") {
           const isTransparent = !options?.backgroundColor || options.backgroundColor === "transparent";
+          if (totalForegroundPixelsAllFrames === 0 && maxForegroundPct < 0.05) {
+            throw new Error("فشل عزل الفيديو: لم يتم العثور على أي شخص أو عنصر أساسي لعزله في الفيديو (Foreground = 0). يرجى التأكد من احتواء المقطع على شخص واضح.");
+          }
           if (isTransparent && minAlphaMean >= 254.9 && maxTransparentPct < 0.05) {
             throw new Error("PROCESSING_FAILED: فحص إزالة الخلفية فشل - لم يتم رصد أي تفريغ لقناة الشفافية (Alpha ظلت 255 في جميع الإطارات المختبرة).");
           }

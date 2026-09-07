@@ -313,7 +313,11 @@ function processSegmentationComposition(
       const pixelIdx = idx * 4;
 
       const maskX = Math.min(maskWidth - 1, Math.floor((x / width) * maskWidth));
-      const rawConfidence = maskData[maskRowOffset + maskX];
+      let rawConfidence = maskData[maskRowOffset + maskX];
+      if (isNaN(rawConfidence) || !isFinite(rawConfidence)) {
+        rawConfidence = 0;
+      }
+      rawConfidence = Math.max(0, Math.min(1, rawConfidence));
 
       const normalizedConfidence = 1 / (1 + Math.exp(-12 * (rawConfidence - 0.5)));
       let finalAlpha = normalizedConfidence;

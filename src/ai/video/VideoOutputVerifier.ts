@@ -152,19 +152,21 @@ export class VideoOutputVerifier {
                 const sampleData = ctx.getImageData(0, 0, checkCanvas.width, checkCanvas.height);
                 const pixels = sampleData.data;
 
-                // Check if frame is entirely black or corrupted
-                let nonZeroCount = 0;
+                // Check if frame is entirely blank or 100% transparent
+                let visibleCount = 0;
                 for (let i = 0; i < pixels.length; i += 4) {
-                  if (pixels[i] > 5 || pixels[i + 1] > 5 || pixels[i + 2] > 5) {
-                    nonZeroCount++;
+                  const alpha = pixels[i + 3];
+                  const hasColor = pixels[i] > 5 || pixels[i + 1] > 5 || pixels[i + 2] > 5;
+                  if (alpha > 10 && hasColor) {
+                    visibleCount++;
                   }
                 }
 
                 const totalPixels = sampleData.width * sampleData.height;
-                const nonZeroRatio = nonZeroCount / totalPixels;
+                const visibleRatio = visibleCount / totalPixels;
 
-                if (nonZeroRatio < 0.005) {
-                  console.warn(`[VideoOutputVerifier] Warning: Sample frame at ${sampleTime}s has very low luminance.`);
+                if (options.taskType === "remove-video-background" && visibleRatio < 0.0005) {
+                  console.warn(`[VideoOutputVerifier] Warning: Sample frame at ${sampleTime}s is completely blank or transparent.`);
                 }
 
                 // If input sample frame was provided, verify genuine frame modification

@@ -19,6 +19,10 @@ export interface MaskVerificationStats {
   mean: number;
   foregroundPercentage: number;
   transparentPercentage: number;
+  detectionConfidence: number;
+  foregroundPixelCount: number;
+  backgroundPixelCount: number;
+  alphaRatio: number;
   isValid: boolean;
   error?: string;
 }
@@ -75,7 +79,7 @@ export class VideoSegmentationEngine {
       return FALLBACK_SEGMENTER_MODEL;
     }
 
-    return PRIMARY_SEGMENTER_MODEL;
+    throw new Error("تعذر الوصول إلى نموذج تفريغ الفيديو: جميع عناوين النموذج غير متاحة (404 أو انقطاع في الشبكة).");
   }
 
   /**
@@ -303,6 +307,10 @@ export class VideoSegmentationEngine {
         mean: 0,
         foregroundPercentage: 0,
         transparentPercentage: 0,
+        detectionConfidence: 0,
+        foregroundPixelCount: 0,
+        backgroundPixelCount: 0,
+        alphaRatio: 0,
         isValid: false,
         error: `Invalid mask dimensions: ${maskWidth}x${maskHeight}`,
       };
@@ -316,7 +324,8 @@ export class VideoSegmentationEngine {
 
     const total = maskData.length;
     for (let i = 0; i < total; i++) {
-      const v = maskData[i];
+      let v = maskData[i];
+      if (isNaN(v) || !isFinite(v)) v = 0;
       if (v < min) min = v;
       if (v > max) max = v;
       sum += v;
@@ -327,12 +336,16 @@ export class VideoSegmentationEngine {
     const mean = sum / total;
     const foregroundPercentage = (fgCount / total) * 100;
     const transparentPercentage = (transCount / total) * 100;
+    const detectionConfidence = max;
+    const foregroundPixelCount = fgCount;
+    const backgroundPixelCount = total - fgCount;
+    const alphaRatio = fgCount / total;
 
     // Check rejection conditions: all zero, all 1.0, or nearly zero variance
     let isValid = true;
     let error: string | undefined;
 
-    if (max <= 0.001) {
+    if (max <= 0.001 || fgCount === 0) {
       isValid = false;
       error = "Segmentation mask is completely empty (all zero)";
     } else if (min >= 0.999) {
@@ -343,8 +356,13 @@ export class VideoSegmentationEngine {
       error = "Segmentation mask lacks contrast/variance between foreground and background";
     }
 
-    if (frameIndex === 0 || frameIndex % 30 === 0) {
-      console.log(`[VideoSegmentationEngine] Frame ${frameIndex} Mask: min=${min.toFixed(3)} max=${max.toFixed(3)} mean=${mean.toFixed(3)} foreground%=${foregroundPercentage.toFixed(1)}% transparent%=${transparentPercentage.toFixed(1)}%`);
+    // Diagnostic logging per-frame as required by specification
+    console.log(
+      `[Diagnostic] Frame ${frameIndex}: Confidence=${detectionConfidence.toFixed(3)} Min=${min.toFixed(3)} Max=${max.toFixed(3)} Mean=${mean.toFixed(3)} ForegroundPixels=${foregroundPixelCount} BackgroundPixels=${backgroundPixelCount} AlphaRatio=${alphaRatio.toFixed(4)}`
+    );
+
+    if (foregroundPixelCount === 0 || alphaRatio < 0.001) {
+      console.warn(`[Diagnostic WARNING] Frame ${frameIndex} has ZERO foreground pixels or Alpha Ratio ≈ 0!`);
     }
 
     return {
@@ -353,6 +371,10 @@ export class VideoSegmentationEngine {
       mean,
       foregroundPercentage,
       transparentPercentage,
+      detectionConfidence,
+      foregroundPixelCount,
+      backgroundPixelCount,
+      alphaRatio,
       isValid,
       error,
     };
