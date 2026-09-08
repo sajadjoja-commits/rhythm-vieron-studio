@@ -307,11 +307,33 @@ export class VideoProcessingEngine {
                 if (personIdx >= 0) maskIdx = personIdx;
               }
               const activeConfidenceMask = maskResult.confidenceMasks?.[maskIdx] || maskResult.confidenceMasks?.[0];
-              const rawMaskData = activeConfidenceMask?.getAsFloat32Array?.();
-              const maskWidth = activeConfidenceMask?.width || width;
-              const maskHeight = activeConfidenceMask?.height || height;
+              let rawMaskData = activeConfidenceMask?.getAsFloat32Array?.();
+              let maskWidth = activeConfidenceMask?.width || width;
+              let maskHeight = activeConfidenceMask?.height || height;
 
+              // If confidence mask is all zeroes, check categoryMask as backup
+              let hasConfidence = false;
               if (rawMaskData) {
+                for (let i = 0; i < Math.min(rawMaskData.length, 1000); i++) {
+                  if (rawMaskData[i] > 0.01) {
+                    hasConfidence = true;
+                    break;
+                  }
+                }
+              }
+              if (!hasConfidence && maskResult.categoryMask) {
+                const catData = maskResult.categoryMask.getAsUint8Array?.();
+                if (catData && catData.length > 0) {
+                  maskWidth = maskResult.categoryMask.width || width;
+                  maskHeight = maskResult.categoryMask.height || height;
+                  rawMaskData = new Float32Array(catData.length);
+                  for (let i = 0; i < catData.length; i++) {
+                    rawMaskData[i] = catData[i] > 0 ? 1.0 : 0.0;
+                  }
+                }
+              }
+
+              if (rawMaskData && rawMaskData.length > 0) {
                 // Strict mask verification & per-frame diagnostic metrics
                 const maskStats = this.segmentationEngine.verifyMask(rawMaskData, maskWidth, maskHeight, frameIdx);
                 totalForegroundPixelsAllFrames += maskStats.foregroundPixelCount;
@@ -348,10 +370,16 @@ export class VideoProcessingEngine {
                   prevAlphaBuffer
                 );
                 prevAlphaBuffer = res.currentAlphaBuffer;
+                if (res.stats) {
+                  totalForegroundPixelsAllFrames += res.stats.foregroundPixelCount;
+                  if (res.stats.foregroundPercentage > maxForegroundPct) {
+                    maxForegroundPct = res.stats.foregroundPercentage;
+                  }
+                }
               }
 
               try {
-                activeConfidenceMask?.close?.();
+                (maskResult as any)?.close?.();
               } catch {}
             } catch (segErr) {
               console.warn("[VideoProcessingEngine] Direct segmenter call failed, falling back to engine:", segErr);
@@ -362,6 +390,12 @@ export class VideoProcessingEngine {
                 prevAlphaBuffer
               );
               prevAlphaBuffer = res.currentAlphaBuffer;
+              if (res.stats) {
+                totalForegroundPixelsAllFrames += res.stats.foregroundPixelCount;
+                if (res.stats.foregroundPercentage > maxForegroundPct) {
+                  maxForegroundPct = res.stats.foregroundPercentage;
+                }
+              }
             }
 
             // Clear canvas completely before putting modified image data so no original frame remnants exist underneath
