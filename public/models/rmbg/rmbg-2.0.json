@@ -1,0 +1,14 @@
+{
+  "id": "rmbg-2.0",
+  "name": "Bria RMBG-2.0 Neural Background Removal",
+  "version": "2.0.0",
+  "sizeBytes": 176200000,
+  "inputShape": [1, 3, 1024, 1024],
+  "outputShape": [1, 1, 1024, 1024],
+  "urls": [
+    "/models/rmbg/rmbg-2.0.onnx",
+    "https://huggingface.co/briaai/RMBG-1.4/resolve/main/onnx/model.onnx",
+    "https://huggingface.co/Xenova/birefnet-general/resolve/main/onnx/model.onnx"
+  ],
+  "description": "RMBG-2.0 state-of-the-art vision model for real-time background removal with edge alpha matting."
+}
