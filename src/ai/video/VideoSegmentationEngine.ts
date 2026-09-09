@@ -19,6 +19,7 @@ export interface MaskVerificationStats {
   mean: number;
   foregroundPercentage: number;
   backgroundPercentage: number;
+  transparentPercentage: number;
   centerForegroundRatio: number;
   edgeForegroundRatio: number;
   detectionConfidence: number;
@@ -620,6 +621,7 @@ export class VideoSegmentationEngine {
         mean: 0,
         foregroundPercentage: 0,
         backgroundPercentage: 100,
+        transparentPercentage: 100,
         centerForegroundRatio: 0,
         edgeForegroundRatio: 0,
         detectionConfidence: 0,
@@ -684,6 +686,7 @@ export class VideoSegmentationEngine {
     const mean = sum / total;
     const foregroundPercentage = (fgCount / total) * 100;
     const backgroundPercentage = 100 - foregroundPercentage;
+    const transparentPercentage = backgroundPercentage;
     const centerForegroundRatio = centerPixels > 0 ? centerFg / centerPixels : 0;
     const edgeForegroundRatio = edgePixels > 0 ? edgeFg / edgePixels : 0;
     const detectionConfidence = max;
@@ -721,6 +724,7 @@ export class VideoSegmentationEngine {
       mean,
       foregroundPercentage,
       backgroundPercentage,
+      transparentPercentage,
       centerForegroundRatio,
       edgeForegroundRatio,
       detectionConfidence,
