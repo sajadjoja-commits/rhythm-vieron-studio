@@ -902,7 +902,8 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
       throw err;
     }
 
-    if (!activeEl.currentSrc || (!activeEl.currentSrc.includes(newBlobUrl) && activeEl.src !== newBlobUrl)) {
+    const matchesSource = (activeEl.currentSrc && activeEl.currentSrc.includes(newBlobUrl)) || activeEl.src === newBlobUrl;
+    if (!matchesSource) {
       const err = new PreviewIntegrationError(
         "PREVIEW_SOURCE_MISMATCH",
         getLang() === "ar" ? "عدم تطابق رابط الفيديو المعالج في شاشة المعاينة." : "Active video preview source mismatch",
