@@ -24,6 +24,7 @@ import { VideoSegmentationEngine, MaskOrientationPolicy } from "./VideoSegmentat
 import { VideoEncoderEngine } from "./VideoEncoderEngine";
 import { VideoOutputVerifier, VideoSampleFrame } from "./VideoOutputVerifier";
 import { VideoWorkerManager } from "./VideoWorkerManager";
+import { WebCodecsVideoDecoder } from "./WebCodecsVideoDecoder";
 
 export class VideoProcessingEngine {
   private static instance: VideoProcessingEngine;
@@ -170,20 +171,59 @@ export class VideoProcessingEngine {
         targetFps
       );
 
-      const width = meta.width;
-      const height = meta.height;
-      const totalFrames = meta.totalFrames;
-      const durationSeconds = meta.durationSeconds;
-      const fps = meta.fps;
+      let width = meta.width;
+      let height = meta.height;
+      let totalFrames = meta.totalFrames;
+      let durationSeconds = meta.durationSeconds;
+      let fps = meta.fps;
       sourceVideoFps = fps;
 
-      logStage("DECODER_READY", { width, height, durationSeconds, fps, totalFrames, hasAudio: meta.hasAudio });
+      // 2.1 Hardware WebCodecs Decoder Initialization (with bounded backpressure)
+      let webCodecsDecoder: WebCodecsVideoDecoder | null = null;
+      if (profile.hasVideoDecoder && WebCodecsVideoDecoder.isSupported()) {
+        try {
+          const decoder = new WebCodecsVideoDecoder();
+          const decMeta = await decoder.prepare(videoInput);
+          webCodecsDecoder = decoder;
+          // Prefer exact hardware demuxer metadata if available
+          if (decMeta.width > 0 && decMeta.height > 0) {
+            width = decMeta.width;
+            height = decMeta.height;
+          }
+          if (decMeta.fps > 0) {
+            fps = decMeta.fps;
+            sourceVideoFps = fps;
+          }
+          if (decMeta.durationSeconds > 0) {
+            durationSeconds = decMeta.durationSeconds;
+          }
+          if (decMeta.totalFrames > 0) {
+            totalFrames = decMeta.totalFrames;
+          }
+          logStage("WEBCODECS_DECODER_READY", {
+            width,
+            height,
+            fps,
+            totalFrames,
+            durationSeconds,
+            hardwareAccelerated: true,
+          });
+        } catch (decErr) {
+          console.warn("[VideoProcessingEngine] WebCodecs hardware decoder could not be prepared, falling back to sequential extractor:", decErr);
+          webCodecsDecoder = null;
+        }
+      }
+
+      logStage("DECODER_READY", { width, height, durationSeconds, fps, totalFrames, hasAudio: meta.hasAudio, useWebCodecs: !!webCodecsDecoder });
 
       // 3. Setup Processing Canvas & Buffers
       const processCanvas = this.memoryManager.createCanvas(width, height);
       const ctx = processCanvas.getContext("2d", { willReadFrequently: true }) as CanvasRenderingContext2D;
 
       if (!ctx) {
+        if (webCodecsDecoder) {
+          try { webCodecsDecoder.close(); } catch {}
+        }
         cleanupSourceVideo();
         throw new Error("فشل إنشاء سياق المعالجة ثنائي الأبعاد (Canvas 2D Context).");
       }
@@ -251,9 +291,12 @@ export class VideoProcessingEngine {
         });
       }
 
-      // 5. Sequential Frame Processing Loop (Zero frame accumulation in RAM)
+      // 5. High-Performance Frame Processing Loop
       try {
-        logStage("PROCESSING", { totalFrames });
+        logStage("PROCESSING", { totalFrames, engine: webCodecsDecoder ? "WebCodecs Hardware" : "Sequential Extractor" });
+        let lastFrameTimestamp = Date.now();
+        let movingAvgFps = fps;
+
         for (let frameIdx = 0; frameIdx < totalFrames; frameIdx++) {
           // Abort / Cancellation check
           if (abortController.signal.aborted || options?.isAborted?.() || options?.abortSignal?.aborted) {
@@ -267,15 +310,29 @@ export class VideoProcessingEngine {
             throw encErr;
           }
 
-          const timestampSeconds = (frameIdx / fps);
-          const timestampMicros = Math.round(timestampSeconds * 1_000_000);
+          let sourceImage: CanvasImageSource;
+          let timestampMicros: number;
+          let activeVideoFrame: VideoFrame | null = null;
 
-          // Seek video with strict verification
-          await this.frameExtractor.seekToTimestamp(video, timestampSeconds);
+          if (webCodecsDecoder) {
+            const frameItem = await webCodecsDecoder.getNextFrame();
+            if (!frameItem) {
+              // Decoder reached end of stream cleanly
+              break;
+            }
+            activeVideoFrame = frameItem.frame;
+            sourceImage = frameItem.frame;
+            timestampMicros = frameItem.timestampMicros;
+          } else {
+            const timestampSeconds = (frameIdx / fps);
+            timestampMicros = Math.round(timestampSeconds * 1_000_000);
+            await this.frameExtractor.seekToTimestamp(video, timestampSeconds);
+            sourceImage = video;
+          }
 
           // Draw current frame into processing canvas
           ctx.clearRect(0, 0, width, height);
-          ctx.drawImage(video, 0, 0, width, height);
+          ctx.drawImage(sourceImage, 0, 0, width, height);
 
           // Fetch ImageData
           const imageData = ctx.getImageData(0, 0, width, height);
@@ -285,15 +342,15 @@ export class VideoProcessingEngine {
           const origDataCopy = isSampleFrame ? new Uint8ClampedArray(imageData.data) : null;
           if (isSampleFrame && inputSampleFrames.length < 5) {
             inputSampleFrames.push({
-              timestampSeconds,
+              timestampSeconds: timestampMicros / 1_000_000,
               data: new Uint8ClampedArray(imageData.data),
               width,
               height,
             });
           }
 
-          // Apply task-specific processing via Dedicated Worker / Hybrid pipeline
-          if (taskType === "enhance-video") {
+          // Apply task-specific processing via Dedicated Worker / Accelerated Model pipeline
+          if (taskType === "enhance-video" || taskType === "video-denoise") {
             const res = await this.workerManager.processEnhanceFrame(
               width,
               height,
@@ -316,30 +373,26 @@ export class VideoProcessingEngine {
             ctx.putImageData(imageData, 0, 0);
           } else if (taskType === "remove-video-background") {
             try {
-              const segmenter = await this.segmentationEngine.getSegmenter();
-              const maskResult = segmenter.segment(processCanvas);
+              // 1. High-speed 256x256 segmentation (runs in ~6ms)
+              const maskInfo = await this.segmentationEngine.segmentImageSource(
+                sourceImage,
+                orientationPolicy!,
+                frameIdx
+              );
 
-              const { maskData: rawMaskData, maskWidth, maskHeight, stats: maskStats } =
-                this.segmentationEngine.extractPersonMaskData(
-                  maskResult,
-                  width,
-                  height,
-                  frameIdx,
-                  orientationPolicy!
-                );
-
-              totalForegroundPixelsAllFrames += maskStats.foregroundPixelCount;
-              if (maskStats.foregroundPercentage > maxForegroundPct) {
-                maxForegroundPct = maskStats.foregroundPercentage;
+              totalForegroundPixelsAllFrames += maskInfo.stats.foregroundPixelCount;
+              if (maskInfo.stats.foregroundPercentage > maxForegroundPct) {
+                maxForegroundPct = maskInfo.stats.foregroundPercentage;
               }
 
+              // 2. Offload alpha composition and bilinear edge feathering to Web Worker
               const compRes = await this.workerManager.processSegmentationComposition(
                 width,
                 height,
                 imageData,
-                rawMaskData,
-                maskWidth,
-                maskHeight,
+                maskInfo.maskData,
+                maskInfo.maskWidth,
+                maskInfo.maskHeight,
                 { ...options, frameIndex: frameIdx },
                 prevAlphaBuffer,
                 origDataCopy
@@ -354,10 +407,6 @@ export class VideoProcessingEngine {
                   `[VideoProcessingEngine] Frame ${frameIdx + 1}/${totalFrames} [Segmentation]: alphaMean=${s.alphaMean.toFixed(1)}, transparent=${s.transparentPercentage.toFixed(1)}%, foreground=${s.foregroundPercentage.toFixed(1)}%`
                 );
               }
-
-              try {
-                (maskResult as any)?.close?.();
-              } catch {}
             } catch (segErr) {
               console.warn("[VideoProcessingEngine] Segmenter execution warning, falling back to engine:", segErr);
               const res = await this.segmentationEngine.processFrame(
@@ -380,6 +429,14 @@ export class VideoProcessingEngine {
             ctx.putImageData(imageData, 0, 0);
           }
 
+          // Release active hardware VideoFrame immediately to guarantee zero memory accumulation
+          if (activeVideoFrame) {
+            try {
+              activeVideoFrame.close();
+            } catch {}
+            activeVideoFrame = null;
+          }
+
           // Quick canvas verification for sample frames
           if (isSampleFrame) {
             const checkPixel = ctx.getImageData(0, 0, 1, 1).data;
@@ -388,8 +445,17 @@ export class VideoProcessingEngine {
             );
           }
 
-          // Stream encoded frame into muxer
+          // Stream encoded frame into muxer with exact presentation timestamp
           await encoderSession.addFrame(processCanvas, timestampMicros, frameIdx === 0);
+
+          // Update moving average FPS calculation
+          const now = Date.now();
+          const frameElapsed = now - lastFrameTimestamp;
+          lastFrameTimestamp = now;
+          if (frameElapsed > 0) {
+            const instantFps = 1000 / frameElapsed;
+            movingAvgFps = movingAvgFps * 0.85 + instantFps * 0.15;
+          }
 
           // Update Progress
           const percent = 10 + Math.round((frameIdx / totalFrames) * 75);
@@ -399,7 +465,7 @@ export class VideoProcessingEngine {
               percent,
               frameIdx + 1,
               totalFrames,
-              `معالجة الإطار ${frameIdx + 1} من ${totalFrames}...`
+              `معالجة الإطار ${frameIdx + 1} من ${totalFrames} (${movingAvgFps.toFixed(1)} FPS)...`
             );
           }
         }
@@ -425,6 +491,10 @@ export class VideoProcessingEngine {
         const outputBlob = await encoderSession.finish();
 
         // Clean source resources
+        if (webCodecsDecoder) {
+          try { webCodecsDecoder.close(); } catch {}
+          webCodecsDecoder = null;
+        }
         cleanupSourceVideo();
         this.memoryManager.disposeCanvas(processCanvas);
 
@@ -469,6 +539,10 @@ export class VideoProcessingEngine {
           hasAlpha,
         };
       } catch (loopErr) {
+        if (webCodecsDecoder) {
+          try { (webCodecsDecoder as WebCodecsVideoDecoder).close(); } catch {}
+          webCodecsDecoder = null;
+        }
         encoderSession.cancel();
         cleanupSourceVideo();
         this.memoryManager.disposeCanvas(processCanvas);

@@ -8,6 +8,7 @@ export * from "./VideoSegmentationEngine";
 export * from "./VideoEncoderEngine";
 export * from "./VideoOutputVerifier";
 export * from "./VideoProcessingEngine";
+export * from "./WebCodecsVideoDecoder";
 export * from "./VideoWorkerManager";
 export * from "./VideoJobManager";
 export * from "./VideoPreviewErrors";

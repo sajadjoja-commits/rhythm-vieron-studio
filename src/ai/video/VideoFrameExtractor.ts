@@ -48,6 +48,15 @@ export class VideoFrameExtractor {
     video.preload = "auto";
     (video as any).playsInline = true;
 
+    // Attach to invisible DOM proxy so browser compositor grants active hardware decoding and instant requestVideoFrameCallback
+    let proxyContainer: HTMLDivElement | null = null;
+    if (typeof document !== "undefined" && document.body) {
+      proxyContainer = document.createElement("div");
+      proxyContainer.style.cssText = "position:fixed;left:-9999px;top:-9999px;width:16px;height:16px;opacity:0.001;pointer-events:none;z-index:-9999;";
+      proxyContainer.appendChild(video);
+      document.body.appendChild(proxyContainer);
+    }
+
     const videoUrl = typeof videoInput === "string" ? videoInput : URL.createObjectURL(videoInput);
 
     await new Promise<void>((resolve, reject) => {
@@ -133,6 +142,10 @@ export class VideoFrameExtractor {
       video.pause();
       video.removeAttribute("src");
       video.load();
+      if (proxyContainer && proxyContainer.parentNode) {
+        proxyContainer.parentNode.removeChild(proxyContainer);
+        proxyContainer = null;
+      }
       if (typeof videoInput !== "string") {
         URL.revokeObjectURL(videoUrl);
       }

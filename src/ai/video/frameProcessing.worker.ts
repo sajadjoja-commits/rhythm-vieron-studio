@@ -303,17 +303,35 @@ function processSegmentationComposition(
   let fgCount = 0;
   let transCount = 0;
 
+  const isDirectResolution = maskWidth === width && maskHeight === height;
+
   for (let y = 0; y < height; y++) {
     const rowOffset = y * width;
-    const maskY = Math.min(maskHeight - 1, Math.floor((y / height) * maskHeight));
-    const maskRowOffset = maskY * maskWidth;
+    const v = (y / height) * (maskHeight - 1);
+    const y0 = Math.floor(v);
+    const y1 = Math.min(maskHeight - 1, y0 + 1);
+    const dy = v - y0;
+    const y0Offset = y0 * maskWidth;
+    const y1Offset = y1 * maskWidth;
 
     for (let x = 0; x < width; x++) {
       const idx = rowOffset + x;
       const pixelIdx = idx * 4;
 
-      const maskX = Math.min(maskWidth - 1, Math.floor((x / width) * maskWidth));
-      let rawConfidence = maskData[maskRowOffset + maskX];
+      let rawConfidence: number;
+      if (isDirectResolution) {
+        rawConfidence = maskData[rowOffset + x];
+      } else {
+        const u = (x / width) * (maskWidth - 1);
+        const x0 = Math.floor(u);
+        const x1 = Math.min(maskWidth - 1, x0 + 1);
+        const dx = u - x0;
+
+        const top = maskData[y0Offset + x0] * (1 - dx) + maskData[y0Offset + x1] * dx;
+        const bot = maskData[y1Offset + x0] * (1 - dx) + maskData[y1Offset + x1] * dx;
+        rawConfidence = top * (1 - dy) + bot * dy;
+      }
+
       if (isNaN(rawConfidence) || !isFinite(rawConfidence)) {
         rawConfidence = 0;
       }
