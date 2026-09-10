@@ -19,11 +19,14 @@ import {
   X,
   Plus,
   ArrowRight,
+  Globe,
+  Copy,
 } from "lucide-react";
 import { toast } from "sonner";
 import { aiRuntime } from "@/ai/runtime/AIRuntime";
 import { ImageGenerationPayload, FluxImageResult, FluxOutputFormat } from "@/ai/types/ai";
-import { PromptBuilder } from "@/ai/builder/PromptBuilder";
+import { PromptBuilder, PromptBuildResult } from "@/ai/builder/PromptBuilder";
+import { hasArabicCharacters } from "@/ai/utils/promptOptimizer";
 import { useMedia } from "@/context/MediaContext";
 import { getLang, isRTL } from "@/lib/i18n";
 import { playSfx } from "@/lib/soundFx";
@@ -85,12 +88,34 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
   const [seed, setSeed] = useState<string>("");
   const [showAdvanced, setShowAdvanced] = useState(false);
 
+  // Prompt Optimization & Error States
+  const [promptInfo, setPromptInfo] = useState<PromptBuildResult | null>(null);
+  const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
+  const [imageLoadError, setImageLoadError] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
+
   // Execution State
   const [isGenerating, setIsGenerating] = useState(false);
   const [progressPercent, setProgressPercent] = useState(0);
   const [progressStage, setProgressStage] = useState("");
   const [generatedResults, setGeneratedResults] = useState<FluxImageResult[]>([]);
   const [activeResultIndex, setActiveResultIndex] = useState<number>(0);
+
+  // Manual trigger to preview translation & quality enhancements
+  const handlePreviewOptimize = async () => {
+    if (!prompt.trim()) return;
+    setIsOptimizingPrompt(true);
+    try {
+      const styleObj = STYLE_PRESETS.find((s) => s.id === selectedStyle);
+      const built = await PromptBuilder.buildAsync(prompt, styleObj ? styleObj.promptSuffix : "");
+      setPromptInfo(built);
+      playSfx("pop");
+    } catch (e) {
+      console.warn("Preview optimization error:", e);
+    } finally {
+      setIsOptimizingPrompt(false);
+    }
+  };
 
   // Handle generation via AI Runtime & AIManager -> FluxProvider
   const handleGenerate = async () => {
@@ -101,11 +126,39 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
 
     playSfx("pop");
     setIsGenerating(true);
+    setImageLoadError(false);
+    setGenerationError(null);
     setProgressPercent(10);
     setProgressStage(en ? "Connecting to FLUX.1 Engine..." : "جاري الاتصال بمحرك FLUX.1...");
 
     const styleObj = STYLE_PRESETS.find((s) => s.id === selectedStyle);
-    const builtPrompt = PromptBuilder.build(prompt, styleObj ? styleObj.promptSuffix : "");
+    const isArabic = hasArabicCharacters(prompt);
+
+    if (isArabic) {
+      setProgressStage(
+        en
+          ? "Translating Arabic prompt to English for high clarity..."
+          : "جاري ترجمة النص العربي إلى الإنجليزية لضمان دقة ووضوح النموذج..."
+      );
+      setProgressPercent(18);
+    }
+
+    let builtPrompt: PromptBuildResult;
+    try {
+      builtPrompt = await PromptBuilder.buildAsync(prompt, styleObj ? styleObj.promptSuffix : "");
+      setPromptInfo(builtPrompt);
+    } catch (e) {
+      console.warn("[FluxImageCreator] Async prompt optimization fallback:", e);
+      builtPrompt = PromptBuilder.build(prompt, styleObj ? styleObj.promptSuffix : "");
+      setPromptInfo(builtPrompt);
+    }
+
+    setProgressStage(
+      en
+        ? "Enhancing prompt with 4K clarity modifiers..."
+        : "إضافة محسنات الوضوح والدقة العالية 4K إلى البرومبت..."
+    );
+    setProgressPercent(28);
 
     const jobId = `job_flux_${Date.now()}`;
     const unsubscribe = aiRuntime.subscribeProgress(jobId, (p) => {
@@ -119,7 +172,7 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
       const results: FluxImageResult[] = [];
 
       for (let i = 0; i < batchCount; i++) {
-        const stepProgress = Math.round(15 + (i / batchCount) * 75);
+        const stepProgress = Math.round(30 + (i / batchCount) * 65);
         aiRuntime.progressManager.updateProgress(
           jobId,
           stepProgress,
@@ -179,7 +232,9 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
       toast.success(en ? `Successfully created ${results.length} FLUX.1 image(s)!` : `تم توليد ${results.length} صورة بنجاح!`);
     } catch (err: any) {
       console.error("[FluxImageCreator] Generation error:", err);
-      toast.error(err?.message || (en ? "Failed to generate image with FLUX.1" : "حدث خطأ أثناء التوليد"));
+      const errMsg = err?.message || (en ? "Failed to generate image with FLUX.1" : "حدث خطأ أثناء التوليد");
+      setGenerationError(errMsg);
+      toast.error(errMsg);
     } finally {
       unsubscribe();
       setIsGenerating(false);
@@ -321,31 +376,144 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
         {/* Left Column: Form Inputs */}
         <div className="lg:col-span-7 space-y-4">
           {/* Prompt Input Box */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-foreground flex items-center gap-1.5">
                 <Wand2 className="w-3.5 h-3.5 text-purple-400" />
                 <span>{en ? "Prompt Description" : "وصف الصورة (Prompt)"}</span>
               </label>
-              <button
-                type="button"
-                onClick={() => setPrompt("")}
-                className="text-[10px] text-muted-foreground hover:text-foreground underline"
-              >
-                {en ? "Clear" : "مسح النص"}
-              </button>
+              <div className="flex items-center gap-2">
+                {prompt.trim() && (
+                  <button
+                    type="button"
+                    onClick={handlePreviewOptimize}
+                    disabled={isOptimizingPrompt || isGenerating}
+                    className="text-[10px] text-purple-400 hover:text-purple-300 font-semibold flex items-center gap-1 transition-colors"
+                    title={en ? "Preview English translation & 4K modifiers" : "معاينة الترجمة الإنجليزية ومحسنات الدقة"}
+                  >
+                    {isOptimizingPrompt ? (
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-3 h-3 text-amber-300" />
+                    )}
+                    <span>{en ? "Optimize & Translate" : "تحسين وترجمة"}</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPrompt("");
+                    setPromptInfo(null);
+                  }}
+                  className="text-[10px] text-muted-foreground hover:text-foreground underline"
+                >
+                  {en ? "Clear" : "مسح النص"}
+                </button>
+              </div>
             </div>
+
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               placeholder={
                 en
                   ? "Describe what you want to generate in detail (e.g. A hyperrealistic futuristic cybernetic tiger with glowing azure stripes in a dark neon rain forest)..."
-                  : "صف ما تريد إنشاءه بالتفصيل (مثال: نمر سيبيري محارب بتفاصيل سينمائية تحت إضاءة القمر الذهبي)..."
+                  : "صف ما تريد إنشاءه بالتفصيل باللغة العربية أو الإنجليزية (مثال: قطة تجلس على كرسي بجانب نافذة)..."
               }
               rows={3}
               className="w-full rounded-2xl bg-secondary/50 border border-border p-3 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:border-purple-500 transition-colors resize-none"
             />
+
+            {/* Live Arabic detection badge */}
+            {hasArabicCharacters(prompt) && (
+              <div className="flex items-center gap-2 p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/25 text-[11px] text-purple-300 animate-fade-in">
+                <Globe className="w-4 h-4 shrink-0 text-purple-400" />
+                <span>
+                  {en
+                    ? "Arabic script detected: Will auto-translate to English and append 4K clarity modifiers for optimal model rendering."
+                    : "تم رصد نص باللغة العربية: سيتم تحويله تلقائياً إلى الإنجليزية مع إضافة محسنات الدقة (4K, High Quality, Sharp Focus) لضمان أعلى جودة للصورة."}
+                </span>
+              </div>
+            )}
+
+            {/* Prompt Transparency & Details Card */}
+            {promptInfo && (
+              <div className="p-3.5 rounded-2xl bg-secondary/40 border border-border space-y-2.5 text-xs animate-fade-in">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-foreground flex items-center gap-1.5 text-[11px]">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    {en ? "Active Model Prompt & Modifiers" : "البرومبت النهائي المُرسل وتفاصيل التحسين"}
+                  </span>
+                  {promptInfo.wasTranslated ? (
+                    <span className="px-2 py-0.5 rounded-full bg-blue-500/15 border border-blue-500/30 text-[10px] font-semibold text-blue-400 flex items-center gap-1">
+                      <Globe className="w-2.5 h-2.5" />
+                      {en ? "Auto-Translated (AR → EN)" : "ترجمة آلية (عربي ← إنجليزي)"}
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-full bg-purple-500/15 border border-purple-500/30 text-[10px] font-semibold text-purple-400">
+                      {en ? "4K Enhanced" : "معزز بالدقة العالية"}
+                    </span>
+                  )}
+                </div>
+
+                {promptInfo.wasTranslated && promptInfo.translatedPrompt && (
+                  <div className="space-y-1">
+                    <div className="text-[10px] font-medium text-muted-foreground">
+                      {en ? "English Translation:" : "الترجمة الإنجليزية المعتمدة للنموذج:"}
+                    </div>
+                    <div className="p-2 rounded-xl bg-background/60 border border-border text-[11px] text-foreground font-mono">
+                      {promptInfo.translatedPrompt}
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[10px] font-medium text-muted-foreground">
+                    <span>{en ? "Final Enhanced Prompt Sent to AI:" : "النص المعزز الكامل المُرسل إلى محرك FLUX:"}</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPrompt(promptInfo.finalPrompt);
+                          toast.info(en ? "Applied as current prompt input" : "تم استخدام النص في خانة الوصف");
+                        }}
+                        className="text-[10px] text-purple-400 hover:text-purple-300 font-semibold"
+                      >
+                        {en ? "Use as Input" : "استخدام كمدخل"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(promptInfo.finalPrompt);
+                          toast.success(en ? "Prompt copied to clipboard!" : "تم نسخ البرومبت بنجاح!");
+                        }}
+                        className="text-purple-400 hover:text-purple-300 flex items-center gap-1 font-semibold"
+                      >
+                        <Copy className="w-3 h-3" />
+                        <span>{en ? "Copy" : "نسخ"}</span>
+                      </button>
+                    </div>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-purple-500/5 border border-purple-500/20 text-[11px] text-purple-200 font-mono leading-relaxed break-words">
+                    {promptInfo.finalPrompt}
+                  </div>
+                </div>
+
+                {promptInfo.qualityModifiersUsed && promptInfo.qualityModifiersUsed.length > 0 && (
+                  <div className="flex flex-wrap gap-1 items-center pt-0.5">
+                    <span className="text-[10px] text-muted-foreground">{en ? "Quality Boosters:" : "محسنات الدقة المضافة:"}</span>
+                    {promptInfo.qualityModifiersUsed.map((mod, idx) => (
+                      <span
+                        key={idx}
+                        className="px-1.5 py-0.5 rounded-md bg-purple-500/15 border border-purple-500/25 text-[9px] text-purple-300 font-mono"
+                      >
+                        +{mod}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Quick Prompt Ideas */}
@@ -603,16 +771,63 @@ export const FluxImageCreator: React.FC<FluxImageCreatorProps> = ({
               </div>
             )}
 
+            {/* Error / Failure State with Instant Retry Option */}
+            {!isGenerating && (generationError || imageLoadError) && (
+              <div className="flex-1 min-h-[260px] rounded-2xl border border-red-500/30 bg-red-500/5 p-6 flex flex-col items-center justify-center text-center animate-fade-in">
+                <div className="w-14 h-14 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center mb-3">
+                  <AlertCircle className="w-7 h-7 text-red-400" />
+                </div>
+                <h4 className="font-bold text-sm text-foreground mb-1">
+                  {en ? "Generation or Image Loading Issue" : "تعذر تحميل أو إتمام توليد الصورة"}
+                </h4>
+                <p className="text-xs text-muted-foreground max-w-sm mb-4 leading-relaxed">
+                  {generationError || (en
+                    ? "The synthesis server returned an unreadable response or timed out. Click below to retry immediately with enhanced parameters."
+                    : "واجه خادم التوليد مهلة مؤقتة أو استجابة غير مكتملة. اضغط على الزر أدناه لإعادة المحاولة فوراً.")}
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setImageLoadError(false);
+                      setGenerationError(null);
+                      handleGenerate();
+                    }}
+                    className="py-2.5 px-5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-purple-500/25 active:scale-95 transition-all"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>{en ? "Retry Generation" : "إعادة المحاولة الآن"}</span>
+                  </button>
+                  {promptInfo && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setImageLoadError(false);
+                        setGenerationError(null);
+                      }}
+                      className="py-2.5 px-3 rounded-xl bg-secondary border border-border text-muted-foreground hover:text-foreground text-xs font-semibold transition-colors"
+                    >
+                      {en ? "Dismiss" : "إلغاء"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Result Image View */}
-            {!isGenerating && activeResult && (
-              <div className="flex-1 flex flex-col justify-between space-y-3">
+            {!isGenerating && !generationError && !imageLoadError && activeResult && (
+              <div className="flex-1 flex flex-col justify-between space-y-3 animate-fade-in">
                 <div className="relative rounded-2xl overflow-hidden border border-border bg-black/60 min-h-[260px] max-h-[380px] flex items-center justify-center group shadow-inner">
                   <img
                     src={activeResult.outputImageBase64OrUrl}
                     alt="FLUX Generated"
                     referrerPolicy="no-referrer"
-                    onError={(e) => {
-                      e.currentTarget.style.display = "none";
+                    onLoad={() => {
+                      setImageLoadError(false);
+                      setGenerationError(null);
+                    }}
+                    onError={() => {
+                      setImageLoadError(true);
                     }}
                     className="max-h-[380px] w-full object-contain"
                   />

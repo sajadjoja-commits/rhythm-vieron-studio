@@ -1,3 +1,11 @@
+import {
+  hasArabicCharacters,
+  optimizePrompt,
+  appendQualityModifiers,
+  DEFAULT_QUALITY_MODIFIERS,
+  OptimizedPromptInfo,
+} from "../utils/promptOptimizer";
+
 export interface PromptBuildResult {
   rawPrompt: string;
   finalPrompt: string;
@@ -6,13 +14,59 @@ export interface PromptBuildResult {
   isModified: boolean;
   lengthBefore: number;
   lengthAfter: number;
+  isArabic?: boolean;
+  wasTranslated?: boolean;
+  translatedPrompt?: string;
+  translationSource?: string;
+  qualityModifiersUsed?: string[];
 }
 
 export class PromptBuilder {
   /**
-   * Safely builds a final prompt from raw user input and visual style options.
-   * GUARANTEE: Never modifies, truncates, translates, or replaces the raw user text.
-   * Modifiers are strictly appended as additive non-destructive visual descriptors.
+   * Asynchronously builds and optimizes a prompt:
+   * 1. Detects Arabic script.
+   * 2. Automatically translates Arabic to descriptive English for maximum diffusion model fidelity.
+   * 3. Appends standard quality-boosting modifiers (high quality, detailed, sharp focus, 4k, professional).
+   * 4. Incorporates style preset suffixes.
+   */
+  public static async buildAsync(
+    rawUserPrompt: string,
+    stylePresetSuffix?: string,
+    additionalModifiers?: string[]
+  ): Promise<PromptBuildResult> {
+    const trimmedRaw = (rawUserPrompt || "").trim();
+
+    // 1. Optimize prompt (detects Arabic, translates, and adds quality modifiers)
+    const customModifiers = [
+      ...DEFAULT_QUALITY_MODIFIERS,
+      ...(additionalModifiers || []),
+    ];
+
+    const optimized: OptimizedPromptInfo = await optimizePrompt(
+      trimmedRaw,
+      stylePresetSuffix,
+      customModifiers
+    );
+
+    return {
+      rawPrompt: trimmedRaw,
+      finalPrompt: optimized.finalPrompt,
+      selectedStyleId: stylePresetSuffix || "none",
+      styleSuffixUsed: stylePresetSuffix || "",
+      isModified: optimized.finalPrompt !== trimmedRaw,
+      lengthBefore: trimmedRaw.length,
+      lengthAfter: optimized.finalPrompt.length,
+      isArabic: optimized.isArabic,
+      wasTranslated: optimized.wasTranslated,
+      translatedPrompt: optimized.translatedPrompt,
+      translationSource: optimized.translationSource,
+      qualityModifiersUsed: optimized.qualityModifiersAppended,
+    };
+  }
+
+  /**
+   * Synchronous fallback builder:
+   * Appends quality-boosting modifiers and style presets.
    */
   public static build(
     rawUserPrompt: string,
@@ -20,39 +74,31 @@ export class PromptBuilder {
     additionalModifiers?: string[]
   ): PromptBuildResult {
     const trimmedRaw = (rawUserPrompt || "").trim();
-    const suffixes: string[] = [];
+    const isArabic = hasArabicCharacters(trimmedRaw);
 
-    if (stylePresetSuffix && stylePresetSuffix.trim().length > 0) {
-      const cleanSuffix = stylePresetSuffix.trim().replace(/^,\s*/, "");
-      if (cleanSuffix) {
-        suffixes.push(cleanSuffix);
-      }
-    }
+    const customModifiers = [
+      ...DEFAULT_QUALITY_MODIFIERS,
+      ...(additionalModifiers || []),
+    ];
 
-    if (additionalModifiers && additionalModifiers.length > 0) {
-      additionalModifiers.forEach((m) => {
-        if (m && m.trim().length > 0) {
-          const cleanM = m.trim().replace(/^,\s*/, "");
-          if (cleanM) {
-            suffixes.push(cleanM);
-          }
-        }
-      });
-    }
-
-    const styleSuffixUsed = suffixes.length > 0 ? `, ${suffixes.join(", ")}` : "";
-    const finalPrompt = trimmedRaw
-      ? `${trimmedRaw}${styleSuffixUsed}`
-      : styleSuffixUsed.replace(/^,\s*/, "");
+    const { enhancedPrompt, modifiersAppended } = appendQualityModifiers(
+      trimmedRaw,
+      stylePresetSuffix,
+      customModifiers
+    );
 
     return {
       rawPrompt: trimmedRaw,
-      finalPrompt,
+      finalPrompt: enhancedPrompt,
       selectedStyleId: stylePresetSuffix || "none",
-      styleSuffixUsed,
-      isModified: finalPrompt !== trimmedRaw,
+      styleSuffixUsed: stylePresetSuffix || "",
+      isModified: enhancedPrompt !== trimmedRaw,
       lengthBefore: trimmedRaw.length,
-      lengthAfter: finalPrompt.length,
+      lengthAfter: enhancedPrompt.length,
+      isArabic,
+      wasTranslated: false,
+      qualityModifiersUsed: modifiersAppended,
     };
   }
 }
+
