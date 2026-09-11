@@ -48,6 +48,17 @@ android {
     }
 }
 
+// Refuse Android builds when the embedded Web bundle is stale or incomplete.
+// The web app is the source of truth; run `npm run vieron:sync` after web changes.
+tasks.register('verifyVieronWebAssets', Exec) {
+    workingDir rootProject.projectDir.parentFile
+    commandLine 'node', 'scripts/verify-web-assets.cjs'
+}
+
+tasks.named('preBuild') {
+    dependsOn tasks.named('verifyVieronWebAssets')
+}
+
 // Repositories moved to dependency level via fileTree
 
 dependencies {
