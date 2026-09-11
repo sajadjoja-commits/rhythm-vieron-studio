@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import {
-  ArrowRight, Play, Pause, Scissors, Type, Music, Sparkles, Ratio, Download,
+  ArrowRight, Play, Pause, PauseCircle, Scissors, Type, Music, Sparkles, Ratio, Download,
   Image as ImageIcon, Video, Plus, Wand2, Loader2, Palette, Activity, Layers,
   Gauge, Zap, Clapperboard, Undo2, Redo2, Eye, EyeOff, RotateCw, Diamond, Minus, Trash2, Maximize2,
 } from "lucide-react";
@@ -54,7 +54,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     media = [], clips = [], totalDuration, getMediaById, resolveTimelineTime,
     audioTracks = [], selectedAudioTrackId, setSelectedAudioTrackId, videoMuted, videoVolume, videoAudioFx, projectName, setProjectName,
     splitClipsAtBeats, filters = [], vfx = [], overlays = [], setAudioBeats, updateOverlay, setOverlays,
-    splitTrackAt, coverImage, undo, redo, canUndo, canRedo, setClips,
+    splitTrackAt, addFreezeFrameAt, coverImage, undo, redo, canUndo, canRedo, setClips,
     captions = [], captionStyle, setCaptions, setFilters, setVfx, updateAudioTrack, updateMediaItem,
     removeClip, removeCaption, removeAudioTrack, removeFilter, removeVfx, removeOverlay,
   } = useMedia();
@@ -1056,17 +1056,25 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
   }, [resolvePreviewSource]);
 
   // Dual-video ping-pong synchronization effect: handles gapless clip transitions
+  const resolvedClipId = resolved?.clip.id;
+  const resolvedClipIndex = resolved?.clipIndex;
+  const resolvedMediaTime = resolved?.mediaTime;
+  const resolvedClipSpeed = resolved?.clip.speed;
+
   useEffect(() => {
-    if (!resolved || !activeMedia) return;
+    if (!resolvedClipId || !activeMedia) return;
     const curSlot = activeSlotRef.current;
     const activeEl = curSlot === 0 ? videoRefA.current : videoRefB.current;
     const standbyEl = curSlot === 0 ? videoRefB.current : videoRefA.current;
-    const nextIdx = resolved.clipIndex + 1;
+    const nextIdx = (resolvedClipIndex ?? 0) + 1;
     const nextClip = nextIdx < clips.length ? clips[nextIdx] : null;
     const nextMedia = nextClip ? getMediaById(nextClip.mediaId) : null;
 
     if (activeMedia.type !== "video") {
       setMediaReady(true);
+      setMediaError(false);
+      if (videoRefA.current) { try { videoRefA.current.pause(); } catch {} }
+      if (videoRefB.current) { try { videoRefB.current.pause(); } catch {} }
       // If current media is an image, pause video elements and preload next clip if video
       if (nextClip && nextMedia?.type === "video" && standbyEl) {
         preloadSlot(standbyEl, nextClip, nextMedia);
@@ -1076,7 +1084,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
       return;
     }
 
-    const currentClipId = resolved.clip.id;
+    const currentClipId = resolvedClipId;
     const currentVideoUrl = resolvePreviewSource(currentClipId) || activeMedia.processedUrl || activeMedia.url;
     const standbyPreloadedId = curSlot === 0 ? slot1ClipIdRef.current : slot0ClipIdRef.current;
 
@@ -1085,6 +1093,10 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
       // Seamless ping-pong swap: switch active slot without any re-buffering!
       const newSlot: 0 | 1 = curSlot === 0 ? 1 : 0;
       activeSlotRef.current = newSlot;
+      // Clear activated standby ref so it doesn't loop trigger
+      if (curSlot === 0) slot1ClipIdRef.current = null;
+      else slot0ClipIdRef.current = null;
+
       setActiveSlot(newSlot);
       videoRef.current = standbyEl;
 
@@ -1092,10 +1104,10 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
       standbyEl.muted = videoMuted;
       const targetVol = (videoVolume ?? 1) * (activeVolume ?? 1);
       standbyEl.volume = Math.max(0, Math.min(1, targetVol));
-      standbyEl.playbackRate = resolved.clip.speed && resolved.clip.speed > 0 ? resolved.clip.speed : 1;
+      standbyEl.playbackRate = resolvedClipSpeed && resolvedClipSpeed > 0 ? resolvedClipSpeed : 1;
 
       // Ensure exact start position
-      const target = resolved.mediaTime || 0.001;
+      const target = resolvedMediaTime || 0.001;
       if (Math.abs(standbyEl.currentTime - target) > 0.15) {
         try { standbyEl.currentTime = target; } catch {}
       }
@@ -1129,8 +1141,8 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
         activeEl.muted = videoMuted;
         const targetVol = (videoVolume ?? 1) * (activeVolume ?? 1);
         activeEl.volume = Math.max(0, Math.min(1, targetVol));
-        activeEl.playbackRate = resolved.clip.speed && resolved.clip.speed > 0 ? resolved.clip.speed : 1;
-        const target = resolved.mediaTime || 0.001;
+        activeEl.playbackRate = resolvedClipSpeed && resolvedClipSpeed > 0 ? resolvedClipSpeed : 1;
+        const target = resolvedMediaTime || 0.001;
         const threshold = (isPlayingRef.current && !activeEl.paused) ? 0.35 : 0.05;
         if (Math.abs(activeEl.currentTime - target) > threshold || activeEl.currentTime === 0) {
           try { activeEl.currentTime = target; } catch {}
@@ -1149,16 +1161,16 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
         else slot0ClipIdRef.current = nextClip.id;
       }
     }
-  }, [resolved, activeMedia, clips, videoMuted, videoVolume, activeVolume, preloadSlot, getMediaById, resolvePreviewSource]);
+  }, [resolvedClipId, resolvedClipIndex, resolvedMediaTime, resolvedClipSpeed, activeMedia?.id, activeMedia?.type, clips, videoMuted, videoVolume, activeVolume, preloadSlot, getMediaById, resolvePreviewSource]);
 
   // Seamless source swap when toggling between original and processed AI video
   useEffect(() => {
-    if (!resolved?.clip) return;
+    if (!resolvedClipId) return;
     const curSlot = activeSlotRef.current;
     const activeEl = curSlot === 0 ? videoRefA.current : videoRefB.current;
     if (!activeEl) return;
 
-    const targetUrl = resolvePreviewSource(resolved.clip.id);
+    const targetUrl = resolvePreviewSource(resolvedClipId);
     if (targetUrl && activeEl.src !== targetUrl) {
       const currentTimePos = activeEl.currentTime;
       const wasPlaying = isPlayingRef.current && !activeEl.paused;
@@ -1168,7 +1180,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
         activeEl.play().catch(() => {});
       }
     }
-  }, [resolved?.clip, resolvePreviewSource]);
+  }, [resolvedClipId, resolvePreviewSource]);
 
   // Synchronize audio volume and mute across dual slots (standby is always muted)
   useEffect(() => {
@@ -1581,6 +1593,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
   const tools = [
     { id: "ai", icon: Sparkles, label: getLang() === "ar" ? "أدوات AI" : "AI Tools" },
     { id: "cut", icon: Scissors, label: t("tool.cut") },
+    { id: "freeze", icon: PauseCircle, label: getLang() === "ar" ? "التوقف" : "Freeze Frame" },
     { id: "smart-cut", icon: Zap, label: t("tool.smartCut") },
     { id: "delete", icon: Trash2, label: t("tool.delete") },
     { id: "speed", icon: Gauge, label: t("tool.speed") },
@@ -1599,8 +1612,44 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     splitTrackAt(focusedTrack || "video", currentTime);
   };
 
+  // Capture freeze frame image at current playhead position
+  const handleFreezeFrame = useCallback(() => {
+    let frameDataUrl: string | null = null;
+
+    if (activeMedia?.type === "image" && activeMedia.url) {
+      frameDataUrl = activeMedia.url;
+    } else {
+      const activeEl = activeSlotRef.current === 0 ? videoRefA.current : videoRefB.current;
+      if (activeEl && activeEl.readyState >= 1) {
+        try {
+          const canvas = document.createElement("canvas");
+          const w = activeEl.videoWidth || 1280;
+          const h = activeEl.videoHeight || 720;
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            ctx.drawImage(activeEl, 0, 0, w, h);
+            frameDataUrl = canvas.toDataURL("image/png");
+          }
+        } catch (e) {
+          console.error("Freeze frame canvas capture error:", e);
+        }
+      }
+    }
+
+    if (!frameDataUrl || frameDataUrl.length < 50) {
+      toast.error(getLang() === "ar" ? "تعذر التقاط صورة الفريم الحالي، يرجى التأكد من تشغيل الفيديو" : "Failed to capture current frame, ensure video is loaded");
+      return;
+    }
+
+    addFreezeFrameAt(currentTime, frameDataUrl, 3.0);
+    playSfx("ding");
+  }, [activeMedia, currentTime, addFreezeFrameAt]);
+
   const onToolClick = (id: string) => {
     if (id === "cut") { handleManualCut(); }
+    else if (id === "freeze") { handleFreezeFrame(); }
     else if (id === "smart-cut") { setFocusedTrack("video"); setShowSmartCut(true); }
     else if (id === "delete") { handleDeleteItem(); }
     else if (id === "ai") { setTool(tool === "ai" ? null : "ai"); setFocusedTrack("video"); }
@@ -1824,31 +1873,31 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
                   preload="auto" 
                   disablePictureInPicture
                   onLoadedData={() => {
-                    if (activeSlot === 0) {
+                    if (activeMedia?.type === "video" && activeSlot === 0) {
                       setMediaReady(true);
                       setMediaError(false);
                     }
                   }}
                   onCanPlay={() => {
-                    if (activeSlot === 0) {
+                    if (activeMedia?.type === "video" && activeSlot === 0) {
                       setMediaReady(true);
                       setMediaError(false);
                     }
                   }}
                   onSeeked={() => {
-                    if (activeSlot === 0) {
+                    if (activeMedia?.type === "video" && activeSlot === 0) {
                       setMediaReady(true);
                       setMediaError(false);
                     }
                   }}
                   onError={() => {
-                    if (activeSlot === 0) {
+                    if (activeMedia?.type === "video" && activeSlot === 0) {
                       setMediaReady(true);
                       setMediaError(true);
                     }
                   }}
                   onLoadedMetadata={(e) => {
-                    if (activeSlot === 0) {
+                    if (activeMedia?.type === "video" && activeSlot === 0) {
                       setMediaReady(true);
                       setMediaError(false);
                       autoDetectRatio(e.currentTarget.videoWidth, e.currentTarget.videoHeight);
@@ -1876,31 +1925,31 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
                   preload="auto" 
                   disablePictureInPicture
                   onLoadedData={() => {
-                    if (activeSlot === 1) {
+                    if (activeMedia?.type === "video" && activeSlot === 1) {
                       setMediaReady(true);
                       setMediaError(false);
                     }
                   }}
                   onCanPlay={() => {
-                    if (activeSlot === 1) {
+                    if (activeMedia?.type === "video" && activeSlot === 1) {
                       setMediaReady(true);
                       setMediaError(false);
                     }
                   }}
                   onSeeked={() => {
-                    if (activeSlot === 1) {
+                    if (activeMedia?.type === "video" && activeSlot === 1) {
                       setMediaReady(true);
                       setMediaError(false);
                     }
                   }}
                   onError={() => {
-                    if (activeSlot === 1) {
+                    if (activeMedia?.type === "video" && activeSlot === 1) {
                       setMediaReady(true);
                       setMediaError(true);
                     }
                   }}
                   onLoadedMetadata={(e) => {
-                    if (activeSlot === 1) {
+                    if (activeMedia?.type === "video" && activeSlot === 1) {
                       setMediaReady(true);
                       setMediaError(false);
                       autoDetectRatio(e.currentTarget.videoWidth, e.currentTarget.videoHeight);

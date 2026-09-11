@@ -379,14 +379,16 @@ export class VideoSegmentationEngine {
    * Resolves the best available MediaPipe model path, prioritizing local assets
    */
   private async resolveModelPath(): Promise<string> {
+    const localPath = "/models/mediapipe/selfie_segmenter.tflite";
     try {
-      const localRes = await fetch("/models/mediapipe/selfie_segmenter.tflite", { method: "HEAD" });
-      if (localRes.ok && localRes.status < 400) {
+      const localRes = await fetch(localPath, { method: "HEAD" });
+      if (localRes.status < 400) {
         console.log("[VideoSegmentationEngine] Using local MediaPipe selfie_segmenter model.");
-        return "/models/mediapipe/selfie_segmenter.tflite";
+        return localPath;
       }
     } catch {}
 
+    // Fallback if local asset is unavailable
     const isPrimaryOk = await this.verifyModelUrl(PRIMARY_SEGMENTER_MODEL);
     if (isPrimaryOk) {
       return PRIMARY_SEGMENTER_MODEL;
@@ -397,21 +399,22 @@ export class VideoSegmentationEngine {
       return FALLBACK_SEGMENTER_MODEL;
     }
 
-    throw new Error("تعذر الوصول إلى نموذج تفريغ الفيديو: جميع عناوين النموذج غير متاحة (404 أو انقطاع في الشبكة).");
+    return localPath;
   }
 
   /**
    * Resolves the best available WASM directory path, prioritizing local assets
    */
   private async resolveWasmPath(): Promise<string> {
+    const localWasmDir = "/wasm/mediapipe";
     try {
-      const localWasm = await fetch("/wasm/mediapipe/vision_wasm_internal.wasm", { method: "HEAD" });
-      if (localWasm.ok && localWasm.status < 400) {
+      const localWasm = await fetch(`${localWasmDir}/vision_wasm_internal.wasm`, { method: "HEAD" });
+      if (localWasm.status < 400) {
         console.log("[VideoSegmentationEngine] Using local MediaPipe WASM binaries.");
-        return "/wasm/mediapipe";
+        return localWasmDir;
       }
     } catch {}
-    return MEDIAPIPE_WASM_PATH;
+    return localWasmDir;
   }
 
   /**

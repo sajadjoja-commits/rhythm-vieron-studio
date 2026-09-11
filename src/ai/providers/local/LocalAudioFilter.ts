@@ -8,7 +8,7 @@ import { PayloadValidator } from "../../utils/PayloadValidator";
 
 export class LocalAudioFilter extends LocalProvider {
   public id = "local-audio-filter";
-  public name = "Local Audio DSP & DeepFilterNet Filter";
+  public name = "Local Neural & Adaptive Audio AI Processor";
   public supportedTasks: AITaskType[] = ["noise-reduction", "vocal-isolation", "music-removal", "enhance-media"];
 
   private modelLoader: LocalModelLoader;

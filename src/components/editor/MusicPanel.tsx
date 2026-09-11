@@ -1,10 +1,10 @@
 import { useRef, useState, useEffect, useMemo } from "react";
 import { useMedia, AudioFxType } from "@/context/MediaContext";
-import { Upload, Music2, Sparkles, Mic, Wand2, X, Loader2, Activity, Scissors, Plus, Check, Eye, EyeOff, Play, Pause, Trash2, Image as ImageIcon, Link, Film, Clock } from "lucide-react";
+import { Upload, Music2, Sparkles, Mic, Wand2, X, Loader2, Activity, Scissors, Plus, Check, Eye, EyeOff, Play, Pause, Trash2, Image as ImageIcon, Link, Film, Clock, RotateCw } from "lucide-react";
 import { toast } from "sonner";
 import { extractVideoAudioFile } from "@/lib/extractVideoAudio";
 import { analyzeBeats, analyzeBeatsFromUrl } from "@/lib/audioAnalysis";
-import { BUILTIN_SFX, buildBuiltinSfx, BuiltinSfxName } from "@/lib/audioFx";
+import { BUILTIN_SFX, buildBuiltinSfx, BuiltinSfxName, reverseAudioUrl } from "@/lib/audioFx";
 import { BUILTIN_TRACKS, BuiltinTrack, getSavedLibraryTracks, saveLibraryTrack, removeLibraryTrack, getGenreCoverImage, fetchSupabaseMusicTracks, generateSvgCoverFallback } from "@/lib/builtinMusic";
 import { getLang } from "@/lib/i18n";
 import { playSfx } from "@/lib/soundFx";
@@ -33,9 +33,214 @@ const ALL_FX_OPTIONS: { id: AudioFxType; label: string; labelEn: string; icon: s
   { id: "telephone", label: "هاتف قديم", labelEn: "Telephone", icon: "📞", descAr: "تصفية صوت المكالمات", descEn: "Vintage phone call" },
 ];
 
+const VoiceRecorderTab = ({ currentTime, addAudioTrack }: { currentTime: number; addAudioTrack: any }) => {
+  const en = getLang() === "en";
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordTime, setRecordTime] = useState(0);
+  const [busy, setBusy] = useState(false);
+
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const audioPeaksRef = useRef<number[]>([]);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+  const timerRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!isRecording) return;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const analyser = analyserRef.current;
+    if (!analyser) return;
+
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+
+    const drawMatrix = () => {
+      animFrameRef.current = requestAnimationFrame(drawMatrix);
+      analyser.getByteFrequencyData(dataArray);
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const numBars = 36;
+      const gap = 3;
+      const barWidth = Math.max(3, (canvas.width - (numBars - 1) * gap) / numBars);
+      let x = 0;
+      let totalVal = 0;
+
+      for (let i = 0; i < numBars; i++) {
+        const val = dataArray[i * 2] || 0;
+        totalVal += val;
+        const normH = val / 255;
+        const barHeight = Math.max(4, normH * canvas.height * 0.85);
+
+        const gradient = ctx.createLinearGradient(0, canvas.height, 0, canvas.height - barHeight);
+        gradient.addColorStop(0, "#10b981");
+        gradient.addColorStop(0.5, "#06b6d4");
+        gradient.addColorStop(1, "#ec4899");
+
+        ctx.fillStyle = gradient;
+        ctx.shadowColor = "#06b6d4";
+        ctx.shadowBlur = normH > 0.5 ? 10 : 3;
+
+        ctx.beginPath();
+        const yPos = canvas.height / 2 - barHeight / 2;
+        ctx.roundRect(x, yPos, barWidth, barHeight, 3);
+        ctx.fill();
+
+        x += barWidth + gap;
+      }
+
+      const avg = totalVal / numBars / 255;
+      audioPeaksRef.current.push(Math.round(avg * 100));
+    };
+
+    drawMatrix();
+
+    return () => {
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    };
+  }, [isRecording]);
+
+  const startRecording = async () => {
+    try {
+      setBusy(true);
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 128;
+      source.connect(analyser);
+
+      audioCtxRef.current = audioCtx;
+      analyserRef.current = analyser;
+
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+      audioPeaksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.start(100);
+      setIsRecording(true);
+      setRecordTime(0);
+
+      timerRef.current = setInterval(() => {
+        setRecordTime((t) => t + 1);
+      }, 1000);
+
+      toast.success(en ? "Microphone active — start speaking!" : "الميكروفون نشط — ابدأ بالتحدث الآن!");
+    } catch (err) {
+      console.error("Microphone access error:", err);
+      toast.error(en ? "Failed to access microphone" : "تعذر الوصول للميكروفون، تحقق من الصلاحيات");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const stopAndSaveRecording = () => {
+    if (!mediaRecorderRef.current) return;
+
+    mediaRecorderRef.current.onstop = () => {
+      const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+      const voiceUrl = URL.createObjectURL(blob);
+      const duration = Math.max(1, recordTime);
+
+      addAudioTrack({
+        name: en ? `Voice Record (${duration}s)` : `تسجيل صوتي (${duration}ث)`,
+        url: voiceUrl,
+        file: new File([blob], `voice_recording_${Date.now()}.webm`, { type: "audio/webm" }),
+        start: currentTime,
+        offset: 0,
+        duration: duration,
+        sourceDuration: duration,
+        volume: 1.0,
+        muted: false,
+        fx: "none",
+        color: "#10b981",
+        kind: "voice",
+        beats: audioPeaksRef.current.slice(-60),
+      });
+
+      toast.success(en ? "Voice track added to timeline!" : "تمت إضافة التسجيل الصوتي كمسار في الشريط الزمني بنجاح!");
+      playSfx("success");
+    };
+
+    mediaRecorderRef.current.stop();
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (audioCtxRef.current) audioCtxRef.current.close();
+    setIsRecording(false);
+    setRecordTime(0);
+  };
+
+  const formatTime = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m < 10 ? "0" : ""}${m}:${s < 10 ? "0" : ""}${s}`;
+  };
+
+  return (
+    <div className="space-y-4 p-2 text-center">
+      <div className="relative w-full h-32 rounded-2xl bg-slate-950/90 border border-emerald-500/30 p-3 flex flex-col items-center justify-center overflow-hidden shadow-inner">
+        <canvas ref={canvasRef} width={340} height={80} className="w-full h-20 object-contain z-10" />
+        <div className="mt-2 flex items-center gap-2 text-xs font-mono font-bold z-10">
+          <span className={`w-2.5 h-2.5 rounded-full ${isRecording ? "bg-red-500 animate-ping" : "bg-muted-foreground"}`} />
+          <span className="text-emerald-400">{isRecording ? formatTime(recordTime) : (en ? "00:00 (Ready)" : "00:00 (جاهز للتسجيل)")}</span>
+        </div>
+        <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#10b981_1px,transparent_1px)] [background-size:12px_12px] pointer-events-none" />
+      </div>
+
+      <div className="flex items-center justify-center gap-3">
+        {!isRecording ? (
+          <button
+            disabled={busy}
+            onClick={startRecording}
+            className="px-6 py-3 rounded-2xl gradient-primary text-white font-bold text-xs flex items-center gap-2 shadow-lg hover:scale-105 active:scale-95 transition-all"
+          >
+            <Mic className="w-4 h-4 text-white" />
+            <span>{en ? "Start Voice Recording" : "تسجيل صوت الشخص"}</span>
+          </button>
+        ) : (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={stopAndSaveRecording}
+              className="px-5 py-2.5 rounded-2xl bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md hover:bg-emerald-600 transition-all active:scale-95"
+            >
+              <Check className="w-4 h-4" />
+              <span>{en ? "Save & Insert to Track" : "إضافة لمسار الصوت بالخط الزمني"}</span>
+            </button>
+            <button
+              onClick={() => {
+                if (mediaRecorderRef.current) mediaRecorderRef.current.stop();
+                if (timerRef.current) clearInterval(timerRef.current);
+                if (audioCtxRef.current) audioCtxRef.current.close();
+                setIsRecording(false);
+                setRecordTime(0);
+                toast.info(en ? "Cancelled" : "تم الإلغاء");
+              }}
+              className="px-4 py-2.5 rounded-2xl bg-secondary text-muted-foreground font-bold text-xs hover:bg-secondary/80 transition-all"
+            >
+              {en ? "Cancel" : "إلغاء"}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const MusicPanel = ({ open, onClose, currentTime }: Props) => {
   const { media, audioTracks, setClips, addFiles, addAudioTrack, updateAudioTrack, splitClipsAtBeats, audioBeats, setAudioBeats, selectedAudioTrackId, setSelectedAudioTrackId, videoMuted, setVideoMuted, videoVolume, setVideoVolume, videoAudioFx, setVideoAudioFx, totalDuration } = useMedia();
-  const [tab, setTab] = useState<"music" | "sfx" | "fx" | "beat" | "ai">("music");
+  const [tab, setTab] = useState<"music" | "record" | "sfx" | "fx" | "beat" | "ai">("music");
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [beatProgress, setBeatProgress] = useState(0);
@@ -308,6 +513,35 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
     } finally { setBusy(false); }
   };
 
+  // Reverse Audio feature
+  const onReverseAudioTrack = async (track: import("@/context/MediaContext").AudioTrackItem) => {
+    setBusy(true);
+    toast.info(en ? "Reversing audio track..." : "جاري عكس الصوت...");
+    try {
+      const { url, duration } = await reverseAudioUrl(track.url);
+      addAudioTrack({
+        name: `${track.name} (${en ? "Reversed 🔄" : "معكوس 🔄"})`,
+        url,
+        start: currentTime,
+        offset: 0,
+        duration,
+        sourceDuration: duration,
+        volume: track.volume || 1.0,
+        muted: false,
+        fx: track.fx || "none",
+        color: "#ec4899",
+        kind: track.kind || "music",
+      });
+      toast.success(en ? "Audio track reversed successfully!" : "تم عكس الصوت بنجاح وإضافته إلى مسار الصوت!");
+      playSfx("success");
+    } catch (e) {
+      console.error(e);
+      toast.error(en ? "Failed to reverse audio" : "فشل عكس الصوت، أعد المحاولة");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const onAddSfx = async (name: BuiltinSfxName, label: string, labelEn: string) => {
     setBusy(true);
     try {
@@ -473,6 +707,7 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
       <div className="flex gap-1 p-2 border-b border-border overflow-x-auto no-scrollbar">
         {[
           { id: "ai", label: en ? "AI Audio" : "أدوات AI", Icon: Sparkles },
+          { id: "record", label: en ? "Voice Record" : "تسجيل صوتي", Icon: Mic },
           { id: "music", label: en ? "Music" : "موسيقى", Icon: Music2 },
           { id: "sfx", label: en ? "SFX" : "مؤثرات", Icon: Sparkles },
           { id: "fx", label: en ? "Voice Changer" : "تغيير الصوت", Icon: Wand2 },
@@ -492,6 +727,9 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
       </div>
 
       <div className="p-3 max-h-[40vh] overflow-y-auto">
+        {tab === "record" && (
+          <VoiceRecorderTab currentTime={currentTime} addAudioTrack={addAudioTrack} />
+        )}
         {tab === "ai" && (
           <AIToolsPanel
             open={tab === "ai"}
@@ -499,7 +737,94 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
             mediaType="audio"
             currentMediaUrlOrBase64={audioTracks[0]?.url || undefined}
             onApplyResult={(resData) => {
-              if (resData?.outputAudioBase64OrUrl) {
+              if (resData?.stems) {
+                let addedCount = 0;
+                if (resData.stems.vocals) {
+                  addAudioTrack({
+                    name: en ? "Vocals (Isolated)" : "Vocals (غناء منفصل)",
+                    url: resData.stems.vocals,
+                    start: 0,
+                    offset: 0,
+                    duration: totalDuration || 10,
+                    sourceDuration: totalDuration || 10,
+                    volume: 1.0,
+                    muted: false,
+                    fx: "none",
+                    color: "#ec4899",
+                    kind: "voice",
+                  });
+                  addedCount++;
+                }
+                if (resData.stems.instrumental) {
+                  addAudioTrack({
+                    name: en ? "Instrumental (Music)" : "Instrumental (موسيقى بدون غناء)",
+                    url: resData.stems.instrumental,
+                    start: 0,
+                    offset: 0,
+                    duration: totalDuration || 10,
+                    sourceDuration: totalDuration || 10,
+                    volume: 1.0,
+                    muted: false,
+                    fx: "none",
+                    color: "#8b5cf6",
+                    kind: "music",
+                  });
+                  addedCount++;
+                }
+                if (resData.stems.drums) {
+                  addAudioTrack({
+                    name: en ? "Drums Track" : "Drums (درامز)",
+                    url: resData.stems.drums,
+                    start: 0,
+                    offset: 0,
+                    duration: totalDuration || 10,
+                    sourceDuration: totalDuration || 10,
+                    volume: 1.0,
+                    muted: false,
+                    fx: "none",
+                    color: "#f59e0b",
+                    kind: "music",
+                  });
+                  addedCount++;
+                }
+                if (resData.stems.bass) {
+                  addAudioTrack({
+                    name: en ? "Bass Track" : "Bass (بيز)",
+                    url: resData.stems.bass,
+                    start: 0,
+                    offset: 0,
+                    duration: totalDuration || 10,
+                    sourceDuration: totalDuration || 10,
+                    volume: 1.0,
+                    muted: false,
+                    fx: "none",
+                    color: "#10b981",
+                    kind: "music",
+                  });
+                  addedCount++;
+                }
+                if (resData.stems.other) {
+                  addAudioTrack({
+                    name: en ? "Other Instruments" : "Other (آلات أخرى)",
+                    url: resData.stems.other,
+                    start: 0,
+                    offset: 0,
+                    duration: totalDuration || 10,
+                    sourceDuration: totalDuration || 10,
+                    volume: 1.0,
+                    muted: false,
+                    fx: "none",
+                    color: "#06b6d4",
+                    kind: "music",
+                  });
+                  addedCount++;
+                }
+                toast.success(
+                  en
+                    ? `Added ${addedCount} Separated Audio Tracks!`
+                    : `تمت إضافة ${addedCount} مسارات صوتية مفصولة بنجاح إلى التايم لاين!`
+                );
+              } else if (resData?.outputAudioBase64OrUrl) {
                 addAudioTrack({
                   name: en ? "AI Processed Audio" : "صوت معالج بالذكاء الاصطناعي",
                   url: resData.outputAudioBase64OrUrl,
@@ -815,11 +1140,22 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
                 {audioTracks.map((t) => {
                   return (
                     <div key={t.id} className="p-3 rounded-xl bg-card border border-border space-y-2.5">
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-2">
                         <p className="text-[11px] font-bold text-foreground truncate min-w-0 flex-1">{t.name}</p>
-                        <span className="text-[9px] font-extrabold text-primary px-2 py-0.5 rounded-full bg-primary/10 shrink-0">
-                          {ALL_FX_OPTIONS.find((f) => f.id === t.fx)?.[en ? "labelEn" : "label"] || t.fx}
-                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            disabled={busy}
+                            onClick={() => onReverseAudioTrack(t)}
+                            className="px-2 py-1 rounded-lg bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 border border-purple-500/30 text-[10px] font-bold flex items-center gap-1 active:scale-95 transition-all"
+                            title={en ? "Reverse Audio Track" : "عكس اتجاه الصوت"}
+                          >
+                            <RotateCw className="w-3 h-3" />
+                            <span>{en ? "Reverse" : "عكس الصوت 🔄"}</span>
+                          </button>
+                          <span className="text-[9px] font-extrabold text-primary px-2 py-0.5 rounded-full bg-primary/10">
+                            {ALL_FX_OPTIONS.find((f) => f.id === t.fx)?.[en ? "labelEn" : "label"] || t.fx}
+                          </span>
+                        </div>
                       </div>
 
                         <div className="grid grid-cols-3 gap-1.5">

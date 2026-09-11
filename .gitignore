@@ -27,3 +27,10 @@ dist-ssr
 .aistudio
 dev-dist
 .env
+.FullName
+
+# Large binaries & WASM models
+*.wasm
+*.task
+*.tflite
+android/app/src/main/assets/public/

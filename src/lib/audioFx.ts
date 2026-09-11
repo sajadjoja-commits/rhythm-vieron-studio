@@ -382,7 +382,7 @@ function noiseBuffer(ctx: BaseAudioContext, dur: number) {
   return buf;
 }
 
-function bufferToWav(buffer: AudioBuffer): Blob {
+export function bufferToWav(buffer: AudioBuffer): Blob {
   const numCh = buffer.numberOfChannels;
   const sr = buffer.sampleRate;
   const samples = buffer.getChannelData(0);
@@ -402,4 +402,20 @@ function bufferToWav(buffer: AudioBuffer): Blob {
     view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
   }
   return new Blob([ab], { type: "audio/wav" });
+}
+
+export async function reverseAudioUrl(audioUrl: string): Promise<{ url: string; duration: number }> {
+  const response = await fetch(audioUrl);
+  const arrayBuffer = await response.arrayBuffer();
+  const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+  const decodedBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+  // Reverse audio channels in-place
+  for (let channel = 0; channel < decodedBuffer.numberOfChannels; channel++) {
+    decodedBuffer.getChannelData(channel).reverse();
+  }
+
+  const wavBlob = bufferToWav(decodedBuffer);
+  const url = URL.createObjectURL(wavBlob);
+  return { url, duration: decodedBuffer.duration };
 }

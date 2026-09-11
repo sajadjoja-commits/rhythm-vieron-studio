@@ -362,6 +362,7 @@ interface MediaContextType {
   resolveTimelineTime: (t: number) => { clip: Clip; clipIndex: number; mediaTime: number; clipStart: number } | null;
   splitClipsAtBeats: (beats: number[]) => void;
   applySmartTemplate: (tpl: import("@/lib/smartTemplates").SmartTemplate) => boolean;
+  addFreezeFrameAt: (time: number, frameDataUrl: string, duration?: number) => void;
   undo: () => void; redo: () => void; canUndo: boolean; canRedo: boolean;
 }
 
@@ -762,6 +763,81 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
     });
   }, []);
 
+  const addFreezeFrameAt = useCallback((time: number, frameDataUrl: string, duration: number = 3.0) => {
+    const freezeMediaId = uid();
+    const freezeMediaItem: MediaItem = {
+      id: freezeMediaId,
+      file: new File([], `freeze_frame_${Math.round(time)}s.png`, { type: "image/png" }),
+      url: frameDataUrl,
+      type: "image",
+      duration: duration,
+      name: `توقف عند ${time.toFixed(1)}s`,
+    };
+
+    setMedia((prev) => [...prev, freezeMediaItem]);
+
+    setClips((prev) => {
+      let acc = 0;
+      let targetIdx = -1;
+      let targetClip: Clip | null = null;
+      let localSplitTime = 0;
+
+      for (let i = 0; i < prev.length; i++) {
+        const c = prev[i];
+        const sp = c.speed && c.speed > 0 ? c.speed : 1;
+        const len = (c.out - c.in) / sp;
+        if (time >= acc && time <= acc + len) {
+          targetIdx = i;
+          targetClip = c;
+          localSplitTime = (time - acc) * sp;
+          break;
+        }
+        acc += len;
+      }
+
+      const freezeClip: Clip = {
+        id: uid(),
+        mediaId: freezeMediaId,
+        in: 0,
+        out: duration,
+      };
+
+      if (targetIdx !== -1 && targetClip) {
+        const splitAt = targetClip.in + localSplitTime;
+        if (splitAt <= targetClip.in + 0.05) {
+          const next = [...prev];
+          next.splice(targetIdx, 0, freezeClip);
+          return next;
+        }
+        if (splitAt >= targetClip.out - 0.05) {
+          const next = [...prev];
+          next.splice(targetIdx + 1, 0, freezeClip);
+          return next;
+        }
+        const leftClip: Clip = { ...targetClip, out: splitAt };
+        const rightClip: Clip = {
+          id: uid(),
+          mediaId: targetClip.mediaId,
+          in: splitAt,
+          out: targetClip.out,
+          speed: targetClip.speed,
+          scale: targetClip.scale,
+          panX: targetClip.panX,
+          panY: targetClip.panY,
+          flipH: targetClip.flipH,
+          flipV: targetClip.flipV,
+        };
+        const next = [...prev];
+        next.splice(targetIdx, 1, leftClip, freezeClip, rightClip);
+        return next;
+      } else {
+        return [...prev, freezeClip];
+      }
+    });
+
+    toast.success("تم إضافة لقطة التوقف (3 ثوانٍ) كصورة داخل المسار بنجاح!");
+  }, []);
+
   const resolveTimelineTime = useCallback((t: number) => {
     let acc = 0;
     const clipsLen = clips.reduce((sum, c) => sum + clipTimelineLen(c), 0);
@@ -1144,7 +1220,7 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
         addOverlay, updateOverlay, removeOverlay,
         setExportPreset, setProjectName, newProject, createNewProjectWithFiles, loadProject, listProjects, deleteProject,
         totalDuration, getMediaById, resolveTimelineTime, splitClipsAtBeats,
-        applySmartTemplate,
+        applySmartTemplate, addFreezeFrameAt,
         undo, redo, canUndo, canRedo,
       }}
     >

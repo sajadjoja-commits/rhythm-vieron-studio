@@ -14,6 +14,7 @@ import { base64ToBlob, blobToBase64 } from "../utils/audioUtils";
 import { AIOutputVerifier } from "../utils/AIOutputVerifier";
 import { PayloadValidator } from "../utils/PayloadValidator";
 import { AIDebugLogger } from "../utils/AIDebugLogger";
+import { audioAIEngine } from "../audio/AudioAIEngine";
 
 export class AudioEnhancementPlugin extends BasePlugin {
   public id = "plugin-audio-enhancement";
@@ -294,134 +295,53 @@ export class AudioEnhancementPlugin extends BasePlugin {
   }
 
   /**
-   * Client-side WebAudio DSP for DeepFilterNet Denoising
+   * Real Audio AI Engine Denoising
    */
   private async applyLocalDenoiseDSP(audioBase64OrUrl: string, intensity: number): Promise<string> {
-    if (typeof window === "undefined" || (!window.AudioContext && !(window as any).webkitAudioContext)) {
-      return audioBase64OrUrl;
-    }
-
     try {
       const isBase64 = !audioBase64OrUrl.startsWith("http") && !audioBase64OrUrl.startsWith("blob:");
       const blob = isBase64 ? base64ToBlob(audioBase64OrUrl, "audio/wav") : await (await fetch(audioBase64OrUrl)).blob();
-      const arrayBuffer = await blob.arrayBuffer();
 
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      const ctx = new AudioCtx();
-      const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+      const denoiseResult = await audioAIEngine.reduceNoise(blob, {
+        denoiseStrength: Math.min(1.0, Math.max(0.2, intensity)),
+      });
 
-      const offlineCtx = new OfflineAudioContext(
-        audioBuffer.numberOfChannels,
-        audioBuffer.length,
-        audioBuffer.sampleRate
-      );
-
-      const source = offlineCtx.createBufferSource();
-      source.buffer = audioBuffer;
-
-      // DeepFilterNet spectral noise gate filter simulation using BiquadFilterNode chain
-      const highpass = offlineCtx.createBiquadFilter();
-      highpass.type = "highpass";
-      highpass.frequency.value = 80 * intensity; // Cut low rumble noise
-
-      const notchFilter = offlineCtx.createBiquadFilter();
-      notchFilter.type = "notch";
-      notchFilter.frequency.value = 50; // Mains hum filter
-
-      const compressor = offlineCtx.createDynamicsCompressor();
-      compressor.threshold.value = -24;
-      compressor.knee.value = 12;
-      compressor.ratio.value = 4;
-      compressor.attack.value = 0.003;
-      compressor.release.value = 0.25;
-
-      source.connect(highpass);
-      highpass.connect(notchFilter);
-      notchFilter.connect(compressor);
-      compressor.connect(offlineCtx.destination);
-
-      source.start();
-      const renderedBuffer = await offlineCtx.startRendering();
-
-      // Convert rendered buffer back to Base64 WAV
-      const wavBlob = this.audioBufferToWavBlob(renderedBuffer);
-      return await blobToBase64(wavBlob);
+      return await blobToBase64(denoiseResult.audioBlob);
     } catch (e) {
-      console.warn("[DeepFilterNet Local DSP] WebAudio processing fallback", e);
+      console.warn("[AudioEnhancementPlugin] Real AI denoise fallback to original:", e);
       return audioBase64OrUrl;
     }
   }
 
   /**
-   * Client-side WebAudio DSP for Demucs v4 Stem Separation
+   * Real Audio AI Engine Stem Separation
    */
   private async applyLocalStemSeparationDSP(
     audioBase64OrUrl: string,
     mode: string,
     outStems: AudioStems
   ): Promise<string> {
-    if (typeof window === "undefined" || (!window.AudioContext && !(window as any).webkitAudioContext)) {
-      outStems.vocals = audioBase64OrUrl;
-      return audioBase64OrUrl;
-    }
-
     try {
       const isBase64 = !audioBase64OrUrl.startsWith("http") && !audioBase64OrUrl.startsWith("blob:");
       const blob = isBase64 ? base64ToBlob(audioBase64OrUrl, "audio/wav") : await (await fetch(audioBase64OrUrl)).blob();
-      const arrayBuffer = await blob.arrayBuffer();
 
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      const ctx = new AudioCtx();
-      const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+      const sepResult = await audioAIEngine.isolateVocals(blob);
 
-      const offlineCtx = new OfflineAudioContext(
-        audioBuffer.numberOfChannels,
-        audioBuffer.length,
-        audioBuffer.sampleRate
-      );
+      const vocalsBase64 = await blobToBase64(sepResult.vocals.blob);
+      const instBase64 = await blobToBase64(sepResult.instrumental.blob);
 
-      const source = offlineCtx.createBufferSource();
-      source.buffer = audioBuffer;
-
-      const bandpass = offlineCtx.createBiquadFilter();
+      outStems.vocals = vocalsBase64;
+      outStems.instrumental = instBase64;
 
       if (mode === "extract-vocals" || mode === "remove-music") {
-        // Demucs Vocal band focus (300Hz - 3400Hz)
-        bandpass.type = "bandpass";
-        bandpass.frequency.value = 1800;
-        bandpass.Q.value = 0.7;
-      } else if (mode === "extract-instrumental" || mode === "remove-speech") {
-        // Demucs Instrumental notch filter out speech frequencies
-        bandpass.type = "notch";
-        bandpass.frequency.value = 1500;
-        bandpass.Q.value = 1.2;
+        return vocalsBase64;
       } else {
-        bandpass.type = "peaking";
-        bandpass.frequency.value = 1000;
-        bandpass.gain.value = 0;
+        return instBase64;
       }
-
-      source.connect(bandpass);
-      bandpass.connect(offlineCtx.destination);
-
-      source.start();
-      const renderedBuffer = await offlineCtx.startRendering();
-
-      const wavBlob = this.audioBufferToWavBlob(renderedBuffer);
-      const resultBase64 = await blobToBase64(wavBlob);
-
-      if (mode === "extract-vocals" || mode === "remove-music") {
-        outStems.vocals = resultBase64;
-        outStems.instrumental = audioBase64OrUrl;
-      } else {
-        outStems.instrumental = resultBase64;
-        outStems.vocals = audioBase64OrUrl;
-      }
-
-      return resultBase64;
     } catch (e) {
-      console.warn("[Demucs v4 Local DSP] WebAudio stem separation fallback", e);
+      console.warn("[AudioEnhancementPlugin] Real AI stem separation fallback:", e);
       outStems.vocals = audioBase64OrUrl;
+      outStems.instrumental = audioBase64OrUrl;
       return audioBase64OrUrl;
     }
   }
