@@ -39,12 +39,18 @@ android {
             }
         }
     }
+
+    buildFeatures {
+        resValues true
+    }
     
-    // Performance: Large heap for AI processing
-    applicationVariants.all { variant ->
-        variant.outputs.all {
-            outputFileName = "RhythmVieron-${variant.name}-${variant.versionName}.apk"
-        }
+    androidComponents {
+        onVariants(selector().all(), { variant ->
+            variant.outputs.forEach { output ->
+                def vn = android.defaultConfig.versionName ?: "1.0"
+                output.outputFileName.set("RhythmVieron-${variant.name}-${vn}.apk")
+            }
+        })
     }
 }
 
