@@ -6,11 +6,17 @@ const config: CapacitorConfig = {
   webDir: 'dist',
   backgroundColor: '#090d16',
   server: {
+    // The published app is the primary source of the UI. Web releases become
+    // available to Android on the next launch without a separate OTA service.
+    url: 'https://rhythm-vieron-studio.lovable.app',
     androidScheme: 'https',
-    cleartext: true,
+    cleartext: false,
+    // Keep navigation restricted to our published app and the built-in
+    // localhost fallback that is used if the network is unavailable.
+    allowNavigation: ['rhythm-vieron-studio.lovable.app', 'localhost'],
   },
   android: {
-    allowMixedContent: true,
+    allowMixedContent: false,
     captureInput: true,
     webContentsDebuggingEnabled: false,
   },
@@ -32,17 +38,6 @@ const config: CapacitorConfig = {
       resize: 'body',
       style: 'DARK',
       resizeOnFullScreen: true,
-    },
-    CapacitorUpdater: {
-      appId: '4ff5064c-bd8c-4b62-b998-25e5da1d59c5',
-      // Android does not load the deployed web site. It loads the bundle inside
-      // the APK, so OTA must be enabled to receive web-only releases.
-      // Download while the app is open and activate the verified bundle on the
-      // next launch. This avoids interrupting an edit/export in progress.
-      autoUpdate: 'atBackground',
-      periodCheckDelay: 3600,
-      responseTimeout: 20,
-      defaultChannel: 'staging',
     },
   },
 };

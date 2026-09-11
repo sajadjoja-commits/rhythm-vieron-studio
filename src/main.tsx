@@ -111,7 +111,10 @@ if (typeof window !== "undefined") {
 // Register PWA service worker in web browser environment (Production only, not in iframe)
 if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
   const isIframe = typeof window !== "undefined" && window.self !== window.top;
-  if (Capacitor.isNativePlatform() || import.meta.env.DEV || isIframe) {
+  const isRemoteNativeApp = Capacitor.isNativePlatform()
+    && window.location.hostname === "rhythm-vieron-studio.lovable.app";
+
+  if (import.meta.env.DEV || isIframe || (Capacitor.isNativePlatform() && !isRemoteNativeApp)) {
     navigator.serviceWorker.getRegistrations().then((registrations) => {
       for (const registration of registrations) {
         registration.unregister().catch(() => {});
