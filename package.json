@@ -11,6 +11,7 @@
     "cap:sync": "vite build && cap sync android",
     "cap:copy": "vite build && cap copy android",
     "vieron:sync": "node scripts/vieron-sync.cjs",
+    "ota:publish": "node scripts/capgo-publish.cjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",

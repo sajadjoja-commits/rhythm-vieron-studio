@@ -70,6 +70,26 @@ capacitor.config.ts
 npm run build
 ```
 
+### نشر تحديث ويب للتطبيق المثبّت على أندرويد (OTA)
+
+بناء الموقع أو نشره على الاستضافة لا يحدّث تطبيق Android المثبّت؛ التطبيق يحتوي
+نسخة ويب مضمّنة. بعد أي تعديل يقتصر على React/CSS/JavaScript، انشر الحزمة إلى
+قناة Capgo التي يستمع إليها التطبيق:
+
+```powershell
+$env:CAPGO_TOKEN = "<Capgo API key>"
+# اختياري: القناة الافتراضية هي staging
+$env:CAPGO_CHANNEL = "staging"
+npm run ota:publish
+```
+
+الأمر يبني `dist` ثم ينشره إلى Capgo بإصدار جديد تلقائياً. سيحمّل Android
+التحديث أثناء عمل التطبيق ويستخدمه عند الفتح التالي. لا تضع المفتاح في Git أو
+في ملفات الواجهة؛ خزّنه كسر CI/CD فقط.
+
+عند تعديل Java/Kotlin أو `AndroidManifest.xml` أو Gradle أو إضافة plugin أصلي،
+لا يكفي OTA: نفّذ `npm run vieron:sync` ثم ابنِ APK/AAB جديداً وانشره عبر المتجر.
+
 ### البناء للتطبيقات الأصلية (Android/iOS)
 
 #### الخطوة 1: تثبيت Capacitor

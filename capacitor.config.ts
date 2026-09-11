@@ -35,7 +35,13 @@ const config: CapacitorConfig = {
     },
     CapacitorUpdater: {
       appId: '4ff5064c-bd8c-4b62-b998-25e5da1d59c5',
-      autoUpdate: false,
+      // Android does not load the deployed web site. It loads the bundle inside
+      // the APK, so OTA must be enabled to receive web-only releases.
+      // Download while the app is open and activate the verified bundle on the
+      // next launch. This avoids interrupting an edit/export in progress.
+      autoUpdate: 'atBackground',
+      periodCheckDelay: 3600,
+      responseTimeout: 20,
       defaultChannel: 'staging',
     },
   },

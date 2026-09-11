@@ -45,6 +45,8 @@ class CapgoService {
   private static instance: CapgoService;
   private updater: any = null;
   private isInitialized = false;
+  private initPromise: Promise<void> | null = null;
+  private automaticUpdatesEnabled = false;
   private listeners: Set<(state: OTAUpdateState) => void> = new Set();
   private state: OTAUpdateState = {
     status: "idle",
@@ -85,7 +87,12 @@ class CapgoService {
       return;
     }
 
-    try {
+    // Several callers can request an update during app startup. Share one
+    // initialization operation so an early check cannot be silently lost.
+    if (this.initPromise) return this.initPromise;
+
+    this.initPromise = (async () => {
+      try {
       const { CapacitorUpdater } = await import("@capgo/capacitor-updater");
       this.updater = CapacitorUpdater;
 
@@ -97,9 +104,12 @@ class CapgoService {
       // 2. Fetch current bundle info
       this.currentBundle = await this.updater.current();
       const channel = await this.updater.getChannel();
+      const autoUpdate = await this.updater.isAutoUpdateEnabled();
+      this.automaticUpdatesEnabled = Boolean(autoUpdate?.enabled);
       console.log("[Capgo] Startup Audit:", {
         bundle: this.currentBundle,
         channel: channel,
+        automaticUpdatesEnabled: this.automaticUpdatesEnabled,
         isNative: Capacitor.isNativePlatform()
       });
 
@@ -120,9 +130,14 @@ class CapgoService {
       });
 
       this.isInitialized = true;
-    } catch (error) {
+      } catch (error) {
       console.error("[Capgo] Initialization failed:", error);
-    }
+      } finally {
+        this.initPromise = null;
+      }
+    })();
+
+    return this.initPromise;
   }
 
   /**
@@ -136,7 +151,15 @@ class CapgoService {
    * Checks for available updates.
    */
   public async checkForUpdate(): Promise<boolean> {
+    // Wait for the native bridge. Previously the five-second startup timer
+    // could run before initialization and then no further native check ran.
+    await this.init();
     if (!this.isInitialized || !this.updater) return false;
+
+    // New APKs use Capgo's native foreground/background update pipeline.
+    // Keep this manual flow only for already-installed legacy APKs, whose
+    // bundled config still has autoUpdate disabled.
+    if (this.automaticUpdatesEnabled) return false;
 
     if (this.state.status === "checking" || this.state.status === "downloading") return false;
 
