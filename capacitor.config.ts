@@ -35,10 +35,12 @@ const config: CapacitorConfig = {
     },
     CapacitorUpdater: {
       appId: '4ff5064c-bd8c-4b62-b998-25e5da1d59c5',
-      autoUpdate: false,
+      // Keep OTA disabled while native packaging is being verified.
+      autoUpdate: 'off',
+      // Explicitly discard old downloaded bundles when a newer native build is installed.
+      resetWhenUpdate: true,
     },
   },
 };
 
 export default config;
-
