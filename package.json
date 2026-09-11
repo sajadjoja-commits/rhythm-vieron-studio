@@ -10,6 +10,8 @@
     "build:dev": "vite build --mode development",
     "cap:sync": "vite build && cap sync android",
     "cap:copy": "vite build && cap copy android",
+    "vieron:sync": "node scripts/vieron-sync.cjs",
+    "vieron:verify": "node scripts/verify-web-assets.cjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
