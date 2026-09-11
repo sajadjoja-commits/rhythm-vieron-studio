@@ -193,7 +193,7 @@ public class AIImageProcessorPlugin extends Plugin {
             call.resolve(ret);
 
         } catch (Exception e) {
-            Log.error(TAG, "ML Kit Subject Segmentation Failed", e);
+            Log.e(TAG, "ML Kit Subject Segmentation Failed", e);
             JSObject errorObj = new JSObject();
             errorObj.put("code", "SEGMENTATION_ERROR");
             errorObj.put("message", e.getMessage() != null ? e.getMessage() : "Unknown segmentation failure");
