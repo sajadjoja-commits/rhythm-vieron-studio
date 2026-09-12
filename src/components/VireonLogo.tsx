@@ -8,59 +8,55 @@ interface VireonLogoProps {
 
 /**
  * Official Vireon AI Studio Logo Component.
- * Displays the exact vector glowing electric "V" mark from the app cover logo (/vireon-logo.svg).
+ * Displays the exact vector glowing electric "V" logo mark matching the cover image.
  */
 export const VireonLogo: React.FC<VireonLogoProps> = ({
   className = "w-9 h-9",
   size,
   showText = false,
 }) => {
-  const [imgError, setImgError] = React.useState(false);
   const styleProps = size ? { width: size, height: size } : {};
 
   return (
     <div className="inline-flex items-center gap-2.5 select-none shrink-0">
       <div
-        className={`relative flex items-center justify-center rounded-2xl bg-[#090d16] p-1.5 border border-primary/30 shadow-lg shadow-blue-600/30 overflow-hidden ${className}`}
+        className={`relative flex items-center justify-center rounded-2xl bg-[#090d16] p-1.5 border border-blue-500/30 shadow-lg shadow-blue-600/30 overflow-hidden ${className}`}
         style={styleProps}
       >
-        {!imgError ? (
-          <img
-            src="/vireon-logo.svg"
-            alt="Vireon AI Studio Logo"
-            onError={() => setImgError(true)}
-            referrerPolicy="no-referrer"
-            className="w-full h-full object-contain"
+        <svg
+          viewBox="0 0 512 512"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          className="w-full h-full"
+        >
+          <defs>
+            <linearGradient id="vGlowGradComp" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#38bdf8" />
+              <stop offset="35%" stopColor="#3b82f6" />
+              <stop offset="70%" stopColor="#6366f1" />
+              <stop offset="100%" stopColor="#a855f7" />
+            </linearGradient>
+            <filter id="neonBlurComp" x="-30%" y="-30%" width="160%" height="160%">
+              <feGaussianBlur stdDeviation="18" result="blur1" />
+              <feGaussianBlur stdDeviation="8" result="blur2" />
+              <feMerge>
+                <feMergeNode in="blur1" />
+                <feMergeNode in="blur2" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+          <path
+            d="M 105 110 L 185 110 L 256 280 L 327 110 L 407 110 L 295 375 C 275 425 237 425 217 375 Z"
+            fill="url(#vGlowGradComp)"
+            filter="url(#neonBlurComp)"
+            opacity="0.9"
           />
-        ) : (
-          <svg
-            viewBox="0 0 512 512"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            className="w-full h-full drop-shadow-[0_0_12px_rgba(59,130,246,0.7)]"
-          >
-            <defs>
-              <linearGradient id="vGlowGradientInline" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#38bdf8" />
-                <stop offset="30%" stopColor="#3b82f6" />
-                <stop offset="70%" stopColor="#6366f1" />
-                <stop offset="100%" stopColor="#a855f7" />
-              </linearGradient>
-              <filter id="neonBlurInline" x="-20%" y="-20%" width="140%" height="140%">
-                <feGaussianBlur stdDeviation="12" result="blur" />
-                <feMerge>
-                  <feMergeNode in="blur" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
-            </defs>
-            <path
-              d="M 102 112 L 184 112 L 256 348 L 328 112 L 410 112 L 297 410 C 276 450 236 450 215 410 Z"
-              fill="url(#vGlowGradientInline)"
-              filter="url(#neonBlurInline)"
-            />
-          </svg>
-        )}
+          <path
+            d="M 105 110 L 185 110 L 256 280 L 327 110 L 407 110 L 295 375 C 275 425 237 425 217 375 Z"
+            fill="url(#vGlowGradComp)"
+          />
+        </svg>
       </div>
 
       {showText && (
