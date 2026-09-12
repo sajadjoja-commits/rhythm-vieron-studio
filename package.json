@@ -11,6 +11,8 @@
     "cap:sync": "vite build && cap sync android",
     "cap:copy": "vite build && cap copy android",
     "vieron:sync": "node scripts/vieron-sync.cjs",
+    "vieron:verify": "node scripts/verify-web-assets.cjs",
+    "android:build": "npm run vieron:sync && cd android && gradlew.bat assembleDebug",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",

@@ -1,9 +1,8 @@
 {
-  "native": "1.0.0",
-  "build": "1",
-  "web": "web-f2e49a9",
-  "git": "f2e49a9",
-  "channel": "staging",
-  "timestamp": "2026-09-11T14:08:23.586Z",
-  "fingerprint": "34905ea84848bfe0bd8bcc03ee8f4974cde417df11438812fa9fbe0d3b452fc5"
+  "native": "1.0.2",
+  "build": "1789216528274",
+  "web": "web-fbf7584",
+  "git": "fbf7584",
+  "timestamp": "2026-09-12T12:35:28.274Z",
+  "localOnly": true
 }

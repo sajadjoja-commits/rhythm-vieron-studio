@@ -4,13 +4,7 @@
 	"webDir": "dist",
 	"backgroundColor": "#090d16",
 	"server": {
-		"url": "https://rhythm-vieron-studio.lovable.app",
-		"androidScheme": "https",
-		"cleartext": false,
-		"allowNavigation": [
-			"rhythm-vieron-studio.lovable.app",
-			"localhost"
-		]
+		"androidScheme": "https"
 	},
 	"android": {
 		"allowMixedContent": false,

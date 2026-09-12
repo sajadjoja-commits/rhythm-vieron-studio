@@ -70,12 +70,18 @@ capacitor.config.ts
 npm run build
 ```
 
-### تحديث نسخة Android
+### تحديث نسخة Android (Local-Only Packaging)
 
-يستخدم تطبيق Android الموقع المنشور على Lovable كمصدر رئيسي للواجهة؛ لذلك تصل
-تغييرات الويب عند فتح التطبيق مع الإنترنت من دون Capgo أو OTA أو مفاتيح نشر.
-يوجد أيضًا build محلي داخل APK كحل احتياطي عند غياب الشبكة، وتُخزَّن آخر نسخة
-من الموقع محليًا عبر PWA بعد تشغيلها مرة واحدة وهي متصلة.
+يستخدم تطبيق Android الملفات المحلية المضمّنة بالكامل داخل APK. لا يوجد أي رابط
+خارجي أو تحديث OTA أو اعتماد على Lovable عند التشغيل. التطبيق يعمل بدون إنترنت
+بعد التثبيت.
+
+لتحديث الويب المضمّن داخل التطبيق:
+```bash
+npm run vieron:sync    # بناء + نسخ + مزامنة + فحص التطابق
+npm run vieron:verify  # فحص الملفات فقط
+cd android && gradlew.bat assembleDebug  # بناء APK
+```
 
 عند تعديل Java/Kotlin أو `AndroidManifest.xml` أو Gradle أو إضافة plugin أصلي،
 نفّذ `npm run vieron:sync` ثم ابنِ APK/AAB جديداً وانشره عبر المتجر.
