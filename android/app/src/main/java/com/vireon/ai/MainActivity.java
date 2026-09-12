@@ -11,8 +11,6 @@ import com.getcapacitor.BridgeWebViewClient;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
-    private static final String REMOTE_HOST = "rhythm-vieron-studio.lovable.app";
-    private static final String OFFLINE_FALLBACK_URL = "https://localhost/";
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -43,20 +41,6 @@ public class MainActivity extends BridgeActivity {
             }
             webView.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null);
             webView.setKeepScreenOn(true);
-
-            // If the published app cannot be reached, keep the editor usable
-            // from the verified web build packaged in the APK.
-            webView.setWebViewClient(new BridgeWebViewClient(getBridge()) {
-                @Override
-                public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-                    if (request.isForMainFrame() && request.getUrl().getHost() != null
-                        && request.getUrl().getHost().equals(REMOTE_HOST)) {
-                        view.loadUrl(OFFLINE_FALLBACK_URL);
-                        return;
-                    }
-                    super.onReceivedError(view, request, error);
-                }
-            });
         }
     }
 

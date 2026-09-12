@@ -7,89 +7,90 @@ const DIST_DIR = path.join(ROOT_DIR, 'dist');
 const ANDROID_ASSETS_DIR = path.join(ROOT_DIR, 'android', 'app', 'src', 'main', 'assets', 'public');
 
 function log(msg) {
-  console.log(`[VIERON ASSET VERIFY] ${msg}`);
+  console.log(msg);
 }
 
-function error(msg) {
-  console.error(`\n=========================================`);
-  console.error(`VIERON ASSET PROTECTION FAILED`);
-  console.error(`=========================================`);
-  console.error(msg);
-  console.error(`\nThe Android assets are stale or do not match the current web build.`);
-  console.error(`Run: npm run vieron:sync`);
-  console.error(`=========================================\n`);
+function getFileHash(filePath) {
+  const content = fs.readFileSync(filePath);
+  return crypto.createHash('sha256').update(content).digest('hex');
+}
+
+function getAllFiles(dirPath, relativeTo = dirPath) {
+  let results = [];
+  if (!fs.existsSync(dirPath)) return results;
+
+  const list = fs.readdirSync(dirPath);
+  list.forEach(file => {
+    const fullPath = path.join(dirPath, file);
+    const stat = fs.statSync(fullPath);
+    if (stat && stat.isDirectory()) {
+      results = results.concat(getAllFiles(fullPath, relativeTo));
+    } else {
+      const relPath = path.relative(relativeTo, fullPath).replace(/\\/g, '/');
+      // Ignore Capacitor/Cordova generated files
+      if (!['capacitor.js', 'cordova.js', 'cordova_plugins.js', 'fingerprint.txt'].includes(relPath) && !relPath.startsWith('plugins/')) {
+        results.push({
+          relPath,
+          fullPath,
+          size: stat.size
+        });
+      }
+    }
+  });
+  return results;
+}
+
+log('Vieron web assets verification started...');
+
+if (!fs.existsSync(DIST_DIR)) {
+  log('Error: dist/ not found.');
   process.exit(1);
 }
 
-function getFingerprint(dir) {
-  if (!fs.existsSync(dir)) return null;
-  const files = getAllFiles(dir).sort();
-  const hash = crypto.createHash('sha256');
-  let count = 0;
-  for (const file of files) {
-    const relativePath = path.relative(dir, file).replace(/\\/g, '/');
+const distFiles = getAllFiles(DIST_DIR);
+const androidFiles = getAllFiles(ANDROID_ASSETS_DIR);
 
-    // Sync logic exclusion list must match exactly with vieron-sync.cjs
-    if (relativePath === 'cordova.js' ||
-        relativePath === 'cordova_plugins.js' ||
-        relativePath.startsWith('plugins/') ||
-        relativePath === 'capacitor.js' ||
-        relativePath === 'electron-bridge.js' ||
-        relativePath === 'build_info.json' ||
-        relativePath === 'fingerprint.txt') {
-        continue;
+const distMap = new Map(distFiles.map(f => [f.relPath, f]));
+const androidMap = new Map(androidFiles.map(f => [f.relPath, f]));
+
+let missing = 0;
+let extra = 0;
+let changed = [];
+
+distMap.forEach((distFile, relPath) => {
+  if (!androidMap.has(relPath)) {
+    missing++;
+    log(`Missing in Android: ${relPath}`);
+  } else {
+    const androidFile = androidMap.get(relPath);
+    if (distFile.size !== androidFile.size || getFileHash(distFile.fullPath) !== getFileHash(androidFile.fullPath)) {
+      changed.push(relPath);
     }
-
-    const content = fs.readFileSync(file);
-    hash.update(relativePath);
-    hash.update(content);
-    count++;
   }
-  return { hash: hash.digest('hex'), count };
+});
+
+androidMap.forEach((_, relPath) => {
+  if (!distMap.has(relPath)) {
+    extra++;
+    log(`Extra in Android: ${relPath}`);
+  }
+});
+
+log(`dist files: ${distFiles.length}`);
+log(`android assets files: ${androidFiles.length}`);
+log(`Missing files: ${missing}`);
+log(`Extra files: ${extra}`);
+log(`Changed files: ${changed.length}`);
+
+if (changed.length > 0) {
+  log('\nChanged files:');
+  changed.forEach(f => log(`- ${f}`));
 }
 
-function getAllFiles(dirPath, arrayOfFiles) {
-  if (!fs.existsSync(dirPath)) return [];
-  const files = fs.readdirSync(dirPath);
-  arrayOfFiles = arrayOfFiles || [];
-  files.forEach(function(file) {
-    const fullPath = path.join(dirPath, file);
-    if (fs.statSync(fullPath).isDirectory()) {
-      arrayOfFiles = getAllFiles(fullPath, arrayOfFiles);
-    } else {
-      arrayOfFiles.push(fullPath);
-    }
-  });
-  return arrayOfFiles;
-}
-
-log('Starting asset verification gate...');
-
-if (!fs.existsSync(DIST_DIR)) {
-  error('Web build directory (dist/) not found. Please run npm run build.');
-}
-
-if (!fs.existsSync(ANDROID_ASSETS_DIR)) {
-  error('Android assets directory not found. Please run npx cap sync android.');
-}
-
-const distInfo = getFingerprint(DIST_DIR);
-const androidInfo = getFingerprint(ANDROID_ASSETS_DIR);
-
-if (!distInfo || distInfo.count === 0) {
-  error('dist/ is empty or missing.');
-}
-
-if (!androidInfo || androidInfo.count === 0) {
-  error('Android assets are empty or missing.');
-}
-
-log(`Web Fingerprint: ${distInfo.hash} (${distInfo.count} files)`);
-log(`Android Fingerprint: ${androidInfo.hash} (${androidInfo.count} files)`);
-
-if (distInfo.hash === androidInfo.hash && distInfo.count === androidInfo.count) {
-  log('VERIFY PASS: Web build and Android assets match.');
+if (missing === 0 && extra === 0 && changed.length === 0) {
+  log('Verification successful.');
   process.exit(0);
 } else {
-  error(`MISMATCH DETECTED\nWeb: ${distInfo.hash}\nAndroid: ${androidInfo.hash}`);
+  log('Verification failed.');
+  process.exit(1);
 }
