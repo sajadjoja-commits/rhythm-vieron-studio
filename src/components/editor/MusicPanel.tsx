@@ -737,29 +737,30 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
             mediaType="audio"
             currentMediaUrlOrBase64={audioTracks[0]?.url || undefined}
             onApplyResult={(resData) => {
-              if (resData?.stems) {
-                let addedCount = 0;
-                if (resData.stems.vocals) {
+              const targetTrack =
+                audioTracks.find((t) => t.id === selectedAudioTrackId) || audioTracks[0];
+
+              const newUrl =
+                resData?.enhancedAudioUrlOrBase64 ||
+                resData?.outputAudioBase64OrUrl ||
+                resData?.stems?.vocals ||
+                resData?.stems?.instrumental;
+
+              if (newUrl) {
+                if (targetTrack) {
+                  // Update selected track in-place directly on the matrix
+                  updateAudioTrack(targetTrack.id, { url: newUrl });
+                  toast.success(
+                    en
+                      ? "Applied audio enhancement directly to selected track!"
+                      : "تم تطبيق معالجة الصوت المباشرة وتحديث نفس المسار بنجاح!"
+                  );
+                } else {
+                  // Fallback: add a single track if none exists
                   addAudioTrack({
-                    name: en ? "Vocals (Isolated)" : "Vocals (غناء منفصل)",
-                    url: resData.stems.vocals,
-                    start: 0,
-                    offset: 0,
-                    duration: totalDuration || 10,
-                    sourceDuration: totalDuration || 10,
-                    volume: 1.0,
-                    muted: false,
-                    fx: "none",
-                    color: "#ec4899",
-                    kind: "voice",
-                  });
-                  addedCount++;
-                }
-                if (resData.stems.instrumental) {
-                  addAudioTrack({
-                    name: en ? "Instrumental (Music)" : "Instrumental (موسيقى بدون غناء)",
-                    url: resData.stems.instrumental,
-                    start: 0,
+                    name: en ? "Processed Audio Track" : "مسار الصوت المنقى",
+                    url: newUrl,
+                    start: currentTime,
                     offset: 0,
                     duration: totalDuration || 10,
                     sourceDuration: totalDuration || 10,
@@ -769,76 +770,8 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
                     color: "#8b5cf6",
                     kind: "music",
                   });
-                  addedCount++;
+                  toast.success(en ? "Added Processed Audio Track!" : "تمت إضافة مسار الصوت المعالج!");
                 }
-                if (resData.stems.drums) {
-                  addAudioTrack({
-                    name: en ? "Drums Track" : "Drums (درامز)",
-                    url: resData.stems.drums,
-                    start: 0,
-                    offset: 0,
-                    duration: totalDuration || 10,
-                    sourceDuration: totalDuration || 10,
-                    volume: 1.0,
-                    muted: false,
-                    fx: "none",
-                    color: "#f59e0b",
-                    kind: "music",
-                  });
-                  addedCount++;
-                }
-                if (resData.stems.bass) {
-                  addAudioTrack({
-                    name: en ? "Bass Track" : "Bass (بيز)",
-                    url: resData.stems.bass,
-                    start: 0,
-                    offset: 0,
-                    duration: totalDuration || 10,
-                    sourceDuration: totalDuration || 10,
-                    volume: 1.0,
-                    muted: false,
-                    fx: "none",
-                    color: "#10b981",
-                    kind: "music",
-                  });
-                  addedCount++;
-                }
-                if (resData.stems.other) {
-                  addAudioTrack({
-                    name: en ? "Other Instruments" : "Other (آلات أخرى)",
-                    url: resData.stems.other,
-                    start: 0,
-                    offset: 0,
-                    duration: totalDuration || 10,
-                    sourceDuration: totalDuration || 10,
-                    volume: 1.0,
-                    muted: false,
-                    fx: "none",
-                    color: "#06b6d4",
-                    kind: "music",
-                  });
-                  addedCount++;
-                }
-                toast.success(
-                  en
-                    ? `Added ${addedCount} Separated Audio Tracks!`
-                    : `تمت إضافة ${addedCount} مسارات صوتية مفصولة بنجاح إلى التايم لاين!`
-                );
-              } else if (resData?.outputAudioBase64OrUrl) {
-                addAudioTrack({
-                  name: en ? "AI Processed Audio" : "صوت معالج بالذكاء الاصطناعي",
-                  url: resData.outputAudioBase64OrUrl,
-                  start: currentTime,
-                  offset: 0,
-                  duration: totalDuration || 10,
-                  sourceDuration: totalDuration || 10,
-                  volume: 1.0,
-                  muted: false,
-                  fx: "none",
-                  color: "#8b5cf6",
-                  kind: "music",
-                });
-                toast.success(en ? "Added AI Audio Track!" : "تمت إضافة مسار الصوت المعالج بالذكاء الاصطناعي!");
               }
             }}
           />

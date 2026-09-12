@@ -24,91 +24,52 @@ export class AudioAIModelRegistry {
   }
 
   private registerKnownModels(): void {
-    // 1. Local Intelligent Speech Denoise (RNNoise & Spectral Noise Profile)
+    // 1. Local Adaptive Spectral Denoise DSP
     this.registerModel({
       id: "local-rnnoise-spectral",
-      name: "Neural RNNoise & Adaptive Spectral Filter",
+      name: "Adaptive Spectral Noise Subtraction (DSP)",
       version: "1.2.0",
       runtime: "local-worker",
-      approxSizeBytes: 1_800_000,
-      description: "Local neural recurrent noise suppression for stationary and non-stationary acoustic noise.",
+      approxSizeBytes: 0,
+      description: "Local STFT/FFT spectral subtraction and Wiener filtering for stationary acoustic noise.",
       capabilities: ["ai-denoise", "audio-enhancement"],
       isLocal: true,
     });
 
-    // 2. Local Dual-Stem Vocal / Music Separator (MDX-Net / Complex Spectrogram Masking)
+    // 2. Local Center-Channel & Spectrogram Stem Separator DSP
     this.registerModel({
       id: "local-stem-separator",
-      name: "Intelligent Complex Spectrogram Stem Separator",
+      name: "Harmonic Spectrogram & Center-Channel Stem Filter (DSP)",
       version: "2.1.0",
       runtime: "local-worker",
-      approxSizeBytes: 4_500_000,
-      description: "Local high-performance harmonic/percussive and vocal formant separation engine with phase reconstruction.",
+      approxSizeBytes: 0,
+      description: "Local STFT harmonic/percussive and center-panning frequency isolation filter.",
       capabilities: ["vocal-isolation", "music-removal"],
       isLocal: true,
     });
 
-    // 3. Remote Demucs v4 (Hybrid Demucs 4-Stems)
-    this.registerModel({
-      id: "remote-demucs-v4",
-      name: "Hybrid Demucs v4 (Meta AI)",
-      version: "4.0.0",
-      runtime: "remote-api",
-      approxSizeBytes: 240_000_000,
-      description: "State-of-the-art studio grade 4-stem separation (Vocals, Drums, Bass, Other).",
-      capabilities: ["stem-separation-4", "vocal-isolation", "music-removal"],
-      isLocal: false,
-      requiredApi: "replicate",
-    });
-
-    // 4. Local Silero Voice Activity Detector (VAD)
+    // 3. Local Voice Activity Detector (VAD)
     this.registerModel({
       id: "local-silero-vad",
-      name: "Silero Voice Activity Detector (VAD)",
+      name: "Energy Voice Activity Detector (VAD)",
       version: "4.0.0",
       runtime: "local-worker",
-      approxSizeBytes: 1_850_000,
-      description: "High-precision voice activity segmentation and silence detection.",
+      approxSizeBytes: 0,
+      description: "Local energy and spectral entropy voice activity segmentation.",
       capabilities: ["silence-removal"],
       isLocal: true,
     });
 
-    // 5. Local Music Intelligence & Key Analyzer (Krumhansl-Schmuckler)
+    // 4. Local Pitch & Key Analyzer (Krumhansl-Schmuckler)
     this.registerModel({
       id: "local-music-intelligence",
       name: "Harmonic Pitch Class Profile & Key Analyzer",
       version: "1.5.0",
       runtime: "local-worker",
-      approxSizeBytes: 450_000,
-      description: "Musical key detection (Major/Minor), root pitch, and fundamental frequency tracking.",
+      approxSizeBytes: 0,
+      description: "Musical key detection (Major/Minor) and fundamental pitch tracking via Chromagram.",
       capabilities: ["key-pitch-detection", "pitch-correction"],
       isLocal: true,
-    });
-
-    // 6. Remote Meta MusicGen
-    this.registerModel({
-      id: "remote-meta-musicgen",
-      name: "Meta MusicGen",
-      version: "1.0.0",
-      runtime: "remote-api",
-      approxSizeBytes: 1_500_000_000,
-      description: "Generative AI music composition from descriptive natural language prompts.",
-      capabilities: ["music-generation"],
-      isLocal: false,
-      requiredApi: "replicate",
-    });
-
-    // 7. Remote AudioLDM 2 (SFX Generator)
-    this.registerModel({
-      id: "remote-audioldm-2",
-      name: "AudioLDM 2 SFX",
-      version: "2.0.0",
-      runtime: "remote-api",
-      approxSizeBytes: 1_200_000_000,
-      description: "Generative sound effect synthesis for cinematic, UI, and ambient sound effects.",
-      capabilities: ["sfx-generation"],
-      isLocal: false,
-      requiredApi: "replicate",
     });
   }
 

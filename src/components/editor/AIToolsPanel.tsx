@@ -164,12 +164,12 @@ const AI_TOOLS_CATALOG: AIToolConfig[] = [
     taskType: "noise-reduction",
     pluginId: "plugin-audio-enhancement",
     actionName: "denoise",
-    titleAr: "تنقية الضوضاء الذكية (Real AI Denoise)",
-    titleEn: "Neural & Spectral Noise Reduction",
-    descAr: "إزالة ضوضاء المروحة والمكيف وحفيف الميكروفون بذكاء عصبي",
-    descEn: "Remove background hiss, fan noise & room reverberation",
+    titleAr: "إزالة ضوضاء الصوت والموسيقى (DSP Noise Reduction)",
+    titleEn: "Voice & Music Noise Reduction",
+    descAr: "تنقية ضوضاء المروحة والمكيف والتشويش المباشر وتحديث المسار الصوتي نفسه",
+    descEn: "Clean background hiss, hum, and noise directly on the selected audio track",
     icon: Mic,
-    badge: "CLEAN VOICE",
+    badge: "DSP CLEAN",
     payload: { denoiseIntensity: 0.85 },
   },
   {
@@ -178,67 +178,13 @@ const AI_TOOLS_CATALOG: AIToolConfig[] = [
     taskType: "vocal-isolation",
     pluginId: "plugin-audio-enhancement",
     actionName: "separate",
-    titleAr: "عزل صوت المتحدث والغناء (Vocal Isolation)",
-    titleEn: "Real AI Vocal Isolation",
-    descAr: "فصل الصوت البشري عن الموسيقى عبر التحليل التوافقي وفصل الترددات",
-    descEn: "Extract crystal clear vocal track from music",
+    titleAr: "عزل الصوت والموسيقى (Vocal & Music Isolation)",
+    titleEn: "Vocal & Music Track Isolation",
+    descAr: "فصل الكلام عن الموسيقى على نفس المسار المحدد دون إنشاء مصفوفات جديدة (اختر: صوت فقط أو موسيقى فقط)",
+    descEn: "Isolate vocals or instrumental directly on the selected track",
     icon: Music2,
-    badge: "VOCALS ONLY",
+    badge: "TRACK ISOLATION",
     payload: { mode: "extract-vocals" },
-  },
-  {
-    id: "separate-music",
-    mediaType: "audio",
-    taskType: "music-removal",
-    pluginId: "plugin-audio-enhancement",
-    actionName: "separate",
-    titleAr: "استخراج الموسيقى / كاريوكي (Instrumental)",
-    titleEn: "Instrumental & Music Extractor",
-    descAr: "استخراج اللحن الموسيقي الصافي وتفريغ صوت الغناء",
-    descEn: "Isolate vocal dialogue by filtering out music tracks",
-    icon: VolumeX,
-    badge: "NO MUSIC",
-    payload: { mode: "extract-music" },
-  },
-  {
-    id: "separate-4stems",
-    mediaType: "audio",
-    taskType: "vocal-isolation",
-    pluginId: "plugin-audio-enhancement",
-    actionName: "separate",
-    titleAr: "فصل المسارات الأربعة (4-Stems Separation)",
-    titleEn: "4-Stem Master Separation",
-    descAr: "فصل الصوت إلى 4 مسارات متزامنة: غناء، درامز، بيز، وباقي الآلات",
-    descEn: "Decompose mix into Vocals, Drums, Bass, and Other instruments",
-    icon: Sliders,
-    badge: "4 STEMS",
-    payload: { mode: "extract-4stems" },
-  },
-  {
-    id: "audio-enhance-composite",
-    mediaType: "audio",
-    taskType: "enhance-media",
-    pluginId: "plugin-audio-enhancement",
-    actionName: "audio-enhance-composite",
-    titleAr: "الماسترينغ والتنظيف الشامل الصوت",
-    titleEn: "AI Audio Master Pipeline",
-    descAr: "تنقية + توازن الصوت + مكس احترافي بالذكاء الاصطناعي",
-    descEn: "Full audio mastering: Denoise + EQ + Volume Balancing",
-    icon: Sparkles,
-    badge: "MASTER AUDIO",
-  },
-  {
-    id: "transcribe",
-    mediaType: "audio",
-    taskType: "speech-to-text",
-    pluginId: "plugin-audio-enhancement",
-    actionName: "transcribe",
-    titleAr: "تفريغ الصوت إلى نص (Groq Whisper)",
-    titleEn: "AI Speech-to-Text Transcription",
-    descAr: "تحويل الحديث والنطق إلى نصوص وكابشن تلقائي دقيق",
-    descEn: "Transcribe spoken audio into text captions using Groq Whisper",
-    icon: FileText,
-    badge: "WHISPER STT",
   },
 ];
 
@@ -267,6 +213,7 @@ export const AIToolsPanel = ({
   const [statusText, setStatusText] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [isolationMode, setIsolationMode] = useState<"extract-vocals" | "extract-music">("extract-vocals");
   const activeAbortRef = useRef<AbortController | null>(null);
 
   const en = getLang() === "en";
@@ -357,6 +304,7 @@ export const AIToolsPanel = ({
 
     const rawPayload: Record<string, any> = {
       ...(toolConfig.payload || {}),
+      mode: toolConfig.id === "separate-vocals" ? isolationMode : toolConfig.payload?.mode || "extract-vocals",
       action: toolConfig.actionName,
       inputMediaType: targetMediaType,
       mediaType: targetMediaType,
@@ -816,6 +764,33 @@ export const AIToolsPanel = ({
                   <p className="text-[11px] text-muted-foreground mb-3 leading-relaxed">
                     {en ? tool.descEn : tool.descAr}
                   </p>
+
+                  {tool.id === "separate-vocals" && (
+                    <div className="mb-3 p-1.5 rounded-xl bg-background/60 border border-border/50 flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setIsolationMode("extract-vocals")}
+                        className={`flex-1 py-1 px-2 rounded-lg text-[10px] font-bold transition-all ${
+                          isolationMode === "extract-vocals"
+                            ? "bg-primary text-primary-foreground shadow"
+                            : "hover:bg-secondary text-muted-foreground"
+                        }`}
+                      >
+                        {en ? "Vocals Only (No Music)" : "صوت فقط بدون موسيقى"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsolationMode("extract-music")}
+                        className={`flex-1 py-1 px-2 rounded-lg text-[10px] font-bold transition-all ${
+                          isolationMode === "extract-music"
+                            ? "bg-primary text-primary-foreground shadow"
+                            : "hover:bg-secondary text-muted-foreground"
+                        }`}
+                      >
+                        {en ? "Music Only (No Voice)" : "موسيقى بدون صوت ولا كلام"}
+                      </button>
+                    </div>
+                  )}
 
                   <button
                     onClick={() => {
