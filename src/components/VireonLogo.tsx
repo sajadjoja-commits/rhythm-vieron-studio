@@ -1,3 +1,7 @@
+/**
+ * OFFICIAL APP LOGO — DO NOT ADD ALTERNATE VERSIONS OR MODIFY WITHOUT EXPLICIT USER REQUEST
+ * Source of truth: Glowing electric blue-to-purple gradient 'V' on dark background (#090d16).
+ */
 import React from "react";
 
 interface VireonLogoProps {
