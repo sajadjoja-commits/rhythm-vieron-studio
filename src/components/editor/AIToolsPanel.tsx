@@ -97,12 +97,12 @@ const AI_TOOLS_CATALOG: AIToolConfig[] = [
     taskType: "background-removal",
     pluginId: "plugin-image-enhancement",
     actionName: "remove-background",
-    titleAr: "إزالة الخلفية (RMBG-2.0)",
-    titleEn: "Remove Background (RMBG-2.0)",
+    titleAr: "إزالة الخلفية (MediaPipe & Neural)",
+    titleEn: "Remove Background (MediaPipe AI)",
     descAr: "عزل دقيق جداً للموضوع وحذف الخلفية بدقة فائقة",
     descEn: "High-precision AI foreground extraction & cutout",
     icon: Scissors,
-    badge: "RMBG 2.0",
+    badge: "AI CUTOUT",
   },
   {
     id: "face-enhance",
@@ -110,12 +110,12 @@ const AI_TOOLS_CATALOG: AIToolConfig[] = [
     taskType: "enhance-media",
     pluginId: "plugin-image-enhancement",
     actionName: "face-enhance",
-    titleAr: "تحسين الوجوه والبورتريه (GFPGAN)",
-    titleEn: "Portrait & Face Restoration",
+    titleAr: "تحسين الوجوه والبورتريه (Face Detail Restore)",
+    titleEn: "Portrait & Face Detail Restore",
     descAr: "توضيح الوجوه ومعالجة تفاصيل العينين والجلد وتفاصيل البورتريه",
     descEn: "Restore facial details, eye sharpness & skin clarity",
     icon: Smile,
-    badge: "FACE AI",
+    badge: "FACE RESTORE",
   },
   {
     id: "object-remove",
@@ -123,8 +123,8 @@ const AI_TOOLS_CATALOG: AIToolConfig[] = [
     taskType: "background-removal",
     pluginId: "plugin-image-enhancement",
     actionName: "object-remove",
-    titleAr: "حذف العناصر غير المرغوبة (LaMa)",
-    titleEn: "Object & Watermark Removal",
+    titleAr: "حذف العناصر غير المرغوبة (Fourier Inpaint)",
+    titleEn: "Object & Watermark Inpaint",
     descAr: "إزالة الشوائب والعناصر غير المرغوبة من الخلفية بذكاء",
     descEn: "Intelligent inpainting object & watermark removal",
     icon: Trash2,
@@ -136,8 +136,8 @@ const AI_TOOLS_CATALOG: AIToolConfig[] = [
     taskType: "noise-reduction",
     pluginId: "plugin-image-enhancement",
     actionName: "denoise",
-    titleAr: "تنقية التحبيب SCUNet Denoise",
-    titleEn: "SCUNet Image Denoise",
+    titleAr: "تنقية التحبيب (Bilateral Image Denoise)",
+    titleEn: "Bilateral Image Denoise",
     descAr: "إزالة الضوضاء وتنعيم الصورة بدون فقدان الحواف الحادة",
     descEn: "Remove digital grain preserving sharp boundaries",
     icon: ShieldCheck,
@@ -302,9 +302,24 @@ export const AIToolsPanel = ({
       return;
     }
 
+    if (targetMediaType === "audio" && !mediaInput) {
+      setIsExecuting(false);
+      setActiveToolId(null);
+      activeAbortRef.current = null;
+      toast.error(
+        en
+          ? "Please select or add an audio track in the timeline first to process it."
+          : "يرجى اختيار أو إضافة مسار صوتي في الخط الزمني أولاً لتطبيق المعالجة عليه."
+      );
+      return;
+    }
+
+    const currentMode = toolConfig.id === "separate-vocals" ? isolationMode : toolConfig.payload?.mode || "extract-vocals";
+
     const rawPayload: Record<string, any> = {
       ...(toolConfig.payload || {}),
-      mode: toolConfig.id === "separate-vocals" ? isolationMode : toolConfig.payload?.mode || "extract-vocals",
+      mode: currentMode,
+      separationMode: currentMode,
       action: toolConfig.actionName,
       inputMediaType: targetMediaType,
       mediaType: targetMediaType,

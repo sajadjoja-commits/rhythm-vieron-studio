@@ -304,20 +304,25 @@ function processStemSeparation(
       const magL = Math.sqrt(realL[k] * realL[k] + imagL[k] * imagL[k]);
       const magR = Math.sqrt(realR[k] * realR[k] + imagR[k] * imagR[k]);
 
-      // Center-channel extraction ratio (vocals are typically panned center in stereo mix)
-      const diffMag = Math.abs(magL - magR);
-      const sumMag = Math.max(magL + magR, 0.00001);
-      const centerRatio = 1.0 - Math.min(1.0, (diffMag / sumMag) * 2.0);
-
-      // Frequency formant weight
+      // Vocal formant weight (250Hz - 4500Hz)
       let vocalWeight = 0.0;
       if (k >= vocalMinBin && k <= vocalMaxBin) {
         vocalWeight = Math.sin(((k - vocalMinBin) / (vocalMaxBin - vocalMinBin)) * Math.PI);
       }
 
-      // Soft vocal mask
-      const vocalMask = Math.min(1.0, Math.max(0.0, centerRatio * 0.75 + vocalWeight * 0.55));
-      const instMask = 1.0 - vocalMask;
+      let vocalMask = 0.0;
+      if (isStereo) {
+        // Center-channel extraction ratio (vocals are typically panned center in stereo mix)
+        const diffMag = Math.abs(magL - magR);
+        const sumMag = Math.max(magL + magR, 0.00001);
+        const centerPresence = Math.max(0.0, 1.0 - (diffMag / sumMag) * 2.2);
+        const freqWeight = vocalWeight > 0 ? (0.25 + 0.75 * vocalWeight) : 0.05;
+        vocalMask = Math.min(0.96, Math.max(0.04, centerPresence * freqWeight));
+      } else {
+        // Mono separation based on speech formant bandpass envelope
+        vocalMask = vocalWeight > 0 ? Math.min(0.94, Math.pow(vocalWeight, 1.3) * 0.88 + 0.06) : 0.04;
+      }
+      const instMask = Math.min(0.96, Math.max(0.04, 1.0 - vocalMask));
 
       // Vocal bins
       vocRealL[k] = realL[k] * vocalMask;

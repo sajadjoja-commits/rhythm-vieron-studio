@@ -3,6 +3,8 @@
  * Provides lossless PCM WAV encoding, resampling, stereo mixing, and overlap-add windowing.
  */
 
+import { resolveAudioSourceToBlob } from "../../utils/audioUtils";
+
 let sharedAudioCtx: AudioContext | null = null;
 
 export function getSharedAudioContext(sampleRate?: number): AudioContext {
@@ -22,14 +24,11 @@ export async function decodeAudioSource(
 ): Promise<AudioBuffer> {
   let arrayBuffer: ArrayBuffer;
 
-  if (typeof source === "string") {
-    const res = await fetch(source);
-    if (!res.ok) throw new Error(`فشل تحميل الملف الصوتي من الرابط: ${res.status} ${res.statusText}`);
-    arrayBuffer = await res.arrayBuffer();
-  } else if (source instanceof Blob) {
-    arrayBuffer = await source.arrayBuffer();
-  } else {
+  if (source instanceof ArrayBuffer) {
     arrayBuffer = source;
+  } else {
+    const blob = await resolveAudioSourceToBlob(source);
+    arrayBuffer = await blob.arrayBuffer();
   }
 
   const ctx = getSharedAudioContext(targetSampleRate);

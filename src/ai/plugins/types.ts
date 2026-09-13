@@ -108,8 +108,8 @@ export interface AIImageResult {
 }
 
 
-export type DenoiseEngine = "DeepFilterNet" | "StandardDSP";
-export type SeparationEngine = "Demucs-v4" | "StandardDemucs";
+export type DenoiseEngine = "AdaptiveSpectralDSP" | "DeepFilterNet" | "StandardDSP";
+export type SeparationEngine = "HarmonicSpectralDSP" | "Demucs-v4" | "StandardDemucs";
 
 export type SeparationMode =
   | "none"

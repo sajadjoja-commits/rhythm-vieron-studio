@@ -46,13 +46,13 @@ export const PREBUILT_WORKFLOWS: Record<string, PrebuiltWorkflowTemplate> = {
     nameAr: "تنظيف ومعالجة البودكاست",
     nameEn: "Podcast Audio Cleaner & Master",
     descAr: "سلسلة تنظيف الصوت: إزالة ضوضاء الغرفة + عزل الكلام النقية + المكس النهائي",
-    descEn: "Full audio pipeline: DeepFilterNet Denoise -> Demucs Vocal Isolation -> Composite Audio Master",
+    descEn: "Full audio pipeline: Adaptive Spectral Denoise -> Harmonic Vocal Isolation -> Composite Audio Master",
     mediaType: "audio",
     estimatedDurationMs: 6000,
     steps: [
       {
         id: "step-1-noise-reduction",
-        name: "تنقية الضوضاء والصدى (DeepFilterNet)",
+        name: "تنقية الضوضاء والصدى (Adaptive Spectral DSP)",
         taskType: "noise-reduction",
         pluginId: "plugin-audio-enhancement",
         actionName: "denoise",
@@ -61,7 +61,7 @@ export const PREBUILT_WORKFLOWS: Record<string, PrebuiltWorkflowTemplate> = {
       },
       {
         id: "step-2-vocal-isolation",
-        name: "عزل صوت المتحدث (Demucs v4)",
+        name: "عزل صوت المتحدث (Harmonic-Spectral DSP)",
         taskType: "vocal-isolation",
         pluginId: "plugin-audio-enhancement",
         actionName: "separate",

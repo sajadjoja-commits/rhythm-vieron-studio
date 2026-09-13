@@ -735,7 +735,11 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
             open={tab === "ai"}
             onClose={() => setTab("music")}
             mediaType="audio"
-            currentMediaUrlOrBase64={audioTracks[0]?.url || undefined}
+            currentMediaUrlOrBase64={
+              (selectedAudioTrackId
+                ? audioTracks.find((t) => t.id === selectedAudioTrackId)?.url
+                : audioTracks[0]?.url) || undefined
+            }
             onApplyResult={(resData) => {
               const targetTrack =
                 audioTracks.find((t) => t.id === selectedAudioTrackId) || audioTracks[0];
