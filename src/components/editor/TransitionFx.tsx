@@ -381,6 +381,59 @@ const TransitionFx = ({ triggerKey, type, durationMs }: Props) => {
         />
       );
       break;
+    case "liquid-melt":
+      inner = (
+        <div
+          className="absolute inset-0 bg-gradient-to-b from-cyan-500/40 via-sky-400/50 to-blue-600/60 backdrop-blur-md animate-fx-liquid mix-blend-overlay"
+          style={baseStyle}
+        >
+          <div className="absolute inset-x-0 top-0 h-1/2 bg-cyan-300/30 rounded-b-[40%] blur-sm animate-pulse" />
+        </div>
+      );
+      break;
+    case "cross-zoom":
+      inner = (
+        <div
+          className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,1)_0%,rgba(245,158,11,0.8)_30%,rgba(0,0,0,0.4)_70%)] animate-fx-cross-zoom mix-blend-screen"
+          style={baseStyle}
+        />
+      );
+      break;
+    case "glitch-rgb-shatter":
+      inner = (
+        <div className="absolute inset-0 animate-fx-glitch overflow-hidden" style={baseStyle}>
+          <div className="absolute inset-0 bg-red-600/25 translate-x-2 mix-blend-screen" />
+          <div className="absolute inset-0 bg-cyan-400/25 -translate-x-2 mix-blend-screen" />
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/40 to-transparent h-4 animate-pulse" />
+        </div>
+      );
+      break;
+    case "burn-film":
+      inner = (
+        <div
+          className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(255,237,213,0.95)_0%,rgba(249,115,22,0.85)_40%,rgba(194,65,12,0.6)_70%,rgba(0,0,0,0.9)_100%)] animate-fx-film-burn mix-blend-screen"
+          style={baseStyle}
+        />
+      );
+      break;
+    case "kaleido-spin":
+      inner = (
+        <div
+          className="absolute inset-0 bg-gradient-to-tr from-purple-600/60 via-fuchsia-500/50 to-pink-500/60 backdrop-blur-md animate-fx-kaleido mix-blend-color-dodge border-[20px] border-double border-purple-400/50 rounded-full"
+          style={baseStyle}
+        />
+      );
+      break;
+    case "heart-zoom":
+      inner = (
+        <div
+          className="absolute inset-0 flex items-center justify-center animate-fx-heart pointer-events-none"
+          style={baseStyle}
+        >
+          <div className="w-64 h-64 bg-pink-500/80 shadow-[0_0_80px_rgba(236,72,153,0.9)] [clip-path:path('M12_21.35l-1.45-1.32C5.4_15.36_2_12.28_2_8.5_2_5.42_4.42_3_7.5_3c1.74_0_3.41.81_4.5_2.09C13.09_3.81_14.76_3_16.5_3_19.58_3_22_5.42_22_8.5c0_3.78-3.4_6.86-8.55_11.54L12_21.35z')] transform scale-[6]" />
+        </div>
+      );
+      break;
   }
 
   return (

@@ -55,7 +55,13 @@ export type TransitionType =
   | "cube-rotate"
   | "color-flow"
   | "retro-pixel"
-  | "star-warp";
+  | "star-warp"
+  | "liquid-melt"
+  | "cross-zoom"
+  | "glitch-rgb-shatter"
+  | "burn-film"
+  | "kaleido-spin"
+  | "heart-zoom";
 
 export interface Transition {
   type: TransitionType;
@@ -273,7 +279,10 @@ export interface AudioTrackItem {
   bpm?: number;
 }
 
-export type FilterType = "brightness" | "contrast" | "saturate" | "grayscale" | "sepia" | "blur" | "hue-rotate" | "invert" | "vintage" | "warm" | "cool" | "dramatic" | "noir" | "fade-edge" | "duotone" | "dream" | "neon" | "sepia-blue";
+export type FilterType = 
+  | "brightness" | "contrast" | "saturate" | "grayscale" | "sepia" | "blur" | "hue-rotate" | "invert" 
+  | "vintage" | "warm" | "cool" | "dramatic" | "noir" | "fade-edge" | "duotone" | "dream" | "neon" | "sepia-blue"
+  | "cyberpunk-teal-orange" | "emerald-forest" | "golden-hour" | "vaporwave-pastel" | "polaroid-matte" | "monochrome-red";
 export interface FilterItem { 
   id: string; 
   type: FilterType; 
@@ -299,7 +308,9 @@ export type VfxType =
   // Weather & Nature VFX
   | "rain-storm" | "snow-blizzard" | "fire-embers" | "fog-smoke" | "thunder-lightning" | "sparkles-stars" | "bubbles-floating"
   // Dance & Music Party VFX
-  | "disco-strobe" | "bass-shake-pulse" | "neon-equalizer" | "rgb-rave" | "laser-beams" | "kaleidoscope-dance";
+  | "disco-strobe" | "bass-shake-pulse" | "neon-equalizer" | "rgb-rave" | "laser-beams" | "kaleidoscope-dance"
+  // Modern Special VFX
+  | "cyber-hologram" | "matrix-digital-rain" | "aurora-borealis" | "golden-dust" | "electric-sparks" | "rgb-echo";
 export interface VfxItem { id: string; type: VfxType; start: number; end: number; intensity: number; keyframes?: Keyframe[]; }
 
 export interface OverlayItem {

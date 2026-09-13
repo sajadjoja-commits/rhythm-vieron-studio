@@ -494,6 +494,12 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
         case "dream": parts.push(`blur(${i * 0.4}px) brightness(${1 + i * 0.15}) saturate(${1 + i * 0.3}) contrast(${1 - i * 0.1})`); break;
         case "neon": parts.push(`saturate(${1 + i * 0.8}) contrast(${1 + i * 0.4}) hue-rotate(${i * 60}deg) brightness(${1 + i * 0.1})`); break;
         case "sepia-blue": parts.push(`sepia(${i * 0.5}) hue-rotate(${i * 180}deg) saturate(${1 + i * 0.3})`); break;
+        case "cyberpunk-teal-orange": parts.push(`contrast(${1 + i * 0.25}) saturate(${1 + i * 0.35}) hue-rotate(${-12 * i}deg) sepia(${i * 0.22})`); break;
+        case "emerald-forest": parts.push(`hue-rotate(${25 * i}deg) saturate(${1 + i * 0.4}) contrast(${1 + i * 0.15}) brightness(${1 - i * 0.04})`); break;
+        case "golden-hour": parts.push(`sepia(${i * 0.42}) saturate(${1 + i * 0.45}) contrast(${1 + i * 0.1}) brightness(${1 + i * 0.08})`); break;
+        case "vaporwave-pastel": parts.push(`hue-rotate(${300 * i}deg) saturate(${1 + i * 0.35}) contrast(${1 + i * 0.08}) brightness(${1 + i * 0.06})`); break;
+        case "polaroid-matte": parts.push(`contrast(${1 - i * 0.1}) brightness(${1 + i * 0.12}) sepia(${i * 0.2}) saturate(${1 - i * 0.15})`); break;
+        case "monochrome-red": parts.push(`grayscale(${i * 0.75}) sepia(${i * 0.35}) hue-rotate(${320 * i}deg) contrast(${1 + i * 0.4}) brightness(${1 - i * 0.05})`); break;
       }
       if (f.brightness !== undefined && f.brightness !== 1) parts.push(`brightness(${f.brightness})`);
       if (f.contrast !== undefined && f.contrast !== 1) parts.push(`contrast(${f.contrast})`);
@@ -1346,6 +1352,39 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
             ctx.moveTo(exportWidth / 2, exportHeight / 2);
             ctx.arc(exportWidth / 2, exportHeight / 2, Math.sqrt(exportWidth * exportWidth + exportHeight * exportHeight), -Math.PI / 2, -Math.PI / 2 + tRatio * Math.PI * 2);
             ctx.lineTo(exportWidth / 2, exportHeight / 2);
+            ctx.fill();
+          } else if (trans.type === "liquid-melt") {
+            const grad = ctx.createLinearGradient(0, 0, 0, exportHeight);
+            grad.addColorStop(0, `rgba(6, 182, 212, ${invTRatio * 0.6})`);
+            grad.addColorStop(1, `rgba(2, 132, 199, ${invTRatio * 0.4})`);
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, exportWidth, exportHeight);
+          } else if (trans.type === "cross-zoom") {
+            const punch = Math.sin(tRatio * Math.PI) * 0.8;
+            ctx.fillStyle = `rgba(255, 255, 255, ${punch})`;
+            ctx.fillRect(0, 0, exportWidth, exportHeight);
+          } else if (trans.type === "glitch-rgb-shatter") {
+            if (Math.random() < 0.5) {
+              ctx.fillStyle = `rgba(239, 68, 68, ${invTRatio * 0.35})`;
+              ctx.fillRect(0, exportHeight * 0.3, exportWidth, 16);
+              ctx.fillStyle = `rgba(6, 182, 212, ${invTRatio * 0.35})`;
+              ctx.fillRect(0, exportHeight * 0.7, exportWidth, 16);
+            }
+          } else if (trans.type === "burn-film") {
+            const burnR = tRatio * Math.sqrt(exportWidth * exportWidth + exportHeight * exportHeight) * 0.7;
+            const grad = ctx.createRadialGradient(exportWidth / 2, exportHeight / 2, 0, exportWidth / 2, exportHeight / 2, burnR);
+            grad.addColorStop(0, `rgba(255, 237, 213, ${invTRatio * 0.9})`);
+            grad.addColorStop(0.5, `rgba(249, 115, 22, ${invTRatio * 0.7})`);
+            grad.addColorStop(1, "transparent");
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, exportWidth, exportHeight);
+          } else if (trans.type === "kaleido-spin") {
+            ctx.fillStyle = `rgba(139, 92, 246, ${invTRatio * 0.4})`;
+            ctx.fillRect(0, 0, exportWidth, exportHeight);
+          } else if (trans.type === "heart-zoom") {
+            ctx.fillStyle = `rgba(236, 72, 153, ${invTRatio * 0.5})`;
+            ctx.beginPath();
+            ctx.arc(exportWidth / 2, exportHeight / 2, (1 - tRatio) * exportWidth * 0.5, 0, Math.PI * 2);
             ctx.fill();
           }
 

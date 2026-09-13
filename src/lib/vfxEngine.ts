@@ -835,6 +835,193 @@ export function computeVfxState(
         });
         break;
       }
+      case "cyber-hologram": {
+        const flicker = 1 + Math.sin(currentTime * 35) * 0.08 * i;
+        domFilters.push(`hue-rotate(185deg) contrast(${1.15 * flicker}) brightness(${1.08 * flicker})`);
+        overlayStyle = {
+          background: `repeating-linear-gradient(0deg, rgba(6, 182, 212, ${0.12 * i}) 0px, rgba(6, 182, 212, ${0.12 * i}) 2px, transparent 2px, transparent 6px)`,
+          boxShadow: `inset 0 0 40px rgba(6, 182, 212, ${0.35 * i})`,
+          pointerEvents: "none",
+        };
+        canvasOverlays.push((ctx, w, h) => {
+          ctx.save();
+          // Horizontal scanlines
+          ctx.fillStyle = `rgba(6, 182, 212, ${0.15 * i})`;
+          for (let y = 0; y < h; y += 6) {
+            ctx.fillRect(0, y, w, 2);
+          }
+          // Glowing frame edges
+          ctx.strokeStyle = `rgba(6, 182, 212, ${0.5 * i})`;
+          ctx.lineWidth = 4;
+          ctx.strokeRect(4, 4, w - 8, h - 8);
+          // Corner hologram brackets
+          const cl = 25;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(10, 10 + cl); ctx.lineTo(10, 10); ctx.lineTo(10 + cl, 10);
+          ctx.moveTo(w - 10 - cl, 10); ctx.lineTo(w - 10, 10); ctx.lineTo(w - 10, 10 + cl);
+          ctx.moveTo(10, h - 10 - cl); ctx.lineTo(10, h - 10); ctx.lineTo(10 + cl, h - 10);
+          ctx.moveTo(w - 10 - cl, h - 10); ctx.lineTo(w - 10, h - 10); ctx.lineTo(w - 10, h - 10 - cl);
+          ctx.stroke();
+          ctx.restore();
+        });
+        break;
+      }
+      case "matrix-digital-rain": {
+        domFilters.push(`contrast(1.2) hue-rotate(85deg)`);
+        overlayStyle = {
+          background: `linear-gradient(180deg, rgba(34, 197, 94, ${0.15 * i}) 0%, transparent 40%, rgba(22, 101, 52, ${0.25 * i}) 100%)`,
+          pointerEvents: "none",
+        };
+        canvasOverlays.push((ctx, w, h) => {
+          ctx.save();
+          const cols = 24;
+          const colW = w / cols;
+          for (let c = 0; c < cols; c++) {
+            const speed = 150 + ((c * 37) % 100);
+            const dropY = ((currentTime * speed + c * 80) % (h + 120)) - 60;
+            const grad = ctx.createLinearGradient(0, dropY - 80, 0, dropY);
+            grad.addColorStop(0, "transparent");
+            grad.addColorStop(0.85, `rgba(34, 197, 94, ${0.45 * i})`);
+            grad.addColorStop(1, `rgba(220, 252, 231, ${0.9 * i})`);
+            ctx.fillStyle = grad;
+            ctx.fillRect(c * colW + 2, Math.max(0, dropY - 80), colW - 4, 80);
+            // Glyph head dot
+            ctx.fillStyle = `rgba(255, 255, 255, ${0.95 * i})`;
+            ctx.fillRect(c * colW + 2, dropY, colW - 4, 3);
+          }
+          ctx.restore();
+        });
+        break;
+      }
+      case "aurora-borealis": {
+        domFilters.push(`saturate(${1 + 0.3 * i}) contrast(${1 + 0.1 * i})`);
+        overlayStyle = {
+          background: `radial-gradient(ellipse at 50% 0%, rgba(16, 185, 129, ${0.35 * i}) 0%, rgba(139, 92, 246, ${0.25 * i}) 45%, transparent 80%)`,
+          mixBlendMode: "screen",
+          pointerEvents: "none",
+        };
+        canvasOverlays.push((ctx, w, h) => {
+          ctx.save();
+          ctx.globalCompositeOperation = "screen";
+          const waves = 3;
+          for (let j = 0; j < waves; j++) {
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            for (let x = 0; x <= w; x += 10) {
+              const y = 20 + j * 35 + Math.sin(x * 0.015 + currentTime * 2 + j) * 25 + Math.cos(x * 0.03 - currentTime) * 15;
+              ctx.lineTo(x, y);
+            }
+            ctx.lineTo(w, 0);
+            ctx.closePath();
+            const grad = ctx.createLinearGradient(0, 0, 0, h * 0.55);
+            if (j === 0) {
+              grad.addColorStop(0, `rgba(16, 185, 129, ${0.5 * i})`);
+              grad.addColorStop(1, "transparent");
+            } else if (j === 1) {
+              grad.addColorStop(0, `rgba(6, 182, 212, ${0.4 * i})`);
+              grad.addColorStop(1, "transparent");
+            } else {
+              grad.addColorStop(0, `rgba(168, 85, 247, ${0.35 * i})`);
+              grad.addColorStop(1, "transparent");
+            }
+            ctx.fillStyle = grad;
+            ctx.fill();
+          }
+          ctx.restore();
+        });
+        break;
+      }
+      case "golden-dust": {
+        domFilters.push(`brightness(${1 + 0.05 * i}) contrast(${1 + 0.08 * i})`);
+        overlayStyle = {
+          background: `radial-gradient(circle at center, rgba(245, 158, 11, ${0.18 * i}) 0%, transparent 75%)`,
+          pointerEvents: "none",
+        };
+        canvasOverlays.push((ctx, w, h) => {
+          ctx.save();
+          const count = 30;
+          for (let p = 0; p < count; p++) {
+            const seed = p * 137.5;
+            const px = ((seed * 11 + currentTime * (15 + (p % 10))) % w);
+            const py = ((seed * 17 - currentTime * (20 + (p % 12))) % h + h) % h;
+            const size = 1.5 + (p % 4) * 1.5;
+            const alpha = (0.3 + Math.sin(currentTime * 4 + p) * 0.3) * i;
+            // Golden bokeh circle
+            const grad = ctx.createRadialGradient(px, py, 0, px, py, size * 2.5);
+            grad.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
+            grad.addColorStop(0.4, `rgba(245, 158, 11, ${alpha * 0.8})`);
+            grad.addColorStop(1, "transparent");
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(px, py, size * 2.5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.restore();
+        });
+        break;
+      }
+      case "electric-sparks": {
+        const hasArc = Math.sin(currentTime * 20) > 0.4;
+        if (hasArc) {
+          const jx = (Math.random() - 0.5) * 4 * i;
+          const jy = (Math.random() - 0.5) * 4 * i;
+          domTransforms.push(`translate(${jx}px, ${jy}px)`);
+        }
+        domFilters.push(`contrast(${1 + 0.25 * i}) brightness(${1 + 0.12 * i})`);
+        overlayStyle = {
+          boxShadow: hasArc ? `inset 0 0 30px rgba(56, 189, 248, ${0.4 * i})` : undefined,
+          pointerEvents: "none",
+        };
+        canvasOverlays.push((ctx, w, h) => {
+          if (!hasArc) return;
+          ctx.save();
+          ctx.strokeStyle = `rgba(56, 189, 248, ${0.85 * i})`;
+          ctx.lineWidth = 2.5;
+          ctx.shadowColor = "#38bdf8";
+          ctx.shadowBlur = 10;
+          // Draw lightning bolt
+          const startX = Math.random() * w;
+          const startY = Math.random() < 0.5 ? 0 : h;
+          let curX = startX;
+          let curY = startY;
+          ctx.beginPath();
+          ctx.moveTo(curX, curY);
+          const segments = 6;
+          for (let s = 0; s < segments; s++) {
+            curX += (Math.random() - 0.5) * 60;
+            curY += (startY === 0 ? 1 : -1) * (h / (segments + 2));
+            ctx.lineTo(curX, curY);
+          }
+          ctx.stroke();
+
+          // Yellow core
+          ctx.strokeStyle = `rgba(254, 240, 138, ${0.9 * i})`;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+          ctx.restore();
+        });
+        break;
+      }
+      case "rgb-echo": {
+        const shiftX = Math.sin(currentTime * 8) * 8 * i;
+        const shiftY = Math.cos(currentTime * 6) * 6 * i;
+        domFilters.push(`drop-shadow(${shiftX}px 0 0 rgba(239,68,68,0.5)) drop-shadow(${-shiftX}px 0 0 rgba(6,182,212,0.5))`);
+        overlayStyle = {
+          mixBlendMode: "screen",
+          pointerEvents: "none",
+        };
+        canvasOverlays.push((ctx, w, h) => {
+          ctx.save();
+          ctx.strokeStyle = `rgba(239, 68, 68, ${0.3 * i})`;
+          ctx.lineWidth = 2;
+          ctx.strokeRect(shiftX + 4, shiftY + 4, w - 8, h - 8);
+          ctx.strokeStyle = `rgba(6, 182, 212, ${0.3 * i})`;
+          ctx.strokeRect(-shiftX + 4, -shiftY + 4, w - 8, h - 8);
+          ctx.restore();
+        });
+        break;
+      }
       default:
         break;
     }

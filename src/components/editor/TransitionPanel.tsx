@@ -2,8 +2,9 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useMedia, TransitionType } from "@/context/MediaContext";
 import { 
   X, Check, Eye, EyeOff, Wand2, 
-  Search, Compass, Layers
+  Search, Compass, Layers, Clock, CheckCheck, Sliders
 } from "lucide-react";
+import { toast } from "sonner";
 import { t, getLang } from "@/lib/i18n";
 import { playSfx } from "@/lib/soundFx";
 import { 
@@ -518,6 +519,177 @@ function renderFrame(
       break;
     }
 
+    case "liquid-melt": {
+      drawCover(ctx, imgA, gradA, w, h);
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(w, 0);
+      const dripProgress = Math.min(1, p * 1.25);
+      const baseY = h * dripProgress;
+      for (let x = w; x >= 0; x -= 4) {
+        const wave = Math.sin(x * 0.08 + p * 10) * 12 * (1 - dripProgress * 0.5);
+        ctx.lineTo(x, Math.min(h, baseY + wave));
+      }
+      ctx.closePath();
+      ctx.clip();
+      drawCover(ctx, imgB, gradB, w, h);
+      ctx.restore();
+
+      if (p < 0.9) {
+        ctx.strokeStyle = "rgba(6, 182, 212, 0.7)";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        const bY = h * Math.min(1, p * 1.25);
+        for (let x = 0; x <= w; x += 4) {
+          const wY = bY + Math.sin(x * 0.08 + p * 10) * 12;
+          if (x === 0) ctx.moveTo(x, wY);
+          else ctx.lineTo(x, wY);
+        }
+        ctx.stroke();
+      }
+      break;
+    }
+
+    case "cross-zoom": {
+      if (p < 0.5) {
+        const zP = p * 2;
+        const scale = 1 + zP * 1.5;
+        ctx.save();
+        ctx.translate(w / 2, h / 2);
+        ctx.scale(scale, scale);
+        ctx.translate(-w / 2, -h / 2);
+        drawCover(ctx, imgA, gradA, w, h);
+        ctx.restore();
+      } else {
+        const zP = (p - 0.5) * 2;
+        const scale = 2.5 - zP * 1.5;
+        ctx.save();
+        ctx.translate(w / 2, h / 2);
+        ctx.scale(scale, scale);
+        ctx.translate(-w / 2, -h / 2);
+        drawCover(ctx, imgB, gradB, w, h);
+        ctx.restore();
+      }
+      const flashAlpha = Math.sin(p * Math.PI) * 0.85;
+      if (flashAlpha > 0.02) {
+        const rad = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w * 0.6);
+        rad.addColorStop(0, `rgba(255, 255, 255, ${flashAlpha})`);
+        rad.addColorStop(0.5, `rgba(245, 158, 11, ${flashAlpha * 0.5})`);
+        rad.addColorStop(1, "transparent");
+        ctx.fillStyle = rad;
+        ctx.fillRect(0, 0, w, h);
+      }
+      break;
+    }
+
+    case "glitch-rgb-shatter": {
+      drawCover(ctx, p < 0.5 ? imgA : imgB, p < 0.5 ? gradA : gradB, w, h);
+      const intensity = Math.sin(p * Math.PI);
+      if (intensity > 0.05) {
+        const slices = 6;
+        for (let i = 0; i < slices; i++) {
+          const sy = (h / slices) * i;
+          const sh = h / slices;
+          const shift = (Math.sin(i * 3 + p * 20) * 18) * intensity;
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(0, sy, w, sh);
+          ctx.clip();
+          ctx.translate(shift, 0);
+          drawCover(ctx, imgB, gradB, w, h);
+          ctx.restore();
+        }
+        ctx.fillStyle = `rgba(239, 68, 68, ${intensity * 0.3})`;
+        ctx.fillRect(0, h * 0.25, w, 8);
+        ctx.fillStyle = `rgba(6, 182, 212, ${intensity * 0.3})`;
+        ctx.fillRect(0, h * 0.65, w, 8);
+      }
+      break;
+    }
+
+    case "burn-film": {
+      drawCover(ctx, imgA, gradA, w, h);
+      ctx.save();
+      const burnProgress = Math.min(1, p * 1.3);
+      const burnR = burnProgress * Math.sqrt(w * w + h * h) * 0.7;
+      ctx.beginPath();
+      ctx.arc(w / 2, h / 2, burnR, 0, Math.PI * 2);
+      ctx.clip();
+      drawCover(ctx, imgB, gradB, w, h);
+      ctx.restore();
+
+      const edgeAlpha = Math.sin(p * Math.PI) * 0.9;
+      if (edgeAlpha > 0.05) {
+        ctx.strokeStyle = `rgba(249, 115, 22, ${edgeAlpha})`;
+        ctx.lineWidth = 10;
+        ctx.beginPath();
+        ctx.arc(w / 2, h / 2, Math.max(1, burnR), 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.strokeStyle = `rgba(255, 255, 255, ${edgeAlpha * 0.8})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(w / 2, h / 2, Math.max(1, burnR), 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      break;
+    }
+
+    case "kaleido-spin": {
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(0, 0, w, h);
+      const angle = p * Math.PI;
+      const segments = 6;
+      ctx.save();
+      ctx.translate(w / 2, h / 2);
+      for (let s = 0; s < segments; s++) {
+        ctx.save();
+        ctx.rotate(angle + (s * (Math.PI * 2)) / segments);
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(w, 0);
+        ctx.lineTo(w, h / 2);
+        ctx.closePath();
+        ctx.clip();
+        ctx.translate(-w / 2, -h / 2);
+        drawCover(ctx, p < 0.5 ? imgA : imgB, p < 0.5 ? gradA : gradB, w, h);
+        ctx.restore();
+      }
+      ctx.restore();
+      break;
+    }
+
+    case "heart-zoom": {
+      drawCover(ctx, imgA, gradA, w, h);
+      const scale = p * 1.6;
+      ctx.save();
+      ctx.translate(w / 2, h / 2);
+      ctx.scale(scale, scale);
+      ctx.translate(-12, -12);
+      ctx.beginPath();
+      const heartPath = new Path2D("M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z");
+      ctx.clip(heartPath);
+      ctx.translate(12, 12);
+      ctx.scale(1 / (scale || 0.001), 1 / (scale || 0.001));
+      ctx.translate(-w / 2, -h / 2);
+      drawCover(ctx, imgB, gradB, w, h);
+      ctx.restore();
+
+      const heartAlpha = Math.sin(p * Math.PI) * 0.8;
+      if (heartAlpha > 0.05) {
+        ctx.save();
+        ctx.translate(w / 2, h / 2);
+        ctx.scale(scale, scale);
+        ctx.translate(-12, -12);
+        ctx.strokeStyle = `rgba(236, 72, 153, ${heartAlpha})`;
+        ctx.lineWidth = 1.5;
+        ctx.stroke(heartPath);
+        ctx.restore();
+      }
+      break;
+    }
+
     default:
       drawCover(ctx, imgA, gradA, w, h);
       break;
@@ -623,7 +795,7 @@ export const TransitionPanel = ({ open, clipId, onClose }: Props) => {
   const clip = clips.find((c) => c.id === clipId);
 
   const [selected, setSelected] = useState<TransitionType>("gsap-elastic-zoom");
-  const [duration] = useState(0.5);
+  const [duration, setDuration] = useState(0.5);
   const [selectedCategory, setSelectedCategory] = useState<TransitionCategory | "all">("trending");
   const [searchQuery, setSearchQuery] = useState("");
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -637,8 +809,12 @@ export const TransitionPanel = ({ open, clipId, onClose }: Props) => {
   useEffect(() => {
     if (clip?.transitionIn) {
       setSelected(clip.transitionIn.type);
+      if (typeof clip.transitionIn.duration === "number" && clip.transitionIn.duration > 0) {
+        setDuration(clip.transitionIn.duration);
+      }
     } else {
       setSelected("gsap-elastic-zoom");
+      setDuration(0.5);
     }
   }, [clipId, clip?.transitionIn]);
 
@@ -652,6 +828,26 @@ export const TransitionPanel = ({ open, clipId, onClose }: Props) => {
   const selectedMetadata = useMemo(() => {
     return TRANSITIONS_DATA.find((tr) => tr.id === selected) || TRANSITIONS_DATA[0];
   }, [selected]);
+
+  const handleDurationChange = (val: number) => {
+    const rounded = Math.round(val * 10) / 10;
+    setDuration(rounded);
+    if (clip && selected && selected !== "none") {
+      setTransition(clip.id, { type: selected, duration: rounded });
+    }
+  };
+
+  const applyToAllClips = () => {
+    playSfx("success");
+    clips.forEach((c) => {
+      setTransition(c.id, { type: selected, duration });
+    });
+    toast.success(
+      en
+        ? `Applied "${selectedMetadata.labelEn}" (${duration}s) to all clips!`
+        : `تم تطبيق انتقال "${selectedMetadata.labelAr}" (${duration} ثانية) على جميع المقاطع!`
+    );
+  };
 
   // Filter transitions based on selected category & search query
   const filteredTransitions = useMemo(() => {
@@ -699,6 +895,7 @@ export const TransitionPanel = ({ open, clipId, onClose }: Props) => {
             <span className="text-primary font-extrabold flex items-center gap-1">
               <span>{selectedMetadata.emoji}</span>
               <span>{en ? selectedMetadata.labelEn : selectedMetadata.labelAr}</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary font-mono">{duration.toFixed(1)}s</span>
             </span>
           </span>
 
@@ -843,6 +1040,84 @@ export const TransitionPanel = ({ open, clipId, onClose }: Props) => {
               </button>
             );
           })}
+        </div>
+
+        {/* Transition Duration Control Bar (شريط التحكم بمدة ظهور الانتقال بين المقاطع) */}
+        <div className="bg-secondary/40 border border-border/80 rounded-2xl p-3 mb-3.5 backdrop-blur-md shadow-inner flex flex-col gap-2.5">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+                <Clock className="w-4 h-4 text-primary" />
+              </div>
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-xs font-bold text-foreground">
+                  {en ? "Transition Duration:" : "مدة ظهور الانتقال:"}
+                </span>
+                <span className="text-xs font-black text-primary px-2 py-0.5 rounded-md bg-primary/15 border border-primary/25 font-mono">
+                  {duration.toFixed(1)} {en ? "s" : "ثانية"}
+                </span>
+              </div>
+            </div>
+
+            {/* Apply to All Clips Button */}
+            <button
+              onClick={applyToAllClips}
+              className="px-3 py-1 rounded-xl bg-background/80 hover:bg-background border border-border hover:border-primary/50 text-foreground text-[11px] font-semibold flex items-center gap-1.5 transition-all active:scale-95 shadow-xs"
+              title={en ? "Apply this transition & duration to all clips" : "تطبيق هذا الانتقال والمدة على جميع المقاطع في المشروع"}
+            >
+              <CheckCheck className="w-3.5 h-3.5 text-primary" />
+              <span>{en ? "Apply to All Clips" : "تطبيق على جميع المقاطع"}</span>
+            </button>
+          </div>
+
+          {/* Slider Bar */}
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] font-mono text-muted-foreground shrink-0 font-medium">0.1s</span>
+            <div className="relative flex-1 flex items-center">
+              <input
+                type="range"
+                min="0.1"
+                max={Math.min(3.0, Math.max(1.5, Math.round((clip?.duration || 4.0) * 10) / 10))}
+                step="0.1"
+                value={duration}
+                onChange={(e) => handleDurationChange(parseFloat(e.target.value))}
+                className="w-full h-2 rounded-lg bg-background/90 accent-primary cursor-pointer transition-all hover:brightness-110"
+              />
+            </div>
+            <span className="text-[10px] font-mono text-muted-foreground shrink-0 font-medium">
+              {Math.min(3.0, Math.max(1.5, Math.round((clip?.duration || 4.0) * 10) / 10))}s
+            </span>
+          </div>
+
+          {/* Quick Duration Preset Chips */}
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-0.5">
+            <span className="text-[10px] text-muted-foreground font-medium shrink-0 flex items-center gap-1">
+              <Sliders className="w-3 h-3" />
+              {en ? "Presets:" : "سرعات جاهزة:"}
+            </span>
+            {[
+              { val: 0.2, labelAr: "0.2ث خاطف", labelEn: "0.2s Fast" },
+              { val: 0.5, labelAr: "0.5ث متوازن", labelEn: "0.5s Default" },
+              { val: 0.8, labelAr: "0.8ث انسيابي", labelEn: "0.8s Smooth" },
+              { val: 1.2, labelAr: "1.2ث سينمائي", labelEn: "1.2s Cinema" },
+              { val: 1.8, labelAr: "1.8ث بطيء", labelEn: "1.8s Slow" },
+            ].map((preset) => {
+              const isSelected = Math.abs(duration - preset.val) < 0.05;
+              return (
+                <button
+                  key={preset.val}
+                  onClick={() => { playSfx("click"); handleDurationChange(preset.val); }}
+                  className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold whitespace-nowrap transition-all active:scale-95 ${
+                    isSelected
+                      ? "bg-primary text-primary-foreground font-bold shadow-xs"
+                      : "bg-background/60 hover:bg-background text-muted-foreground hover:text-foreground border border-border/60"
+                  }`}
+                >
+                  {en ? preset.labelEn : preset.labelAr}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* Transitions Grid */}

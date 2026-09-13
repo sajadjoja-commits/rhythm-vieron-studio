@@ -492,6 +492,12 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
         case "dream": parts.push(`blur(${i * 0.4}px) brightness(${1 + i * 0.15}) saturate(${1 + i * 0.3}) contrast(${1 - i * 0.1})`); break;
         case "neon": parts.push(`saturate(${1 + i * 0.8}) contrast(${1 + i * 0.4}) hue-rotate(${i * 60}deg) brightness(${1 + i * 0.1})`); break;
         case "sepia-blue": parts.push(`sepia(${i * 0.5}) hue-rotate(${i * 180}deg) saturate(${1 + i * 0.3})`); break;
+        case "cyberpunk-teal-orange": parts.push(`contrast(${1 + i * 0.25}) saturate(${1 + i * 0.35}) hue-rotate(${-12 * i}deg) sepia(${i * 0.22})`); break;
+        case "emerald-forest": parts.push(`hue-rotate(${25 * i}deg) saturate(${1 + i * 0.4}) contrast(${1 + i * 0.15}) brightness(${1 - i * 0.04})`); break;
+        case "golden-hour": parts.push(`sepia(${i * 0.42}) saturate(${1 + i * 0.45}) contrast(${1 + i * 0.1}) brightness(${1 + i * 0.08})`); break;
+        case "vaporwave-pastel": parts.push(`hue-rotate(${300 * i}deg) saturate(${1 + i * 0.35}) contrast(${1 + i * 0.08}) brightness(${1 + i * 0.06})`); break;
+        case "polaroid-matte": parts.push(`contrast(${1 - i * 0.1}) brightness(${1 + i * 0.12}) sepia(${i * 0.2}) saturate(${1 - i * 0.15})`); break;
+        case "monochrome-red": parts.push(`grayscale(${i * 0.75}) sepia(${i * 0.35}) hue-rotate(${320 * i}deg) contrast(${1 + i * 0.4}) brightness(${1 - i * 0.05})`); break;
       }
 
       // 2. Custom Fine-tuning Slider Adjustments

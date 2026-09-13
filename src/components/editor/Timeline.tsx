@@ -29,7 +29,8 @@ const TRANSITION_ICON: Record<TransitionType, string> = {
   "whip-pan": "💨", "zoom-blur": "🌀", "glitch-slice": "⚡", "page-flip": "📖",
   "gsap-elastic-zoom": "🚀", "gsap-3d-flip": "💎", "gsap-stagger-wipe": "🪄", "gsap-elastic-bounce": "⚡",
   "sun-flare": "☀️", "light-leak": "🌅", "brush-paint": "🖌️", "bokeh-blur": "🎭",
-  "cinematic-bars": "🎬", "cube-rotate": "📦", "color-flow": "🌈", "retro-pixel": "👾", "star-warp": "⭐"
+  "cinematic-bars": "🎬", "cube-rotate": "📦", "color-flow": "🌈", "retro-pixel": "👾", "star-warp": "⭐",
+  "liquid-melt": "💧", "cross-zoom": "💥", "glitch-rgb-shatter": "⚡", "burn-film": "🔥", "kaleido-spin": "🌀", "heart-zoom": "💖"
 };
 
 const KeyframeMarkers = memo(({ clip, clipGlobalStart, pxPerSec, currentTime }: { clip: any; clipGlobalStart: number; pxPerSec: number; currentTime: number }) => {

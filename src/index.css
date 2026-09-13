@@ -270,6 +270,42 @@
 }
 .animate-fx-radar { animation-name: fx-radar; }
 
+@keyframes fx-liquid {
+  0% { transform: scale(1.1) translateY(-10%); filter: blur(14px) contrast(2.5); opacity: 0; }
+  40% { transform: scale(1.02) translateY(0%); filter: blur(6px) contrast(1.8); opacity: 0.95; }
+  100% { transform: scale(1) translateY(10%); filter: blur(0px) contrast(1); opacity: 0; }
+}
+.animate-fx-liquid { animation-name: fx-liquid; }
+
+@keyframes fx-cross-zoom {
+  0% { transform: scale(0.3); filter: brightness(2.5) contrast(1.5); opacity: 0; }
+  35% { transform: scale(1.2); filter: brightness(1.8) contrast(1.2); opacity: 1; }
+  100% { transform: scale(2.4); filter: brightness(1) contrast(1); opacity: 0; }
+}
+.animate-fx-cross-zoom { animation-name: fx-cross-zoom; }
+
+@keyframes fx-film-burn {
+  0% { opacity: 0; filter: brightness(1.2) contrast(1.5); }
+  25% { opacity: 0.95; filter: brightness(2.2) contrast(2); background-color: rgba(234, 88, 12, 0.85); }
+  60% { opacity: 0.85; filter: brightness(1.8) contrast(1.6); background-color: rgba(245, 158, 11, 0.7); }
+  100% { opacity: 0; filter: brightness(1) contrast(1); }
+}
+.animate-fx-film-burn { animation-name: fx-film-burn; }
+
+@keyframes fx-kaleido {
+  0% { transform: rotate(0deg) scale(0.6); opacity: 0; filter: hue-rotate(0deg) contrast(1.5); }
+  45% { transform: rotate(90deg) scale(1.1); opacity: 0.95; filter: hue-rotate(180deg) contrast(1.8); }
+  100% { transform: rotate(180deg) scale(1.6); opacity: 0; filter: hue-rotate(360deg) contrast(1); }
+}
+.animate-fx-kaleido { animation-name: fx-kaleido; }
+
+@keyframes fx-heart {
+  0% { transform: scale(0.2); opacity: 0; }
+  45% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(2.8); opacity: 0; }
+}
+.animate-fx-heart { animation-name: fx-heart; }
+
 /* --- High-end Kinetic Video Transition Animations --- */
 
 /* 1. Zoom Punch (Scale Shockwave) */
