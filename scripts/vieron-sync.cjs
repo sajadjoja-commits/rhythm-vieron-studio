@@ -48,7 +48,7 @@ log(`Active Git SHA: ${gitSha}`);
 
 // Prepare build info that is bundled into the app.
 const buildInfo = {
-  native: '1.0.2',
+  native: '1.0.3',
   build: Date.now().toString(),
   web: `web-${gitSha}`,
   git: gitSha,
