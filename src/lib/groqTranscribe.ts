@@ -1,4 +1,4 @@
-import { aiManager } from "@/ai";
+import { transcribeLocally } from "./localTranscribe";
 
 export interface TranscribeResult {
   start: number;
@@ -11,16 +11,20 @@ export async function transcribeWithGroq(
   language?: string,
   mimeType: string = "audio/wav"
 ): Promise<TranscribeResult[]> {
-  const res = await aiManager.transcribe(audioBase64, language, {
-    language,
-    enableCache: true,
-  });
-
-  return res.captions.map((cap) => ({
-    start: cap.start,
-    end: cap.end,
-    text: cap.text,
+  // Convert base64 to Blob and transcribe locally with Whisper
+  const binary = atob(audioBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  const blob = new Blob([bytes], { type: mimeType });
+  const segments = await transcribeLocally(blob, { language });
+  return segments.map((s) => ({
+    start: s.start,
+    end: s.end,
+    text: s.text,
   }));
 }
+
 
 
