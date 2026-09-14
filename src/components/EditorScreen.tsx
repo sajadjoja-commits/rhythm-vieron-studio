@@ -3,6 +3,7 @@ import {
   ArrowRight, Play, Pause, PauseCircle, Scissors, Type, Music, Sparkles, Ratio, Download,
   Image as ImageIcon, Video, Plus, Wand2, Loader2, Palette, Activity, Layers,
   Gauge, Zap, Clapperboard, Undo2, Redo2, Eye, EyeOff, RotateCw, Diamond, Minus, Trash2, Maximize2,
+  ChevronLeft,
 } from "lucide-react";
 import { useMedia, TransitionType, Clip, interpolateKeyframes } from "@/context/MediaContext";
 import { computeVfxState } from "@/lib/vfxEngine";
@@ -77,6 +78,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
   const [showCropOverlay, setShowCropOverlay] = useState(false);
   const [compareRaw, setCompareRaw] = useState(false); // real-time compare state
   const [showFrame, setShowFrame] = useState(false);
+  const [isPanningPreview, setIsPanningPreview] = useState(false);
   const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null);
   const [mediaReady, setMediaReady] = useState(true);
   const [mediaError, setMediaError] = useState(false);
@@ -1427,6 +1429,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
       const dy = e.touches[0].clientY - panRef.current.startY;
       if (Math.hypot(dx, dy) > 8) {
         hasMovedRef.current = true;
+        setIsPanningPreview(true);
       }
       updateActiveClip({
         panX: panRef.current.panX + dx,
@@ -1438,6 +1441,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
   const onPreviewTouchEnd = useCallback(() => {
     pinchRef.current = null;
     panRef.current = null;
+    setIsPanningPreview(false);
     setTimeout(() => setShowFrame(false), 1200);
   }, []);
 
@@ -1472,6 +1476,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
       const dy = e.clientY - panRef.current.startY;
       if (Math.hypot(dx, dy) > 8) {
         hasMovedRef.current = true;
+        setIsPanningPreview(true);
       }
       updateActiveClip({
         panX: panRef.current.panX + dx,
@@ -1482,6 +1487,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
 
   const onPreviewMouseUp = useCallback(() => {
     panRef.current = null;
+    setIsPanningPreview(false);
     setTimeout(() => setShowFrame(false), 1200);
   }, []);
 
@@ -1838,9 +1844,9 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
               </div>
             )}
 
+            {/* Aspect Ratio Canvas Stage Container */}
             <div
-              ref={previewRef}
-              className={`rounded-xl overflow-hidden relative transition-all duration-200 flex items-center justify-center shadow-2xl bg-black ${showFrame ? "border-2 border-primary ring-2 ring-primary/30" : "border border-white/10"}`}
+              className="relative flex items-center justify-center select-none"
               style={{
                 aspectRatio: `${ASPECT_RATIOS[activeRatio]?.w ?? 16} / ${ASPECT_RATIOS[activeRatio]?.h ?? 9}`,
                 height: "100%",
@@ -1849,17 +1855,24 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
                 width: "auto",
                 flexGrow: 0,
                 flexShrink: 1,
-                ...getPreviewBgStyle(),
               }}
-              onTouchStart={onPreviewTouchStart}
-              onTouchMove={onPreviewTouchMove}
-              onTouchEnd={onPreviewTouchEnd}
-              onMouseDown={onPreviewMouseDown}
-              onMouseMove={onPreviewMouseMove}
-              onMouseUp={onPreviewMouseUp}
-              onMouseLeave={onPreviewMouseUp}
-              onWheel={onPreviewWheel}
             >
+              {/* Inner Clipped Canvas: clips video & media content strictly to export ratio */}
+              <div
+                ref={previewRef}
+                className="w-full h-full rounded-xl overflow-hidden relative transition-all duration-200 flex items-center justify-center shadow-2xl bg-black border border-white/20"
+                style={{
+                  ...getPreviewBgStyle(),
+                }}
+                onTouchStart={onPreviewTouchStart}
+                onTouchMove={onPreviewTouchMove}
+                onTouchEnd={onPreviewTouchEnd}
+                onMouseDown={onPreviewMouseDown}
+                onMouseMove={onPreviewMouseMove}
+                onMouseUp={onPreviewMouseUp}
+                onMouseLeave={onPreviewMouseUp}
+                onWheel={onPreviewWheel}
+              >
               {/* Blurred Mirror Background Layer for Social Media / YouTube framing */}
               {fitMode === "blur" && activeMedia && (
                 <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-50 scale-125 blur-xl select-none">
@@ -2106,51 +2119,6 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
               {activeVfxStyle.overlayStyle && (
                 <div data-vfx-overlay className="absolute inset-0 pointer-events-none z-10" style={activeVfxStyle.overlayStyle} />
               )}
-              {/* Frame border overlay when pinching/transforming */}
-              {showFrame && (
-                <div className="absolute inset-0 pointer-events-none z-30 transition-all duration-150">
-                  {/* Transformed Bounding Box Frame */}
-                  <div
-                    className="absolute inset-0 border-2 border-cyan-400 shadow-[0_0_16px_rgba(6,182,212,0.65)] rounded-xl"
-                    style={{
-                      transform: `scale(${activeScale}) translate(${activePan.x / activeScale}px, ${activePan.y / activeScale}px) rotate(${activeRotation}deg)`,
-                      transformOrigin: "center center",
-                    }}
-                  >
-                    {/* 4 Corner Handle Dots */}
-                    <div className="absolute -top-1.5 -left-1.5 w-3.5 h-3.5 rounded-full bg-cyan-400 border-2 border-white shadow-md" />
-                    <div className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 rounded-full bg-cyan-400 border-2 border-white shadow-md" />
-                    <div className="absolute -bottom-1.5 -left-1.5 w-3.5 h-3.5 rounded-full bg-cyan-400 border-2 border-white shadow-md" />
-                    <div className="absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 rounded-full bg-cyan-400 border-2 border-white shadow-md" />
-
-                    {/* Rotation Degree Pill (Top Center) */}
-                    <div className="absolute -top-8 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-slate-950/90 border border-cyan-400/80 px-2.5 py-0.5 rounded-full shadow-xl">
-                      <RotateCw className="w-3 h-3 text-cyan-300" />
-                      <span className="text-[10px] text-cyan-200 font-extrabold font-mono">
-                        {Math.round(activeRotation)}°
-                      </span>
-                    </div>
-
-                    {/* Scale Percentage Pill (Bottom Center) */}
-                    {Math.round(activeScale * 100) !== 100 && (
-                      <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-slate-950/90 border border-cyan-400/80 px-2.5 py-0.5 rounded-full shadow-xl">
-                        <Maximize2 className="w-3 h-3 text-cyan-300" />
-                        <span className="text-[10px] text-cyan-200 font-extrabold font-mono">
-                          {Math.round(activeScale * 100)}%
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Center Alignment Snap Lines */}
-                  {Math.abs(activePan.x) < 8 && (
-                    <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-0.5 bg-cyan-400 border-r border-dashed border-cyan-200 shadow-[0_0_8px_rgba(6,182,212,0.9)] z-40" />
-                  )}
-                  {Math.abs(activePan.y) < 8 && (
-                    <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-0.5 bg-cyan-400 border-b border-dashed border-cyan-200 shadow-[0_0_8px_rgba(6,182,212,0.9)] z-40" />
-                  )}
-                </div>
-              )}
               {resolved && (
                 <TransitionFx
                   triggerKey={resolved.clip.id}
@@ -2160,6 +2128,72 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
               )}
               <CaptionOverlay currentTime={currentTime} />
             </div>
+
+            {/* Extended CapCut-style Transform Bounding Box (Visible outside canvas when video clip is selected or zoomed) */}
+            {(focusedTrack === "video" || showFrame) && !isPlaying && Boolean(resolved?.clip) && (
+              <div
+                className="absolute inset-0 pointer-events-none z-30 transition-all duration-150"
+                style={{
+                  transform: `scale(${activeScale}) translate(${activePan.x / activeScale}px, ${activePan.y / activeScale}px) rotate(${activeRotation}deg)`,
+                  transformOrigin: "center center",
+                }}
+              >
+                {/* Bounding Box Frame with Cyan glow, corner handles, and outer tint */}
+                <div className="absolute inset-0 border-2 border-cyan-400 shadow-[0_0_16px_rgba(6,182,212,0.65)] rounded-xl bg-cyan-400/[0.04]">
+                  {/* 4 Corner Handle Dots */}
+                  <div className="absolute -top-1.5 -left-1.5 w-3.5 h-3.5 rounded-full bg-white border-2 border-cyan-400 shadow-md" />
+                  <div className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 rounded-full bg-white border-2 border-cyan-400 shadow-md" />
+                  <div className="absolute -bottom-1.5 -left-1.5 w-3.5 h-3.5 rounded-full bg-white border-2 border-cyan-400 shadow-md" />
+                  <div className="absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 rounded-full bg-white border-2 border-cyan-400 shadow-md" />
+
+                  {/* Mid-edge ticks */}
+                  <div className="absolute top-1/2 -left-1 -translate-y-1/2 w-2 h-0.5 bg-white rounded-full shadow" />
+                  <div className="absolute top-1/2 -right-1 -translate-y-1/2 w-2 h-0.5 bg-white rounded-full shadow" />
+                  <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-0.5 h-2 bg-white rounded-full shadow" />
+                  <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-0.5 h-2 bg-white rounded-full shadow" />
+
+                  {/* Rotation Degree Pill (Top Center) */}
+                  {Math.round(activeRotation) !== 0 && (
+                    <div className="absolute -top-8 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-slate-950/90 border border-cyan-400/80 px-2.5 py-0.5 rounded-full shadow-xl pointer-events-auto">
+                      <RotateCw className="w-3 h-3 text-cyan-300" />
+                      <span className="text-[10px] text-cyan-200 font-extrabold font-mono">
+                        {Math.round(activeRotation)}°
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Scale Percentage & Reset Pill (Bottom Center) */}
+                  <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-slate-950/90 border border-cyan-400/80 px-2.5 py-0.5 rounded-full shadow-xl pointer-events-auto whitespace-nowrap">
+                    <Maximize2 className="w-3 h-3 text-cyan-300" />
+                    <span className="text-[10px] text-cyan-200 font-extrabold font-mono">
+                      {Math.round(activeScale * 100)}%
+                    </span>
+                    {(Math.round(activeScale * 100) !== 100 || activePan.x !== 0 || activePan.y !== 0 || Math.round(activeRotation) !== 0) && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          updateActiveClip({ scale: 1, panX: 0, panY: 0, rotation: 0 });
+                        }}
+                        className="hover:text-white transition-colors ms-1 text-[9px] text-cyan-300 underline font-sans cursor-pointer"
+                        title={isRTL() ? "إعادة الضبط" : "Reset"}
+                      >
+                        {isRTL() ? "إعادة ضبط" : "Reset"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Center Alignment Snap Lines - ONLY visible while user is actively moving/panning video in preview */}
+                {isPanningPreview && Math.abs(activePan.x) < 8 && (
+                  <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-0.5 bg-cyan-400 border-r border-dashed border-cyan-200 shadow-[0_0_8px_rgba(6,182,212,0.9)] z-40" />
+                )}
+                {isPanningPreview && Math.abs(activePan.y) < 8 && (
+                  <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-0.5 bg-cyan-400 border-b border-dashed border-cyan-200 shadow-[0_0_8px_rgba(6,182,212,0.9)] z-40" />
+                )}
+              </div>
+            )}
+          </div>
           </div>
         )}
       </div>
@@ -2277,8 +2311,16 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
 
         {/* All tracks in a scrollable area with unified playhead */}
         {hasMedia && (
-          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden touch-pan-y overscroll-y-contain" ref={tracksContainerRef}>
-            <div className="relative min-h-full">
+          <div 
+            className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden touch-pan-y overscroll-y-contain" 
+            ref={tracksContainerRef}
+            onPointerDown={(e) => {
+              if (e.target === e.currentTarget || (e.target as HTMLElement).getAttribute("data-tracks-bg")) {
+                setFocusedTrack(null);
+              }
+            }}
+          >
+            <div className="relative min-h-full" data-tracks-bg="true">
               {/* Unified playhead line — spans all tracks and dynamically stretches as new tracks are added */}
               <div className="pointer-events-none absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-0.5 bg-primary z-40">
                 <div className="w-3 h-3 -ml-[5px] -mt-0.5 rounded-full bg-primary glow-primary-sm sticky top-0" />
@@ -2297,6 +2339,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
                   onPxPerSecChange={setPxPerSec}
                   focused={focusedTrack === "video"}
                   onFocus={onVideoTrackFocus}
+                  onDeselect={() => setFocusedTrack(null)}
                   hidePlayhead
                   onOpenCover={() => { setTool(tool === "cover" ? null : "cover"); }}
                 />
@@ -2348,6 +2391,19 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
         {/* Scrollable Tools Bar */}
         <div className="flex-shrink-0 border-t border-border">
           <div className="flex overflow-x-auto no-scrollbar gap-1.5 px-2 py-2">
+            {/* CapCut-style Deselect / Back Button when a track is focused */}
+            {focusedTrack !== null && (
+              <button
+                type="button"
+                onClick={() => setFocusedTrack(null)}
+                className="flex flex-col items-center justify-center gap-1 py-2 px-3 rounded-2xl flex-shrink-0 min-w-[54px] bg-secondary/80 hover:bg-secondary text-foreground active:scale-95 border border-border/60 transition-all shadow-xs"
+                title={isRTL() ? "إلغاء تحديد المسار / رجوع" : "Deselect track / Back"}
+              >
+                <ChevronLeft className={`w-6 h-6 ${isRTL() ? "rotate-180" : ""}`} />
+                <span className="text-[10px] font-semibold whitespace-nowrap">{isRTL() ? "رجوع" : "Back"}</span>
+              </button>
+            )}
+
             {tools.map((toolItem) => {
               const isDelete = toolItem.id === "delete";
               const isDeleteEnabled = isDelete && !!deletableItem;
