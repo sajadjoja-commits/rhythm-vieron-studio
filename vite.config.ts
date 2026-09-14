@@ -1,7 +1,38 @@
-import { defineConfig } from "vite";
+import { defineConfig, Plugin } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
+import fs from "fs";
 import { VitePWA } from "vite-plugin-pwa";
+
+/**
+ * Return true 404 for missing models/wasm/data files instead of SPA HTML fallback
+ */
+function missingStaticAssets404Plugin(): Plugin {
+  return {
+    name: "missing-static-assets-404",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const rawUrl = req.url || "";
+        const pathname = rawUrl.split("?")[0];
+        if (
+          pathname.startsWith("/models/") ||
+          pathname.startsWith("/wasm/") ||
+          /\.(json|wasm|onnx|bin|safetensors|pt)$/i.test(pathname)
+        ) {
+          const cleanPath = pathname.replace(/^\/+/, "");
+          const publicFile = path.resolve(__dirname, "public", cleanPath);
+          if (!fs.existsSync(publicFile)) {
+            res.statusCode = 404;
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({ error: "Static asset not found", path: pathname }));
+            return;
+          }
+        }
+        next();
+      });
+    },
+  };
+}
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
@@ -13,6 +44,7 @@ export default defineConfig(({ mode }) => ({
     },
   },
   plugins: [
+    missingStaticAssets404Plugin(),
     react(),
     VitePWA({
       registerType: "autoUpdate",
@@ -31,9 +63,11 @@ export default defineConfig(({ mode }) => ({
         navigateFallback: "/index.html",
         navigateFallbackDenylist: [
           /^\/api/,
+          /^\/models\//,
+          /^\/wasm\//,
           /^\/src\//,
           /^\/@/,
-          /\.(js|ts|tsx|jsx|json|css)$/i,
+          /\.(js|ts|tsx|jsx|json|css|wasm|onnx|bin|safetensors|pt)$/i,
           /^https:\/\/huggingface\.co/,
           /^https:\/\/hf-mirror\.com/
         ],

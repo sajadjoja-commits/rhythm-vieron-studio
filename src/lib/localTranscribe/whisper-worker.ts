@@ -9,7 +9,7 @@
 import { pipeline, env } from "@xenova/transformers";
 
 // Configure Transformers.js environment for local & offline execution
-env.allowLocalModels = true;
+env.allowLocalModels = false;
 env.allowRemoteModels = true;
 
 // Direct WASM binaries to local app assets to prevent unpkg/external CDN failures
@@ -77,9 +77,17 @@ async function checkLocalModelExists(modelDir: string): Promise<{ exists: boolea
   for (const base of candidateBases) {
     try {
       const url = `${base}${modelDir}/config.json`;
-      const res = await fetch(url, { method: "HEAD", cache: "no-store" });
-      if (res.ok) {
-        return { exists: true, localPath: base };
+      const res = await fetch(url, { method: "GET", cache: "no-store" });
+      const contentType = (res.headers.get("content-type") || "").toLowerCase();
+      // If server returned index.html or not ok, it is NOT a valid model JSON
+      if (res.ok && !contentType.includes("text/html")) {
+        const text = await res.text();
+        if (text.trim().startsWith("{")) {
+          const json = JSON.parse(text);
+          if (json && (json.model_type || json._name_or_path || json.architectures)) {
+            return { exists: true, localPath: base };
+          }
+        }
       }
     } catch {
       // Continue to next candidate path
@@ -113,7 +121,7 @@ async function getTranscriber(
   // 1. Android-native or bundled local model path
   const localCheck = await checkLocalModelExists("whisper-base");
 
-  if (isAndroidNative || localCheck.exists) {
+  if (localCheck.exists) {
     postProgress(15, "تحميل نموذج Whisper المحلي المرفق (بدون إنترنت)...");
 
     try {
@@ -139,7 +147,8 @@ async function getTranscriber(
   }
 
   // 2. Web/PWA or fallback: Xenova/whisper-tiny from Hugging Face with mirror fallback
-  env.allowLocalModels = true;
+  // CRITICAL: Disable allowLocalModels so Transformers.js doesn't query local path and receive HTML index fallback
+  env.allowLocalModels = false;
   env.allowRemoteModels = true;
   env.remoteHost = "https://huggingface.co/";
   env.remotePathTemplate = "{model}/resolve/{revision}/";
@@ -163,6 +172,8 @@ async function getTranscriber(
   } catch (hfErr) {
     console.warn("[WhisperWorker] Primary Hugging Face host failed, trying mirror fallback...", hfErr);
     // Mirror fallback
+    env.allowLocalModels = false;
+    env.allowRemoteModels = true;
     env.remoteHost = "https://hf-mirror.com/";
     postProgress(25, "الاتصال بمرآة نموذج Whisper البديلة...");
 
