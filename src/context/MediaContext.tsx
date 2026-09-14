@@ -379,12 +379,19 @@ interface MediaContextType {
 
 const MediaContext = createContext<MediaContextType | null>(null);
 
-const getVideoDuration = (file: File): Promise<number> =>
+const getVideoMetadata = (file: File): Promise<{ duration: number; width: number; height: number }> =>
   new Promise((resolve) => {
     const video = document.createElement("video");
     video.preload = "metadata";
-    video.onloadedmetadata = () => { resolve(video.duration || 0); URL.revokeObjectURL(video.src); };
-    video.onerror = () => resolve(0);
+    video.onloadedmetadata = () => { 
+      resolve({ 
+        duration: video.duration || 0, 
+        width: video.videoWidth || 0, 
+        height: video.videoHeight || 0 
+      }); 
+      URL.revokeObjectURL(video.src); 
+    };
+    video.onerror = () => resolve({ duration: 0, width: 0, height: 0 });
     video.src = URL.createObjectURL(file);
   });
 
@@ -730,18 +737,25 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
     setClips((prev) => [...prev, ...items.map<Clip>((m) => ({ id: uid(), mediaId: m.id, in: 0, out: m.duration || 5 }))]);
     toast.success(t("toast.mediaUploaded", { n: items.length }));
     items.forEach((m) => {
-      if (m.type !== "video") return;
-      getVideoDuration(m.file).then((d) => {
-        const dur = d || 5;
-        setMedia((prev) => prev.map((x) => (x.id === m.id ? { ...x, duration: dur } : x)));
-        setClips((prev) => prev.map((c) => c.mediaId === m.id && c.in === 0 && (c.out === 5 || c.out === 0) ? { ...c, out: dur } : c));
-      });
-      if (m.file) {
-        extractVideoFrameThumbnail(m.file).then((thumb) => {
-          if (thumb) {
-            setMedia((prev) => prev.map((x) => (x.id === m.id ? { ...x, thumbnail: thumb } : x)));
-          }
+      if (m.type === "video") {
+        getVideoMetadata(m.file).then((meta) => {
+          const dur = meta.duration || 5;
+          setMedia((prev) => prev.map((x) => (x.id === m.id ? { ...x, duration: dur, width: meta.width, height: meta.height } : x)));
+          setClips((prev) => prev.map((c) => c.mediaId === m.id && c.in === 0 && (c.out === 5 || c.out === 0) ? { ...c, out: dur } : c));
         });
+        if (m.file) {
+          extractVideoFrameThumbnail(m.file).then((thumb) => {
+            if (thumb) {
+              setMedia((prev) => prev.map((x) => (x.id === m.id ? { ...x, thumbnail: thumb } : x)));
+            }
+          });
+        }
+      } else if (m.type === "image") {
+        const img = new Image();
+        img.onload = () => {
+          setMedia((prev) => prev.map((x) => (x.id === m.id ? { ...x, width: img.naturalWidth, height: img.naturalHeight } : x)));
+        };
+        img.src = m.url;
       }
     });
     return items;
@@ -779,9 +793,37 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
       const c = prev[idx];
       const splitAt = c.in + localTime;
       if (splitAt <= c.in + 0.05 || splitAt >= c.out - 0.05) { toast.error(t("toast.splitTooClose")); return prev; }
-      const left: Clip = { ...c, out: splitAt };
-      const right: Clip = { id: uid(), mediaId: c.mediaId, in: splitAt, out: c.out, speed: c.speed, scale: c.scale, panX: c.panX, panY: c.panY, flipH: c.flipH, flipV: c.flipV };
-      const next = [...prev]; next.splice(idx, 1, left, right);
+
+      // Partition keyframes between left and right clips
+      const leftKeyframes = (c.keyframes || []).filter((k) => k.time <= localTime);
+      const rightKeyframes = (c.keyframes || [])
+        .filter((k) => k.time > localTime)
+        .map((k) => ({ ...k, time: Math.max(0, k.time - localTime) }));
+
+      const left: Clip = { 
+        ...c, 
+        out: splitAt,
+        keyframes: leftKeyframes.length > 0 ? leftKeyframes : undefined,
+      };
+      const right: Clip = { 
+        id: uid(), 
+        mediaId: c.mediaId, 
+        in: splitAt, 
+        out: c.out, 
+        speed: c.speed, 
+        scale: c.scale, 
+        panX: c.panX, 
+        panY: c.panY, 
+        flipH: c.flipH, 
+        flipV: c.flipV,
+        rotation: c.rotation,
+        opacity: c.opacity,
+        volume: c.volume,
+        transitionIn: undefined, // New cut point starts clean with CapCut cut indicator
+        keyframes: rightKeyframes.length > 0 ? rightKeyframes : undefined,
+      };
+      const next = [...prev]; 
+      next.splice(idx, 1, left, right);
       toast.success(t("toast.splitDone"));
       return next;
     });

@@ -243,7 +243,11 @@ const CaptionTimeline = memo(({ currentTime, pxPerSec, containerW, isPlaying, fo
                 key={c.id}
                 data-caption-item
                 onClick={() => setSelectedId(c.id)}
-                className={`absolute rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-orange-500 text-slate-950 font-black shadow-md border border-amber-300/80 flex items-center justify-between cursor-grab overflow-hidden transition-all ${focused && isSelected ? "ring-2 ring-amber-300 ring-offset-1 ring-offset-black z-20 opacity-100" : "opacity-90 hover:opacity-100"}`}
+                className={`absolute bg-gradient-to-r from-amber-500 via-amber-400 to-orange-500 text-slate-950 font-black shadow-md flex items-center justify-between cursor-grab transition-all ${
+                  focused && isSelected
+                    ? "z-20 opacity-100 overflow-visible rounded-none"
+                    : "rounded-xl border border-amber-300/80 opacity-90 hover:opacity-100 overflow-hidden"
+                }`}
                 style={{ left, width: w, top: row * trackHeight + 2, height: trackHeight - 4 }}
                 onPointerDown={(e) => {
                   setSelectedId(c.id);
@@ -251,14 +255,25 @@ const CaptionTimeline = memo(({ currentTime, pxPerSec, containerW, isPlaying, fo
                 }}
                 title={c.text}
               >
+                {/* Seamless unified selection outline spanning handles and caption cleanly */}
                 {focused && isSelected && (
-                  <TimelineTrimHandle side="left" variant="amber" onPointerDown={(e) => onDown(e, c, "left")} />
+                  <div className="absolute -left-3.5 sm:-left-4 -right-3.5 sm:-right-4 -top-[2px] -bottom-[2px] rounded-xl border-2 border-amber-300 ring-2 ring-amber-400/40 pointer-events-none z-30" />
+                )}
+
+                {focused && isSelected && (
+                  <TimelineTrimHandle
+                    side="left"
+                    variant="amber"
+                    onPointerDown={(e) => onDown(e, c, "left")}
+                    className="absolute -left-3.5 sm:-left-4 top-0 bottom-0 z-20"
+                  />
                 )}
                 
                 {/* Keyframe diamonds overlay */}
                 <div className="absolute inset-x-0 inset-y-0 pointer-events-none overflow-visible">
                   {(c.keyframes || []).map((kf) => {
-                    const pct = (kf.time / Math.max(0.1, c.end - c.start)) * 100;
+                    const cDur = Math.max(0.01, c.end - c.start);
+                    const xPos = (kf.time / cDur) * w;
                     const kfGlobalTime = c.start + kf.time;
                     const isOver = Math.abs(currentTime - kfGlobalTime) < 0.08;
                     return (
@@ -270,7 +285,7 @@ const CaptionTimeline = memo(({ currentTime, pxPerSec, containerW, isPlaying, fo
                             : "bg-amber-900 border-amber-200 z-10"
                         }`}
                         style={{ 
-                          left: `${Math.max(0, Math.min(100, pct))}%`, 
+                          left: `${xPos}px`, 
                           top: "50%",
                           transform: "translate(-50%, -50%) rotate(45deg)" 
                         }}
@@ -279,18 +294,23 @@ const CaptionTimeline = memo(({ currentTime, pxPerSec, containerW, isPlaying, fo
                   })}
                 </div>
 
-                <span className="flex-1 text-[9.5px] text-slate-950 font-black truncate px-1.5 z-10">{c.text}</span>
+                <span className="flex-1 text-[9.5px] text-slate-950 font-black truncate z-10 px-1.5">{c.text}</span>
                 {focused && isSelected && (
                   <button
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => { e.stopPropagation(); removeCaption(c.id); }}
-                    className="w-5 h-5 flex items-center justify-center flex-shrink-0 hover:bg-amber-600/40 rounded transition-colors z-10"
+                    className="w-5 h-5 flex items-center justify-center flex-shrink-0 hover:bg-amber-600/40 rounded transition-colors z-10 mr-1"
                   >
                     <Trash2 className="w-2.5 h-2.5 text-slate-950/80" />
                   </button>
                 )}
                 {focused && isSelected && (
-                  <TimelineTrimHandle side="right" variant="amber" onPointerDown={(e) => onDown(e, c, "right")} />
+                  <TimelineTrimHandle
+                    side="right"
+                    variant="amber"
+                    onPointerDown={(e) => onDown(e, c, "right")}
+                    className="absolute -right-3.5 sm:-right-4 top-0 bottom-0 z-20"
+                  />
                 )}
               </div>
             );

@@ -1589,12 +1589,19 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     vibrate(15);
   };
 
-  const autoDetectRatio = (width: number, height: number, force: boolean = false) => {
+  const autoDetectRatio = useCallback((width: number, height: number, force: boolean = false) => {
     if (!width || !height) return;
     if (userHasSetRatio && !force) return;
     const bestIndex = findClosestRatioIndex(width, height);
     setActiveRatio(bestIndex);
-  };
+  }, [userHasSetRatio]);
+
+  // Automatically detect and match preview aspect ratio to active video/media dimensions
+  useEffect(() => {
+    if (!userHasSetRatio && activeMedia?.width && activeMedia?.height) {
+      autoDetectRatio(activeMedia.width, activeMedia.height);
+    }
+  }, [activeMedia?.width, activeMedia?.height, userHasSetRatio, autoDetectRatio]);
 
   const tools = [
     { id: "ai", icon: Sparkles, label: getLang() === "ar" ? "أدوات AI" : "AI Tools" },
@@ -1750,8 +1757,8 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
         </div>
       </div>
 
-      {/* Preview Area */}
-      <div className="flex items-center justify-center p-2 flex-shrink-0" style={{ height: "min(36vh, 260px)" }}>
+      {/* Preview Area (CapCut style studio stage with responsive height) */}
+      <div className="flex items-center justify-center p-2 sm:p-3 flex-shrink-0 relative overflow-hidden bg-[#07080c]" style={{ height: "clamp(270px, 44vh, 460px)", width: "100%" }}>
         {!hasMedia ? (
           <div className="w-full max-w-sm">
             <div className="aspect-video rounded-2xl border-2 border-dashed border-primary/30 bg-card flex flex-col items-center justify-center gap-3 p-4">
@@ -1833,7 +1840,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
 
             <div
               ref={previewRef}
-              className={`rounded-2xl overflow-hidden relative transition-all duration-200 flex items-center justify-center shadow-2xl ${showFrame ? "border-2 border-primary/80 ring-2 ring-primary/30" : "border border-border/70"}`}
+              className={`rounded-xl overflow-hidden relative transition-all duration-200 flex items-center justify-center shadow-2xl bg-black ${showFrame ? "border-2 border-primary ring-2 ring-primary/30" : "border border-white/10"}`}
               style={{
                 aspectRatio: `${ASPECT_RATIOS[activeRatio]?.w ?? 16} / ${ASPECT_RATIOS[activeRatio]?.h ?? 9}`,
                 height: "100%",
@@ -2162,72 +2169,110 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
 
       {/* Bottom workspace */}
       <div className="relative bg-card border-t border-border flex-1 min-h-0 flex flex-col overflow-hidden">
-        {/* Playback controls + time display */}
-        <div className="flex items-center justify-center gap-3 py-1.5 px-4 flex-shrink-0 bg-secondary/10 rounded-xl mx-3 my-1 border border-border/20">
-          {/* Undo Button */}
-          <button
-            onClick={undo}
-            disabled={!canUndo}
-            aria-label={t("editor.undo")}
-            className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center disabled:opacity-30 active:scale-90 transition-transform shadow-sm"
-          >
-            <Undo2 className="w-4 h-4 text-foreground" />
-          </button>
+        {/* Playback controls + time display (CapCut layout) */}
+        <div className="flex items-center justify-between py-1.5 px-3 sm:px-4 flex-shrink-0 bg-secondary/15 rounded-xl mx-2 sm:mx-3 my-1 border border-border/30">
+          {/* Current / Total Time */}
+          <div className="flex items-center gap-1 font-mono text-xs text-foreground/90 select-none">
+            {hasMedia ? (
+              <>
+                <span className="font-bold text-foreground">{formatTime(currentTime)}</span>
+                <span className="text-muted-foreground/60">/</span>
+                <span className="text-muted-foreground">{formatTime(totalDuration)}</span>
+              </>
+            ) : (
+              <span className="text-muted-foreground">0:00.0</span>
+            )}
+          </div>
 
-          {/* Current Time (Timer Start) */}
-          {hasMedia && (
-            <span className="text-xs font-mono font-medium text-foreground min-w-[36px] text-right">
-              {formatTime(currentTime)}
-            </span>
-          )}
-
-          {/* Play/Pause Button */}
-          <button
-            onClick={togglePlay} disabled={!hasMedia}
-            className="w-9 h-9 rounded-full gradient-primary flex items-center justify-center glow-primary disabled:opacity-40 active:scale-95 transition-transform"
-          >
-            {isPlaying ? <Pause className="w-4 h-4 text-primary-foreground" /> : <Play className="w-4 h-4 text-primary-foreground ml-0.5" />}
-          </button>
-
-          {/* Keyframes Toggle Button — ⬥ Diamond / Minus icon */}
-          {hasMedia && (
+          {/* Center Actions: Undo, Play/Pause, Keyframe, Redo */}
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* Undo Button */}
             <button
-              onClick={togglePlayheadKeyframes}
-              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-150 active:scale-90 ${
-                hasKfAtPlayhead 
-                  ? "bg-rose-500 text-white shadow-md shadow-rose-500/20 ring-2 ring-rose-400/40 scale-105" 
-                  : "bg-secondary text-primary hover:bg-secondary/80"
-              }`}
-              title={
-                hasKfAtPlayhead 
-                  ? (getLang() === "ar" ? "إزالة الإطار المفتاحي -" : "Remove Keyframe -")
-                  : (getLang() === "ar" ? "إضافة إطار مفتاحي ⬥" : "Add Keyframe ⬥")
-              }
+              onClick={undo}
+              disabled={!canUndo}
+              aria-label={t("editor.undo")}
+              className="w-7.5 h-7.5 sm:w-8 sm:h-8 rounded-lg bg-secondary/80 flex items-center justify-center disabled:opacity-30 active:scale-90 transition-transform shadow-xs"
+              title="تراجع"
             >
-              {hasKfAtPlayhead ? (
-                <Minus className="w-4 h-4 stroke-[3]" />
-              ) : (
-                <Diamond className="w-4 h-4" />
-              )}
+              <Undo2 className="w-3.5 h-3.5 text-foreground" />
             </button>
-          )}
 
-          {/* Total Duration (Timer End) */}
-          {hasMedia && (
-            <span className="text-xs font-mono font-medium text-muted-foreground min-w-[36px] text-left">
-              {formatTime(totalDuration)}
-            </span>
-          )}
+            {/* Play/Pause Button */}
+            <button
+              onClick={togglePlay} 
+              disabled={!hasMedia}
+              className="w-8.5 h-8.5 sm:w-9 sm:h-9 rounded-full gradient-primary flex items-center justify-center glow-primary disabled:opacity-40 active:scale-95 transition-transform"
+              title={isPlaying ? "إيقاف مؤقت" : "تشغيل"}
+            >
+              {isPlaying ? <Pause className="w-4 h-4 text-primary-foreground" /> : <Play className="w-4 h-4 text-primary-foreground ml-0.5" />}
+            </button>
 
-          {/* Redo Button */}
-          <button
-            onClick={redo}
-            disabled={!canRedo}
-            aria-label={t("editor.redo")}
-            className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center disabled:opacity-30 active:scale-90 transition-transform shadow-sm"
-          >
-            <Redo2 className="w-4 h-4 text-foreground" />
-          </button>
+            {/* Keyframes Toggle Button — ⬥ Diamond / Minus icon */}
+            {hasMedia && (
+              <button
+                onClick={togglePlayheadKeyframes}
+                className={`w-7.5 h-7.5 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center transition-all duration-150 active:scale-90 ${
+                  hasKfAtPlayhead 
+                    ? "bg-rose-500 text-white shadow-md shadow-rose-500/20 ring-2 ring-rose-400/40 scale-105" 
+                    : "bg-secondary/80 text-primary hover:bg-secondary"
+                }`}
+                title={
+                  hasKfAtPlayhead 
+                    ? (getLang() === "ar" ? "إزالة الإطار المفتاحي -" : "Remove Keyframe -")
+                    : (getLang() === "ar" ? "إضافة إطار مفتاحي ⬥" : "Add Keyframe ⬥")
+                }
+              >
+                {hasKfAtPlayhead ? (
+                  <Minus className="w-3.5 h-3.5 stroke-[3]" />
+                ) : (
+                  <Diamond className="w-3.5 h-3.5" />
+                )}
+              </button>
+            )}
+
+            {/* Redo Button */}
+            <button
+              onClick={redo}
+              disabled={!canRedo}
+              aria-label={t("editor.redo")}
+              className="w-7.5 h-7.5 sm:w-8 sm:h-8 rounded-lg bg-secondary/80 flex items-center justify-center disabled:opacity-30 active:scale-90 transition-transform shadow-xs"
+              title="إعادة"
+            >
+              <Redo2 className="w-3.5 h-3.5 text-foreground" />
+            </button>
+          </div>
+
+          {/* Right Action: Safe zones & Fullscreen preview toggle */}
+          <div className="flex items-center gap-1.5">
+            {ASPECT_RATIOS[activeRatio]?.hasSafeZones && (
+              <button
+                onClick={() => setShowSafeZones((s) => !s)}
+                className={`px-2 py-1 rounded-md text-[10px] font-bold transition-all ${
+                  showSafeZones
+                    ? "bg-primary text-primary-foreground shadow-xs"
+                    : "bg-secondary/70 text-muted-foreground hover:text-foreground"
+                }`}
+                title={getLang() === "ar" ? "إظهار حدود الأمان للشبكات الاجتماعية" : "Toggle Safe Zones"}
+              >
+                {getLang() === "ar" ? "الأمان" : "Safe"}
+              </button>
+            )}
+            <button
+              onClick={() => {
+                if (previewRef.current) {
+                  if (document.fullscreenElement) {
+                    document.exitFullscreen?.().catch(() => {});
+                  } else {
+                    previewRef.current.requestFullscreen?.().catch(() => {});
+                  }
+                }
+              }}
+              className="w-7.5 h-7.5 sm:w-8 sm:h-8 rounded-lg bg-secondary/80 hover:bg-secondary flex items-center justify-center text-foreground active:scale-90 transition-transform shadow-xs"
+              title={getLang() === "ar" ? "ملء الشاشة" : "Fullscreen Preview"}
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
 
         {/* All tracks in a scrollable area with unified playhead */}
