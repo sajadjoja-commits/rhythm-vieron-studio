@@ -92,6 +92,11 @@ task verifyWebAssets(type: Exec) {
 // Ensure web assets are verified before any build happens
 preBuild.dependsOn verifyWebAssets
 
+// Compatibility task for IDE test runners that expect unitTestClasses
+tasks.register("unitTestClasses") {
+    dependsOn "compileDebugUnitTestSources"
+}
+
 apply from: 'capacitor.build.gradle'
 
 try {
