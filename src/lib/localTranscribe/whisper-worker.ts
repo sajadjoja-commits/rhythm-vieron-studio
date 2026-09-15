@@ -9,15 +9,16 @@
 import { pipeline, env } from "@xenova/transformers";
 
 // Configure Transformers.js environment for local & offline execution
-env.allowLocalModels = false;
-env.allowRemoteModels = true;
+env.allowLocalModels = true;
+env.allowRemoteModels = false;
 
 // Direct WASM binaries to local app assets to prevent unpkg/external CDN failures
-if (typeof location !== "undefined" && location.origin) {
+if (typeof location !== "undefined" && location.origin && location.origin !== "null") {
   env.backends.onnx.wasm.wasmPaths = `${location.origin}/wasm/ort/`;
 } else {
   env.backends.onnx.wasm.wasmPaths = "/wasm/ort/";
 }
+env.backends.onnx.wasm.numThreads = 1;
 
 env.localModelPath = "/models/";
 
@@ -68,12 +69,14 @@ export type WhisperWorkerResponse =
  * Check if a local model exists and determine its base path
  */
 async function checkLocalModelExists(modelDir: string): Promise<{ exists: boolean; localPath: string }> {
+  const origin = typeof location !== "undefined" && location.origin && location.origin !== "null" ? location.origin : "";
   const candidateBases = [
     "/models/",
+    origin ? `${origin}/models/` : "",
     "models/",
     "/assets/models/",
-    "assets/models/",
-  ];
+  ].filter(Boolean);
+
   for (const base of candidateBases) {
     try {
       const url = `${base}${modelDir}/config.json`;
@@ -85,7 +88,7 @@ async function checkLocalModelExists(modelDir: string): Promise<{ exists: boolea
         if (text.trim().startsWith("{")) {
           const json = JSON.parse(text);
           if (json && (json.model_type || json._name_or_path || json.architectures)) {
-            return { exists: true, localPath: base };
+            return { exists: true, localPath: base.startsWith("http") ? "/models/" : base };
           }
         }
       }
@@ -105,7 +108,7 @@ async function getTranscriber(
   preferredModel?: string
 ): Promise<{ transcriber: any; modelId: string; isLocal: boolean }> {
   if (cachedTranscriber) {
-    return { transcriber: cachedTranscriber, modelId: cachedModelId, isLocal: cachedModelId.startsWith("whisper-") };
+    return { transcriber: cachedTranscriber, modelId: cachedModelId, isLocal: true };
   }
 
   const postProgress = (pct: number, msg: string) => {
@@ -118,36 +121,44 @@ async function getTranscriber(
     } as WhisperWorkerProgress);
   };
 
-  // 1. Android-native or bundled local model path
-  const localCheck = await checkLocalModelExists("whisper-base");
+  // 1. Try bundled local model paths first (whisper-base, whisper-tiny, Xenova/whisper-tiny)
+  const candidateModels = Array.from(new Set([
+    preferredModel,
+    "whisper-base",
+    "whisper-tiny",
+    "Xenova/whisper-tiny",
+  ])).filter(Boolean) as string[];
 
-  if (localCheck.exists) {
-    postProgress(15, "تحميل نموذج Whisper المحلي المرفق (بدون إنترنت)...");
+  for (const modelCandidate of candidateModels) {
+    const localCheck = await checkLocalModelExists(modelCandidate);
 
-    try {
-      env.allowLocalModels = true;
-      env.allowRemoteModels = false; // Strictly local mode for Android bundled model
-      env.localModelPath = localCheck.localPath;
+    if (localCheck.exists) {
+      postProgress(15, "تحميل نموذج Whisper المحلي المرفق (بدون إنترنت)...");
 
-      const transcriber = await pipeline("automatic-speech-recognition", "whisper-base", {
-        progress_callback: (info: any) => {
-          if (info.status === "progress" && info.total) {
-            const pct = Math.min(95, Math.round((info.loaded / info.total) * 100));
-            postProgress(pct, `تحميل النموذج المدمج: ${pct}%`);
-          }
-        },
-      });
+      try {
+        env.allowLocalModels = true;
+        env.allowRemoteModels = false;
+        env.localModelPath = localCheck.localPath;
 
-      cachedTranscriber = transcriber;
-      cachedModelId = "whisper-base";
-      return { transcriber, modelId: "whisper-base", isLocal: true };
-    } catch (localErr) {
-      console.warn("[WhisperWorker] Failed to load local whisper-base, falling back to Web/PWA pipeline:", localErr);
+        const transcriber = await pipeline("automatic-speech-recognition", modelCandidate, {
+          progress_callback: (info: any) => {
+            if (info.status === "progress" && info.total) {
+              const pct = Math.min(95, Math.round((info.loaded / info.total) * 100));
+              postProgress(pct, `تحميل النموذج المدمج (${modelCandidate}): ${pct}%`);
+            }
+          },
+        });
+
+        cachedTranscriber = transcriber;
+        cachedModelId = modelCandidate;
+        return { transcriber, modelId: modelCandidate, isLocal: true };
+      } catch (localErr) {
+        console.warn(`[WhisperWorker] Failed to load local ${modelCandidate}, trying next candidate:`, localErr);
+      }
     }
   }
 
-  // 2. Web/PWA or fallback: Xenova/whisper-tiny from Hugging Face with mirror fallback
-  // CRITICAL: Disable allowLocalModels so Transformers.js doesn't query local path and receive HTML index fallback
+  // 2. Fallback to remote if local was not found or failed
   env.allowLocalModels = false;
   env.allowRemoteModels = true;
   env.remoteHost = "https://huggingface.co/";

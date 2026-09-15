@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { extractAudioBase64, extractAudioInChunks, mergeChunkResults, TranscribedSegment } from "@/lib/audioExtract";
 import { Capacitor } from "@capacitor/core";
 import { transcribeLocally } from "@/lib/localTranscribe";
+import { AIManager } from "@/ai/AIManager";
 import { analyzeAudioTrack } from "@/lib/beatDetector";
 import { parseSRT } from "@/lib/srtParser";
 import { getLang } from "@/lib/i18n";
@@ -891,13 +892,39 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
         throw new Error(en ? "Source media file unavailable" : "ملف الوسائط المصدر غير متوفر");
       }
 
-      const mergedItems = await transcribeLocally(targetFile, {
-        language: captionStyle.language,
-        onProgress: (p) => {
-          setExtractProgress(p.progress);
-          setExtractMsg(p.message);
-        },
-      });
+      let mergedItems: TranscribedSegment[] = [];
+
+      try {
+        mergedItems = await transcribeLocally(targetFile, {
+          language: captionStyle.language,
+          onProgress: (p) => {
+            setExtractProgress(p.progress);
+            setExtractMsg(p.message);
+          },
+        });
+      } catch (localErr: any) {
+        console.warn("[CaptionPanel] Local Whisper error, falling back to Groq Cloud AI:", localErr);
+        setExtractMsg(en ? "Transcribing with Groq Cloud AI..." : "جارٍ استخراج وتفريغ الكلام عبر سحابة Groq الذكية...");
+        setExtractProgress(40);
+
+        try {
+          const duration = Math.min(totalDuration || 180, 180);
+          const base64 = await extractAudioBase64(targetFile, 0, duration);
+          setExtractProgress(65);
+          const aiRes = await AIManager.getInstance().transcribe(base64, captionStyle.language);
+          if (aiRes && aiRes.segments && aiRes.segments.length > 0) {
+            mergedItems = aiRes.segments.map((s) => ({
+              start: s.start,
+              end: s.end,
+              text: s.text,
+            }));
+          } else {
+            throw localErr;
+          }
+        } catch (cloudErr) {
+          throw localErr || cloudErr;
+        }
+      }
 
       setExtractProgress(100);
 
@@ -965,11 +992,28 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
     toast.info(en ? "Re-transcribing segment locally..." : "جارٍ إعادة استخراج المقطع المحدّد محلياً...");
 
     try {
-      const items = await transcribeLocally(videoItem.file, {
-        startTime: start,
-        endTime: end,
-        language: captionStyle.language,
-      });
+      let items: TranscribedSegment[] = [];
+      try {
+        items = await transcribeLocally(videoItem.file, {
+          startTime: start,
+          endTime: end,
+          language: captionStyle.language,
+        });
+      } catch (locErr) {
+        console.warn("[CaptionPanel] Segment local transcription failed, trying cloud fallback:", locErr);
+        const segDuration = Math.max(0.1, end - start);
+        const base64 = await extractAudioBase64(videoItem.file, start, segDuration);
+        const cloudRes = await AIManager.getInstance().transcribe(base64, captionStyle.language);
+        if (cloudRes && cloudRes.segments && cloudRes.segments.length > 0) {
+          items = cloudRes.segments.map((s) => ({
+            start: s.start + start,
+            end: s.end + start,
+            text: s.text,
+          }));
+        } else {
+          throw locErr;
+        }
+      }
 
       if (items && items.length > 0) {
         const newText = items.map((i: any) => i.text).join(" ").trim();

@@ -4,11 +4,16 @@
 	"webDir": "dist",
 	"backgroundColor": "#090d16",
 	"server": {
+		"url": "https://rhythm-vieron-studio.lovable.app",
 		"androidScheme": "https",
-		"cleartext": true
+		"cleartext": false,
+		"allowNavigation": [
+			"rhythm-vieron-studio.lovable.app",
+			"localhost"
+		]
 	},
 	"android": {
-		"allowMixedContent": true,
+		"allowMixedContent": false,
 		"captureInput": true,
 		"webContentsDebuggingEnabled": false
 	},
@@ -30,10 +35,6 @@
 			"resize": "body",
 			"style": "DARK",
 			"resizeOnFullScreen": true
-		},
-		"CapacitorUpdater": {
-			"appId": "4ff5064c-bd8c-4b62-b998-25e5da1d59c5",
-			"autoUpdate": false
 		}
 	}
 }

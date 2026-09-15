@@ -1,9 +1,9 @@
 {
   "native": "1.0.0",
   "build": "1",
-  "web": "web-f2e49a9",
-  "git": "f2e49a9",
+  "web": "web-unknown",
+  "git": "unknown",
   "channel": "staging",
-  "timestamp": "2026-09-11T14:08:23.586Z",
-  "fingerprint": "34905ea84848bfe0bd8bcc03ee8f4974cde417df11438812fa9fbe0d3b452fc5"
+  "timestamp": "2026-09-15T08:15:38.581Z",
+  "fingerprint": "1d9d6da71786fe876093f1aae706bd7bd0caf498c9f66db3ba0c85df516cfabf"
 }

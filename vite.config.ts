@@ -34,6 +34,35 @@ function missingStaticAssets404Plugin(): Plugin {
   };
 }
 
+/**
+ * Ensure ORT WASM files are present in public/wasm/ort
+ */
+function ensureOrtWasmAssetsPlugin(): Plugin {
+  return {
+    name: "ensure-ort-wasm-assets",
+    buildStart() {
+      try {
+        const targetDir = path.resolve(__dirname, "public/wasm/ort");
+        const srcDir = path.resolve(__dirname, "node_modules/@xenova/transformers/dist");
+        if (fs.existsSync(srcDir)) {
+          if (!fs.existsSync(targetDir)) {
+            fs.mkdirSync(targetDir, { recursive: true });
+          }
+          const wasmFiles = fs.readdirSync(srcDir).filter((f) => f.endsWith(".wasm"));
+          for (const file of wasmFiles) {
+            const dest = path.join(targetDir, file);
+            if (!fs.existsSync(dest)) {
+              fs.copyFileSync(path.join(srcDir, file), dest);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[ensureOrtWasmAssetsPlugin] Warning:", err);
+      }
+    },
+  };
+}
+
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
   server: {
@@ -44,6 +73,7 @@ export default defineConfig(({ mode }) => ({
     },
   },
   plugins: [
+    ensureOrtWasmAssetsPlugin(),
     missingStaticAssets404Plugin(),
     react(),
     VitePWA({
