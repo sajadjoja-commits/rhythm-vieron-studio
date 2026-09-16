@@ -598,6 +598,146 @@ const OverlayPanel = ({ open, onClose, currentTime }: Props) => {
                       <option value="soft-light">{en ? "Soft Light Glow" : "إضاءة ناعمة خفيفة (Soft Light)"}</option>
                     </select>
                   </div>
+
+                  {/* Position Presets (قوالب التموضع السريع) */}
+                  <div className="space-y-1.5 pt-2 border-t border-border/30">
+                    <span className="text-xs font-bold text-foreground">{en ? "Position Presets" : "المحاذاة والتموضع السريع"}</span>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {[
+                        { label: en ? "Center" : "المنتصف", x: 50, y: 50, scale: 0.6 },
+                        { label: en ? "Top Left" : "أعلى يسار", x: 25, y: 25, scale: 0.4 },
+                        { label: en ? "Top Right" : "أعلى يمين", x: 75, y: 25, scale: 0.4 },
+                        { label: en ? "Bottom Left" : "أسفل يسار", x: 25, y: 75, scale: 0.4 },
+                        { label: en ? "Bottom Right" : "أسفل يمين", x: 75, y: 75, scale: 0.4 },
+                        { label: en ? "PiP Corner" : "زاوية PiP", x: 80, y: 80, scale: 0.32 },
+                      ].map((pos, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => {
+                            playSfx("click");
+                            updateOverlay(selectedOverlay.id, { x: pos.x, y: pos.y, scale: pos.scale });
+                          }}
+                          className="py-1.5 px-2 text-[10px] font-medium rounded-lg bg-background hover:bg-secondary border border-border/40 text-foreground transition-all active:scale-95"
+                        >
+                          {pos.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Corner Radius (استدارة الحواف) */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs font-bold text-foreground">
+                      <span>{en ? "Rounded Corners" : "استدارة الحواف (Rounded Corners)"}</span>
+                      <span className="text-primary text-[10px] bg-primary/10 px-1.5 py-0.5 rounded-full font-mono">
+                        {selectedOverlay.cornerRadius ?? 8}px
+                      </span>
+                    </div>
+                    <input 
+                      type="range" 
+                      min={0} 
+                      max={40} 
+                      step={1} 
+                      value={selectedOverlay.cornerRadius ?? 8}
+                      onChange={(e) => updateOverlay(selectedOverlay.id, { cornerRadius: Number(e.target.value) })}
+                      className="w-full h-2 rounded-lg accent-primary bg-secondary cursor-pointer" 
+                    />
+                  </div>
+
+                  {/* Border Width & Color (الإطار الخارجي) */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs font-bold text-foreground">
+                      <span>{en ? "Border" : "حدود الإطار (Border)"}</span>
+                      <span className="text-primary text-[10px] bg-primary/10 px-1.5 py-0.5 rounded-full font-mono">
+                        {selectedOverlay.borderWidth ?? 0}px
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="range" 
+                        min={0} 
+                        max={10} 
+                        step={1} 
+                        value={selectedOverlay.borderWidth ?? 0}
+                        onChange={(e) => updateOverlay(selectedOverlay.id, { borderWidth: Number(e.target.value) })}
+                        className="flex-1 h-2 rounded-lg accent-primary bg-secondary cursor-pointer" 
+                      />
+                      <input 
+                        type="color" 
+                        value={selectedOverlay.borderColor || "#ffffff"}
+                        onChange={(e) => updateOverlay(selectedOverlay.id, { borderColor: e.target.value })}
+                        className="w-7 h-7 rounded-lg border border-border cursor-pointer p-0 bg-transparent"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Shadow Blur (الظل والعمق) */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs font-bold text-foreground">
+                      <span>{en ? "Shadow Depth" : "ظل التراكب (Shadow Depth)"}</span>
+                      <span className="text-primary text-[10px] bg-primary/10 px-1.5 py-0.5 rounded-full font-mono">
+                        {selectedOverlay.shadowBlur ?? 0}px
+                      </span>
+                    </div>
+                    <input 
+                      type="range" 
+                      min={0} 
+                      max={30} 
+                      step={1} 
+                      value={selectedOverlay.shadowBlur ?? 0}
+                      onChange={(e) => updateOverlay(selectedOverlay.id, { shadowBlur: Number(e.target.value) })}
+                      className="w-full h-2 rounded-lg accent-primary bg-secondary cursor-pointer" 
+                    />
+                  </div>
+
+                  {/* Video Overlay Audio Controls (خاص بتراكبات الفيديو) */}
+                  {selectedOverlay.type === "video" && (
+                    <div className="space-y-2 pt-2 border-t border-border/30">
+                      <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                        <VideoIcon className="w-3.5 h-3.5 text-primary" />
+                        <span>{en ? "Video Overlay Audio" : "صوت فيديو التراكب"}</span>
+                      </span>
+
+                      <div className="flex items-center justify-between p-2.5 bg-background rounded-xl border border-border/40">
+                        <span className="text-xs text-foreground font-medium">{en ? "Mute Overlay Audio" : "كتم صوت التراكب"}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            playSfx("click");
+                            updateOverlay(selectedOverlay.id, { muted: !(selectedOverlay.muted ?? true) });
+                          }}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                            selectedOverlay.muted ?? true
+                              ? "bg-secondary text-muted-foreground border border-border"
+                              : "bg-primary text-primary-foreground"
+                          }`}
+                        >
+                          {selectedOverlay.muted ?? true ? (en ? "Muted" : "مكتوم") : (en ? "Active" : "مفعّل")}
+                        </button>
+                      </div>
+
+                      {!(selectedOverlay.muted ?? true) && (
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-xs font-bold text-foreground">
+                            <span>{en ? "Overlay Volume" : "مستوى صوت التراكب"}</span>
+                            <span className="text-primary text-[10px] font-mono">
+                              {Math.round((selectedOverlay.volume ?? 1) * 100)}%
+                            </span>
+                          </div>
+                          <input 
+                            type="range" 
+                            min={0} 
+                            max={100} 
+                            step={1} 
+                            value={Math.round((selectedOverlay.volume ?? 1) * 100)}
+                            onChange={(e) => updateOverlay(selectedOverlay.id, { volume: Number(e.target.value) / 100 })}
+                            className="w-full h-2 rounded-lg accent-primary bg-secondary cursor-pointer" 
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

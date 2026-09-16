@@ -45,15 +45,42 @@ export class AudioWorkerManager {
         if (success) {
           pending.resolve(result);
         } else {
-          pending.reject(new Error(error || "Worker processing error"));
+          const errDetail = error || "Worker processing error";
+          console.error(`[AudioWorkerManager] Worker task "${id}" failed:`, errDetail);
+          pending.reject(new Error(errDetail));
         }
       };
 
-      this.worker.onerror = (err) => {
-        console.error("[AudioWorkerManager] Worker global error:", err);
+      this.worker.onerror = (err: ErrorEvent) => {
+        const errorMsg = err.message || "Worker execution failure";
+        console.error("[AudioWorkerManager] Worker global error event:", errorMsg, err);
+        // Fail all pending tasks gracefully with real error
+        for (const [id, pending] of this.pendingRequests.entries()) {
+          pending.reject(new Error(`Worker crash: ${errorMsg}`));
+        }
+        this.pendingRequests.clear();
       };
     } catch (e) {
-      console.warn("[AudioWorkerManager] Worker initialization failed:", e);
+      console.error("[AudioWorkerManager] Worker initialization failed:", e);
+    }
+  }
+
+  public isReady(): boolean {
+    return this.worker !== null;
+  }
+
+  public cancelTask(id: string): void {
+    const pending = this.pendingRequests.get(id);
+    if (pending) {
+      this.pendingRequests.delete(id);
+      pending.reject(new DOMException(`Audio task ${id} was cancelled`, "AbortError"));
+    }
+    if (this.worker) {
+      try {
+        this.worker.postMessage({ id, type: "cancel", sampleRate: 0, channels: [] });
+      } catch (err) {
+        console.warn(`[AudioWorkerManager] Failed to send cancel to worker:`, err);
+      }
     }
   }
 
@@ -66,7 +93,7 @@ export class AudioWorkerManager {
     }
 
     if (!this.worker) {
-      throw new Error("Audio Web Worker could not be initialized");
+      throw new Error("Audio Web Worker could not be initialized in this browser environment");
     }
 
     return new Promise<TResult>((resolve, reject) => {

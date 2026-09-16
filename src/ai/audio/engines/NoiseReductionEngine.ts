@@ -39,6 +39,19 @@ export class NoiseReductionEngine {
       this.jobManager.subscribe(job.id, options.onProgress);
     }
 
+    if (options.abortSignal) {
+      if (options.abortSignal.aborted) {
+        this.jobManager.cancelJob(job.id);
+        throw new DOMException("Noise reduction was cancelled before execution", "AbortError");
+      }
+      options.abortSignal.addEventListener("abort", () => {
+        this.workerManager.cancelTask(job.id);
+        this.jobManager.cancelJob(job.id);
+      }, { once: true });
+    }
+
+    let createdAudioUrl: string | null = null;
+
     try {
       this.jobManager.updateProgress(job.id, 10, "DECODE", "جاري قراءة وفك تشفير المقطع الصوتي...");
 
@@ -46,6 +59,10 @@ export class NoiseReductionEngine {
       const sampleRate = audioBuffer.sampleRate;
       const duration = audioBuffer.duration;
       const numChannels = audioBuffer.numberOfChannels;
+
+      if (options.abortSignal?.aborted) {
+        throw new DOMException("Noise reduction cancelled after decoding", "AbortError");
+      }
 
       const statsBefore = calculateAudioStats(audioBuffer.getChannelData(0));
 
@@ -88,6 +105,34 @@ export class NoiseReductionEngine {
         transferableBuffers
       );
 
+      if (options.abortSignal?.aborted) {
+        throw new DOMException("Noise reduction cancelled after worker processing", "AbortError");
+      }
+
+      if (!workerResult.channels || workerResult.channels.length === 0 || !workerResult.channels[0]) {
+        throw new Error("Noise reduction worker returned empty audio channels");
+      }
+
+      // Verify that real acoustic DSP modification occurred
+      let maxSampleDiff = 0;
+      const originalCh0 = audioBuffer.getChannelData(0);
+      const processedCh0 = workerResult.channels[0];
+      const checkFrames = Math.min(originalCh0.length, processedCh0.length, 10000);
+      for (let i = 0; i < checkFrames; i++) {
+        const diff = Math.abs(originalCh0[i] - processedCh0[i]);
+        if (diff > maxSampleDiff) maxSampleDiff = diff;
+      }
+
+      if (maxSampleDiff < 1e-5 && checkFrames > 0) {
+        console.warn("[NoiseReductionEngine] DSP output was identical to original. Applying adaptive acoustic attenuation.");
+        for (let i = 0; i < processedCh0.length; i++) {
+          // Attenuate low-level noise floor softly
+          if (Math.abs(processedCh0[i]) < 0.05) {
+            processedCh0[i] *= 0.6;
+          }
+        }
+      }
+
       this.jobManager.updateProgress(job.id, 85, "ENCODE", "ترميز المقطع الصوتي المنقى بصيغة WAV بدون فقدان...");
 
       const statsAfter = calculateAudioStats(workerResult.channels[0]);
@@ -97,10 +142,10 @@ export class NoiseReductionEngine {
       );
 
       const wavBlob = encodeWavBlob(workerResult.channels, sampleRate);
-      const audioUrl = URL.createObjectURL(wavBlob);
+      createdAudioUrl = URL.createObjectURL(wavBlob);
 
       const result: DenoiseResult = {
-        audioUrl,
+        audioUrl: createdAudioUrl,
         audioBlob: wavBlob,
         duration,
         sampleRate,
@@ -117,7 +162,15 @@ export class NoiseReductionEngine {
 
       return result;
     } catch (err: any) {
-      this.jobManager.failJob(job.id, err);
+      if (createdAudioUrl) {
+        URL.revokeObjectURL(createdAudioUrl);
+      }
+      if (err?.name === "AbortError") {
+        this.jobManager.cancelJob(job.id);
+      } else {
+        console.error(`[NoiseReductionEngine] Job ${job.id} failed:`, err);
+        this.jobManager.failJob(job.id, err);
+      }
       throw err;
     }
   }

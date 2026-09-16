@@ -104,6 +104,8 @@ export interface Clip {
   hasAlpha?: boolean;
   previewBgMode?: "checkerboard" | "black" | "green" | "white" | "custom";
   previewBgColor?: string;
+  processedAudioUrl?: string;
+  muteOriginalAudio?: boolean;
 }
 
 export function interpolateKeyframes(
@@ -272,6 +274,7 @@ export interface AudioTrackItem {
   fx: AudioFxType;
   color: string;
   kind: "music" | "sfx" | "voice" | "video-audio";
+  clipId?: string;
   fadeIn?: number;
   fadeOut?: number;
   keyframes?: Keyframe[];
@@ -314,9 +317,37 @@ export type VfxType =
 export interface VfxItem { id: string; type: VfxType; start: number; end: number; intensity: number; keyframes?: Keyframe[]; }
 
 export interface OverlayItem {
-  id: string; url: string; type: "image" | "video"; name: string; file: File;
-  start: number; end: number; x: number; y: number; scale: number;
-  opacity?: number; rotation?: number; blend?: string; brightness?: number;
+  id: string;
+  url: string;
+  type: "image" | "video";
+  name: string;
+  file?: File;
+  start: number;
+  end: number;
+  x: number; // 0..100%
+  y: number; // 0..100%
+  scale: number;
+  width?: number;
+  height?: number;
+  opacity?: number;
+  rotation?: number;
+  blend?: string;
+  brightness?: number;
+  cornerRadius?: number; // 0..60px
+  borderWidth?: number; // 0..12px
+  borderColor?: string;
+  shadowBlur?: number; // 0..40px
+  shadowColor?: string;
+  cropX?: number;
+  cropY?: number;
+  cropW?: number;
+  cropH?: number;
+  muted?: boolean; // for video overlays
+  volume?: number; // 0..1 for video overlays
+  audioAction?: "mix" | "mute" | "solo";
+  zIndex?: number;
+  flipH?: boolean;
+  flipV?: boolean;
   keyframes?: Keyframe[];
 }
 

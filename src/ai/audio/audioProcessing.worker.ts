@@ -7,7 +7,7 @@
 // Worker message interfaces
 export interface WorkerAudioTask {
   id: string;
-  type: "denoise" | "stem-separation" | "silence-detection" | "key-pitch-detection";
+  type: "denoise" | "stem-separation" | "silence-detection" | "key-pitch-detection" | "cancel";
   sampleRate: number;
   channels: Float32Array[];
   options?: any;
@@ -21,12 +21,31 @@ export interface WorkerAudioResponse {
   error?: string;
 }
 
+// Active jobs map for cancellation support
+const activeJobs = new Set<string>();
+
 self.onmessage = async (e: MessageEvent<WorkerAudioTask>) => {
   const { id, type, sampleRate, channels, options } = e.data;
 
+  if (type === "cancel") {
+    activeJobs.delete(id);
+    return;
+  }
+
+  activeJobs.add(id);
+
   try {
+    if (!channels || channels.length === 0 || !channels[0] || channels[0].length === 0) {
+      throw new Error("Invalid or empty audio buffer passed to worker");
+    }
+
     if (type === "denoise") {
-      const cleaned = processDenoise(channels, sampleRate, options?.denoiseStrength || 0.85);
+      const cleaned = processDenoise(channels, sampleRate, options?.denoiseStrength ?? 0.85);
+
+      if (!activeJobs.has(id)) {
+        return; // Cancelled
+      }
+
       const res: WorkerAudioResponse = {
         id,
         success: true,
@@ -41,6 +60,11 @@ self.onmessage = async (e: MessageEvent<WorkerAudioTask>) => {
     } else if (type === "stem-separation") {
       const stemsCount = options?.stemsCount || 2;
       const stems = processStemSeparation(channels, sampleRate, stemsCount);
+
+      if (!activeJobs.has(id)) {
+        return; // Cancelled
+      }
+
       const transferableBuffers: ArrayBuffer[] = [];
 
       const resultPayload: any = {
@@ -98,6 +122,7 @@ self.onmessage = async (e: MessageEvent<WorkerAudioTask>) => {
       throw new Error(`Unknown worker task type: ${type}`);
     }
   } catch (err: any) {
+    console.error(`[AudioWorker] Error processing task "${id}" (${type}):`, err);
     const errorRes: WorkerAudioResponse = {
       id,
       success: false,
@@ -105,11 +130,14 @@ self.onmessage = async (e: MessageEvent<WorkerAudioTask>) => {
       error: err?.message || String(err),
     };
     (self as any).postMessage(errorRes);
+  } finally {
+    activeJobs.delete(id);
   }
 };
 
 /**
- * High-precision Spectral Subtraction with Adaptive Noise Profiling & Overlap-Add
+ * High-precision Spectral Subtraction with Adaptive Noise Profiling,
+ * Symmetric Overlap-Add Padding, Low-Rumble & Mains Hum Elimination.
  */
 function processDenoise(
   channels: Float32Array[],
@@ -117,52 +145,71 @@ function processDenoise(
   strength: number
 ): Float32Array[] {
   const numChannels = channels.length;
-  const numFrames = channels[0].length;
+  const originalFrames = channels[0].length;
   const fftSize = 1024;
   const hopSize = 256;
   const window = createHannWindow(fftSize);
 
+  // Overlap-add normalization constant: for periodic Hann window with 75% overlap, sum = 1.5
+  const normFactor = hopSize / (fftSize * 0.375);
+
   const cleanedChannels: Float32Array[] = [];
 
   for (let ch = 0; ch < numChannels; ch++) {
-    const input = channels[ch];
-    const output = new Float32Array(numFrames);
+    const rawInput = channels[ch];
 
-    // 1. Estimate initial noise floor from quietest 10% frames
-    const numHops = Math.floor((numFrames - fftSize) / hopSize);
+    // Symmetric padding (fftSize at both ends) to ensure complete overlap-add across every sample
+    const padStart = fftSize;
+    const padEnd = fftSize + hopSize;
+    const paddedFrames = padStart + originalFrames + padEnd;
+    const paddedInput = new Float32Array(paddedFrames);
+
+    // Mirror / reflect boundaries for smooth edges
+    for (let i = 0; i < padStart; i++) {
+      paddedInput[i] = rawInput[Math.min(originalFrames - 1, padStart - i)];
+    }
+    paddedInput.set(rawInput, padStart);
+    for (let i = 0; i < padEnd; i++) {
+      paddedInput[padStart + originalFrames + i] = rawInput[Math.max(0, originalFrames - 1 - i)];
+    }
+
+    const paddedOutput = new Float32Array(paddedFrames);
+    const numHops = Math.floor((paddedFrames - fftSize) / hopSize);
+
+    // 1. Multi-band Energy Profiling to establish the stationary background noise floor
     const frameEnergies = new Float32Array(numHops);
-
     for (let h = 0; h < numHops; h++) {
       const offset = h * hopSize;
       let e = 0;
       for (let i = 0; i < fftSize; i++) {
-        const s = input[offset + i];
+        const s = paddedInput[offset + i];
         e += s * s;
       }
       frameEnergies[h] = e / fftSize;
     }
 
-    // Find 15th percentile energy threshold for background noise
+    // Sort to locate quietest frames (lowest 20th percentile)
     const sortedEnergies = Float32Array.from(frameEnergies).sort();
-    const noiseThreshold = sortedEnergies[Math.floor(numHops * 0.15)] || 0.0001;
+    const noiseThresholdIndex = Math.max(0, Math.min(numHops - 1, Math.floor(numHops * 0.20)));
+    const noiseThreshold = Math.max(sortedEnergies[noiseThresholdIndex] || 0.00005, 0.00001);
 
-    // Build average noise spectrum
+    // Average the spectrum of quietest background frames
     const noiseSpectrum = new Float32Array(fftSize / 2);
     let noiseFrameCount = 0;
+    const tempReal = new Float32Array(fftSize);
+    const tempImag = new Float32Array(fftSize);
 
-    const real = new Float32Array(fftSize);
-    const imag = new Float32Array(fftSize);
-
-    for (let h = 0; h < Math.min(numHops, 200); h++) {
-      if (frameEnergies[h] <= noiseThreshold * 1.5) {
+    const maxProfileHops = Math.min(numHops, 250);
+    for (let h = 0; h < maxProfileHops; h++) {
+      if (frameEnergies[h] <= noiseThreshold * 1.6 || noiseFrameCount === 0) {
         const offset = h * hopSize;
         for (let i = 0; i < fftSize; i++) {
-          real[i] = input[offset + i] * window[i];
-          imag[i] = 0;
+          tempReal[i] = paddedInput[offset + i] * window[i];
+          tempImag[i] = 0;
         }
-        transformFFT(real, imag);
+        transformFFT(tempReal, tempImag);
         for (let k = 0; k < fftSize / 2; k++) {
-          const mag = Math.sqrt(real[k] * real[k] + imag[k] * imag[k]);
+          const mag = Math.sqrt(tempReal[k] * tempReal[k] + tempImag[k] * tempImag[k]);
           noiseSpectrum[k] += mag;
         }
         noiseFrameCount++;
@@ -173,16 +220,32 @@ function processDenoise(
       for (let k = 0; k < fftSize / 2; k++) {
         noiseSpectrum[k] /= noiseFrameCount;
       }
+    } else {
+      // Fallback default floor
+      for (let k = 0; k < fftSize / 2; k++) {
+        noiseSpectrum[k] = 0.002;
+      }
     }
 
-    // 2. Perform STFT filtering & Wiener spectral subtraction with Overlap-Add
-    const oversubtraction = 1.0 + strength * 1.5;
-    const spectralFloor = 0.03 * (1.0 - strength * 0.5);
+    const nyquist = sampleRate / 2;
+    const binHz = nyquist / (fftSize / 2);
+    const rumbleCutoffBin = Math.max(1, Math.floor(45 / binHz)); // Cut sub-rumble below 45 Hz
+    const hum50Bin = Math.round(50 / binHz);
+    const hum60Bin = Math.round(60 / binHz);
+
+    // 2. Perform STFT filtering with decision-directed Wiener gain calculation
+    const clampedStrength = Math.min(1.0, Math.max(0.2, strength));
+    const oversubtraction = 1.1 + clampedStrength * 1.8;
+    const spectralFloor = 0.03 * (1.0 - clampedStrength * 0.6);
+
+    const real = new Float32Array(fftSize);
+    const imag = new Float32Array(fftSize);
+    const priorSNR = new Float32Array(fftSize / 2);
 
     for (let h = 0; h < numHops; h++) {
       const offset = h * hopSize;
       for (let i = 0; i < fftSize; i++) {
-        real[i] = input[offset + i] * window[i];
+        real[i] = paddedInput[offset + i] * window[i];
         imag[i] = 0;
       }
 
@@ -190,9 +253,29 @@ function processDenoise(
 
       for (let k = 0; k < fftSize / 2; k++) {
         const mag = Math.sqrt(real[k] * real[k] + imag[k] * imag[k]);
-        const noiseEst = (noiseSpectrum[k] || 0.001) * oversubtraction;
+        let noiseEst = Math.max(noiseSpectrum[k] * oversubtraction, 0.00005);
 
-        let gain = (mag - noiseEst) / Math.max(mag, 0.00001);
+        // Mains electrical hum notch suppression (50 Hz and 60 Hz bins)
+        if (Math.abs(k - hum50Bin) <= 1 || Math.abs(k - hum60Bin) <= 1) {
+          noiseEst *= 1.8;
+        }
+
+        // Sub-bass rumble suppression (< 45 Hz)
+        if (k < rumbleCutoffBin) {
+          real[k] *= 0.05;
+          imag[k] *= 0.05;
+          continue;
+        }
+
+        // Posteriori SNR
+        const postSNR = mag / Math.max(noiseEst, 0.00001);
+        // Decision-directed prior SNR estimation (smoother, avoids musical noise chirps)
+        const alpha = 0.94;
+        const currentPrior = alpha * priorSNR[k] + (1 - alpha) * Math.max(postSNR - 1, 0);
+        priorSNR[k] = currentPrior;
+
+        // Wiener gain formula
+        let gain = currentPrior / (1.0 + currentPrior);
         if (gain < spectralFloor) gain = spectralFloor;
         if (gain > 1.0) gain = 1.0;
 
@@ -210,21 +293,30 @@ function processDenoise(
 
       // Overlap-add synthesis
       for (let i = 0; i < fftSize; i++) {
-        if (offset + i < numFrames) {
-          output[offset + i] += real[i] * window[i] * (hopSize / (fftSize * 0.375));
-        }
+        paddedOutput[offset + i] += real[i] * window[i] * normFactor;
       }
     }
 
-    cleanedChannels.push(output);
+    // Extract exactly the original duration from the unpadded window center
+    const cleanChannel = new Float32Array(originalFrames);
+    for (let i = 0; i < originalFrames; i++) {
+      let sample = paddedOutput[padStart + i];
+      // Gentle soft clip
+      if (sample > 1.0) sample = 1.0;
+      else if (sample < -1.0) sample = -1.0;
+      cleanChannel[i] = sample;
+    }
+
+    cleanedChannels.push(cleanChannel);
   }
 
   return cleanedChannels;
 }
 
 /**
- * Intelligent Harmonic-Percussive & Spectral Masking Stem Separation
- * Produces clean Vocals & Instrumental (or 4 stems: Vocals, Drums, Bass, Other)
+ * Intelligent Harmonic-Percussive & Center-Channel Spectral Masking Stem Separation.
+ * Produces clean Vocals & Instrumental (or 4 stems: Vocals, Drums, Bass, Other).
+ * Uses symmetric boundary padding to eliminate truncation and edge distortion.
  */
 function processStemSeparation(
   channels: Float32Array[],
@@ -239,21 +331,42 @@ function processStemSeparation(
     other?: Float32Array[];
   };
 } {
-  const numFrames = channels[0].length;
+  const originalFrames = channels[0].length;
   const isStereo = channels.length > 1;
-
-  const vocalsLeft = new Float32Array(numFrames);
-  const vocalsRight = new Float32Array(numFrames);
-  const instLeft = new Float32Array(numFrames);
-  const instRight = new Float32Array(numFrames);
-
-  const left = channels[0];
-  const right = isStereo ? channels[1] : channels[0];
 
   const fftSize = 2048;
   const hopSize = 512;
   const window = createHannWindow(fftSize);
-  const numHops = Math.floor((numFrames - fftSize) / hopSize);
+  const normFactor = hopSize / (fftSize * 0.375);
+
+  const padStart = fftSize;
+  const padEnd = fftSize + hopSize;
+  const paddedFrames = padStart + originalFrames + padEnd;
+
+  const leftRaw = channels[0];
+  const rightRaw = isStereo ? channels[1] : channels[0];
+
+  const paddedLeft = new Float32Array(paddedFrames);
+  const paddedRight = new Float32Array(paddedFrames);
+
+  // Mirror pad boundaries
+  for (let i = 0; i < padStart; i++) {
+    paddedLeft[i] = leftRaw[Math.min(originalFrames - 1, padStart - i)];
+    paddedRight[i] = rightRaw[Math.min(originalFrames - 1, padStart - i)];
+  }
+  paddedLeft.set(leftRaw, padStart);
+  paddedRight.set(rightRaw, padStart);
+  for (let i = 0; i < padEnd; i++) {
+    paddedLeft[padStart + originalFrames + i] = leftRaw[Math.max(0, originalFrames - 1 - i)];
+    paddedRight[padStart + originalFrames + i] = rightRaw[Math.max(0, originalFrames - 1 - i)];
+  }
+
+  const paddedVocalsL = new Float32Array(paddedFrames);
+  const paddedVocalsR = new Float32Array(paddedFrames);
+  const paddedInstL = new Float32Array(paddedFrames);
+  const paddedInstR = new Float32Array(paddedFrames);
+
+  const numHops = Math.floor((paddedFrames - fftSize) / hopSize);
 
   const realL = new Float32Array(fftSize);
   const imagL = new Float32Array(fftSize);
@@ -263,26 +376,18 @@ function processStemSeparation(
   const nyquist = sampleRate / 2;
   const binHz = nyquist / (fftSize / 2);
 
-  // Frequency ranges
-  const vocalMinBin = Math.floor(250 / binHz);
-  const vocalMaxBin = Math.floor(4500 / binHz);
-  const bassMaxBin = Math.floor(300 / binHz);
-
-  // Drums / Bass buffers if 4-stems
-  const drumsLeft = stemsCount === 4 ? new Float32Array(numFrames) : null;
-  const drumsRight = stemsCount === 4 ? new Float32Array(numFrames) : null;
-  const bassLeft = stemsCount === 4 ? new Float32Array(numFrames) : null;
-  const bassRight = stemsCount === 4 ? new Float32Array(numFrames) : null;
-  const otherLeft = stemsCount === 4 ? new Float32Array(numFrames) : null;
-  const otherRight = stemsCount === 4 ? new Float32Array(numFrames) : null;
+  // Key vocal frequency bounds (fundamental + formant registers)
+  const vocalMinBin = Math.max(1, Math.floor(220 / binHz));
+  const vocalMaxBin = Math.min(fftSize / 2 - 1, Math.floor(4800 / binHz));
+  const bassMaxBin = Math.max(1, Math.floor(200 / binHz)); // Bass drums and bass guitar preserve in instrumental
 
   for (let h = 0; h < numHops; h++) {
     const offset = h * hopSize;
 
     for (let i = 0; i < fftSize; i++) {
-      realL[i] = left[offset + i] * window[i];
+      realL[i] = paddedLeft[offset + i] * window[i];
       imagL[i] = 0;
-      realR[i] = right[offset + i] * window[i];
+      realR[i] = paddedRight[offset + i] * window[i];
       imagR[i] = 0;
     }
 
@@ -304,38 +409,53 @@ function processStemSeparation(
       const magL = Math.sqrt(realL[k] * realL[k] + imagL[k] * imagL[k]);
       const magR = Math.sqrt(realR[k] * realR[k] + imagR[k] * imagR[k]);
 
-      // Vocal formant weight (250Hz - 4500Hz)
+      // Vocal formant envelope weight (smooth bell curve over 220Hz - 4800Hz)
       let vocalWeight = 0.0;
       if (k >= vocalMinBin && k <= vocalMaxBin) {
         vocalWeight = Math.sin(((k - vocalMinBin) / (vocalMaxBin - vocalMinBin)) * Math.PI);
       }
 
       let vocalMask = 0.0;
+      let instMask = 1.0;
+
       if (isStereo) {
-        // Center-channel extraction ratio (vocals are typically panned center in stereo mix)
+        // Center-channel extraction metric:
+        // Center vocals are panned equally to L and R. Side instruments have large difference.
         const diffMag = Math.abs(magL - magR);
         const sumMag = Math.max(magL + magR, 0.00001);
-        const centerPresence = Math.max(0.0, 1.0 - (diffMag / sumMag) * 2.2);
-        const freqWeight = vocalWeight > 0 ? (0.25 + 0.75 * vocalWeight) : 0.05;
-        vocalMask = Math.min(0.96, Math.max(0.04, centerPresence * freqWeight));
+        const centerPresence = Math.max(0.0, 1.0 - (diffMag / sumMag) * 2.0);
+
+        // Vocal mask: high only when centered AND within speech formant envelope
+        vocalMask = Math.min(0.96, Math.max(0.04, centerPresence * (0.15 + 0.85 * vocalWeight)));
+
+        // Instrumental mask: preserve bass below 200Hz, preserve stereo sides, suppress center vocal
+        if (k < bassMaxBin) {
+          instMask = 0.98; // Preserve 100% of kick drum and bass guitar
+        } else if (k > vocalMaxBin) {
+          instMask = 0.95; // Preserve high cymbals and air
+        } else {
+          // Attenuate center vocals in instrumental
+          instMask = Math.min(0.96, Math.max(0.05, 1.0 - centerPresence * vocalWeight * 0.92));
+        }
       } else {
         // Mono separation based on speech formant bandpass envelope
-        vocalMask = vocalWeight > 0 ? Math.min(0.94, Math.pow(vocalWeight, 1.3) * 0.88 + 0.06) : 0.04;
+        vocalMask = vocalWeight > 0 ? Math.min(0.94, Math.pow(vocalWeight, 1.2) * 0.88 + 0.06) : 0.04;
+        instMask = Math.min(0.96, Math.max(0.06, 1.0 - vocalMask));
       }
-      const instMask = Math.min(0.96, Math.max(0.04, 1.0 - vocalMask));
 
-      // Vocal bins
+      // Apply vocal masks
       vocRealL[k] = realL[k] * vocalMask;
       vocImagL[k] = imagL[k] * vocalMask;
       vocRealR[k] = realR[k] * vocalMask;
       vocImagR[k] = imagR[k] * vocalMask;
 
-      // Instrumental bins
+      // Apply instrumental masks
       instRealL[k] = realL[k] * instMask;
       instImagL[k] = imagL[k] * instMask;
       instRealR[k] = realR[k] * instMask;
       instImagR[k] = imagR[k] * instMask;
 
+      // Mirror conjugate symmetric bins
       if (k > 0) {
         vocRealL[fftSize - k] = vocRealL[k];
         vocImagL[fftSize - k] = -vocImagL[k];
@@ -355,16 +475,26 @@ function processStemSeparation(
     transformIFFT(instRealR, instImagR);
 
     // Synthesize Overlap-Add
-    const norm = hopSize / (fftSize * 0.375);
     for (let i = 0; i < fftSize; i++) {
       const idx = offset + i;
-      if (idx < numFrames) {
-        vocalsLeft[idx] += vocRealL[i] * window[i] * norm;
-        vocalsRight[idx] += vocRealR[i] * window[i] * norm;
-        instLeft[idx] += instRealL[i] * window[i] * norm;
-        instRight[idx] += instRealR[i] * window[i] * norm;
-      }
+      paddedVocalsL[idx] += vocRealL[i] * window[i] * normFactor;
+      paddedVocalsR[idx] += vocRealR[i] * window[i] * normFactor;
+      paddedInstL[idx] += instRealL[i] * window[i] * normFactor;
+      paddedInstR[idx] += instRealR[i] * window[i] * normFactor;
     }
+  }
+
+  // Extract exactly original duration
+  const vocalsLeft = new Float32Array(originalFrames);
+  const vocalsRight = new Float32Array(originalFrames);
+  const instLeft = new Float32Array(originalFrames);
+  const instRight = new Float32Array(originalFrames);
+
+  for (let i = 0; i < originalFrames; i++) {
+    vocalsLeft[i] = Math.max(-1.0, Math.min(1.0, paddedVocalsL[padStart + i]));
+    vocalsRight[i] = Math.max(-1.0, Math.min(1.0, paddedVocalsR[padStart + i]));
+    instLeft[i] = Math.max(-1.0, Math.min(1.0, paddedInstL[padStart + i]));
+    instRight[i] = Math.max(-1.0, Math.min(1.0, paddedInstR[padStart + i]));
   }
 
   const result: any = {
@@ -373,8 +503,15 @@ function processStemSeparation(
   };
 
   // If 4-stems requested, decompose instrumental into Drums, Bass, Other
-  if (stemsCount === 4 && drumsLeft && drumsRight && bassLeft && bassRight && otherLeft && otherRight) {
-    for (let i = 0; i < numFrames; i++) {
+  if (stemsCount === 4) {
+    const drumsLeft = new Float32Array(originalFrames);
+    const drumsRight = new Float32Array(originalFrames);
+    const bassLeft = new Float32Array(originalFrames);
+    const bassRight = new Float32Array(originalFrames);
+    const otherLeft = new Float32Array(originalFrames);
+    const otherRight = new Float32Array(originalFrames);
+
+    for (let i = 0; i < originalFrames; i++) {
       // Bass: low-frequency sub
       const bassSampleL = instLeft[i] * 0.4;
       const bassSampleR = instRight[i] * 0.4;

@@ -908,7 +908,11 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
         .map(c => media.find(m => m.id === c.mediaId))
         .filter((m): m is NonNullable<typeof m> => !!m && m.type === "video")
         .map(m => m.url);
-      const allUrls = Array.from(new Set([...trackUrls, ...videoMediaUrls]));
+      const clipAudioUrls = clips.map(c => c.processedAudioUrl).filter(Boolean) as string[];
+      const overlayAudioUrls = overlays
+        .filter(o => o.type === "video" && !o.muted && (o.volume === undefined || o.volume > 0))
+        .map(o => o.url);
+      const allUrls = Array.from(new Set([...trackUrls, ...videoMediaUrls, ...clipAudioUrls, ...overlayAudioUrls]));
 
       for (const url of allUrls) {
         if (!audioBufferCache[url]) {
@@ -928,8 +932,9 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
           runningClipStart += len;
 
           const mItem = media.find(m => m.id === clip.mediaId);
-          if (mItem && mItem.type === "video") {
-            const buffer = audioBufferCache[mItem.url];
+          if (mItem && mItem.type === "video" && !clip.muteOriginalAudio) {
+            const audioUrlToUse = clip.processedAudioUrl || mItem.url;
+            const buffer = audioBufferCache[audioUrlToUse];
             if (buffer) {
               const startOffset = Math.min(clip.in, buffer.duration);
               const srcDuration = Math.max(0, Math.min(clip.out, buffer.duration) - startOffset);
@@ -1067,8 +1072,9 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
           runningClipStart += len;
 
           const mItem = media.find(m => m.id === clip.mediaId);
-          if (mItem && mItem.type === "video") {
-            const buffer = audioBufferCache[mItem.url];
+          if (mItem && mItem.type === "video" && !clip.muteOriginalAudio) {
+            const audioUrlToUse = clip.processedAudioUrl || mItem.url;
+            const buffer = audioBufferCache[audioUrlToUse];
             if (buffer) {
               try {
                 const startOffset = Math.min(clip.in, buffer.duration);
@@ -1116,6 +1122,28 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
           }
           clipIndexCount++;
           setProgress(0.20 + 0.05 * (clipIndexCount / Math.max(1, clips.length)));
+        }
+      }
+
+      // Phase D: Render audible video overlay tracks
+      for (const ov of overlays) {
+        if (ov.type === "video" && !ov.muted && (ov.volume === undefined || ov.volume > 0)) {
+          const buffer = audioBufferCache[ov.url];
+          if (buffer) {
+            try {
+              const ovVol = (ov.volume !== undefined ? ov.volume : 1) * videoVolume;
+              const source = offlineCtx.createBufferSource();
+              source.buffer = buffer;
+              const gainNode = offlineCtx.createGain();
+              gainNode.gain.setValueAtTime(ovVol, Math.max(0, ov.start));
+              source.connect(gainNode);
+              gainNode.connect(masterLimiter);
+              const ovDuration = Math.min(buffer.duration, Math.max(0.1, ov.end - ov.start));
+              source.start(Math.max(0, ov.start), 0, ovDuration);
+            } catch (ovErr) {
+              console.warn("Video overlay audio scheduling notice:", ovErr);
+            }
+          }
         }
       }
 
@@ -1442,7 +1470,33 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
             const drawW = (previewBaseW / previewW) * exportWidth * oScale;
             const drawH = (previewBaseH / previewH) * exportHeight * oScale;
 
+            if (o.shadowBlur && o.shadowBlur > 0) {
+              ctx.shadowColor = o.shadowColor || "rgba(0,0,0,0.5)";
+              ctx.shadowBlur = o.shadowBlur * (exportWidth / previewW);
+            }
+
+            if (o.cornerRadius && o.cornerRadius > 0) {
+              const scaledRadius = o.cornerRadius * (exportWidth / previewW);
+              ctx.beginPath();
+              ctx.roundRect(-drawW / 2, -drawH / 2, drawW, drawH, scaledRadius);
+              ctx.clip();
+            }
+
             ctx.drawImage(el, -drawW / 2, -drawH / 2, drawW, drawH);
+
+            if (o.borderWidth && o.borderWidth > 0) {
+              const scaledBorder = o.borderWidth * (exportWidth / previewW);
+              ctx.lineWidth = scaledBorder;
+              ctx.strokeStyle = o.borderColor || "#ffffff";
+              if (o.cornerRadius && o.cornerRadius > 0) {
+                const scaledRadius = o.cornerRadius * (exportWidth / previewW);
+                ctx.beginPath();
+                ctx.roundRect(-drawW / 2, -drawH / 2, drawW, drawH, scaledRadius);
+                ctx.stroke();
+              } else {
+                ctx.strokeRect(-drawW / 2, -drawH / 2, drawW, drawH);
+              }
+            }
             ctx.restore();
           }
         }

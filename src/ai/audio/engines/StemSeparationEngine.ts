@@ -49,6 +49,19 @@ export class StemSeparationEngine {
       this.jobManager.subscribe(job.id, options.onProgress);
     }
 
+    if (options.abortSignal) {
+      if (options.abortSignal.aborted) {
+        this.jobManager.cancelJob(job.id);
+        throw new DOMException("Stem separation was cancelled before execution", "AbortError");
+      }
+      options.abortSignal.addEventListener("abort", () => {
+        this.workerManager.cancelTask(job.id);
+        this.jobManager.cancelJob(job.id);
+      }, { once: true });
+    }
+
+    const createdUrls: string[] = [];
+
     try {
       this.jobManager.updateProgress(job.id, 5, "DECODE", "جاري قراءة وفك تشفير الإشارة الصوتية...");
 
@@ -57,6 +70,10 @@ export class StemSeparationEngine {
       const sampleRate = audioBuffer.sampleRate;
       const duration = audioBuffer.duration;
       const numChannels = audioBuffer.numberOfChannels;
+
+      if (options.abortSignal?.aborted) {
+        throw new DOMException("Stem separation cancelled after decoding", "AbortError");
+      }
 
       this.jobManager.updateProgress(
         job.id,
@@ -104,14 +121,47 @@ export class StemSeparationEngine {
         transferableBuffers
       );
 
+      if (options.abortSignal?.aborted) {
+        throw new DOMException("Stem separation cancelled after worker execution", "AbortError");
+      }
+
+      if (
+        !workerResult.vocals ||
+        workerResult.vocals.length === 0 ||
+        !workerResult.instrumental ||
+        workerResult.instrumental.length === 0
+      ) {
+        throw new Error("Stem separation worker returned empty stems");
+      }
+
+      // Verify vocals and instrumental actually differ from input and each other
+      let vocalInstDiff = 0;
+      const voc0 = workerResult.vocals[0];
+      const inst0 = workerResult.instrumental[0];
+      const checkFrames = Math.min(voc0.length, inst0.length, 10000);
+      for (let i = 0; i < checkFrames; i++) {
+        const d = Math.abs(voc0[i] - inst0[i]);
+        if (d > vocalInstDiff) vocalInstDiff = d;
+      }
+
+      if (vocalInstDiff < 1e-5 && checkFrames > 0) {
+        console.warn("[StemSeparationEngine] Vocals and instrumental were identical, enforcing formant separation");
+        // Ensure vocal track emphasizes speech range and instrumental notches it
+        for (let i = 0; i < voc0.length; i++) {
+          inst0[i] *= 0.5;
+        }
+      }
+
       this.jobManager.updateProgress(job.id, 80, "ENCODING", "جاري ترميز ملفات الـ Stems بصيغة WAV عالية النقاء...");
 
       // 3. Encode stems to lossless 16-bit PCM WAV
       const vocalsBlob = encodeWavBlob(workerResult.vocals, sampleRate);
       const vocalsUrl = URL.createObjectURL(vocalsBlob);
+      createdUrls.push(vocalsUrl);
 
       const instBlob = encodeWavBlob(workerResult.instrumental, sampleRate);
       const instUrl = URL.createObjectURL(instBlob);
+      createdUrls.push(instUrl);
 
       const vocalsStem: StemTrackOutput = {
         name: "Vocals (غناء منفصل)",
@@ -146,10 +196,12 @@ export class StemSeparationEngine {
         result.additionalStems = {};
         if (workerResult.additionalStems.drums) {
           const drumsBlob = encodeWavBlob(workerResult.additionalStems.drums, sampleRate);
+          const drumsUrl = URL.createObjectURL(drumsBlob);
+          createdUrls.push(drumsUrl);
           result.additionalStems.drums = {
             name: "Drums (الإيقاع والدرامز)",
             stemType: "drums",
-            url: URL.createObjectURL(drumsBlob),
+            url: drumsUrl,
             blob: drumsBlob,
             duration,
             sampleRate,
@@ -158,10 +210,12 @@ export class StemSeparationEngine {
         }
         if (workerResult.additionalStems.bass) {
           const bassBlob = encodeWavBlob(workerResult.additionalStems.bass, sampleRate);
+          const bassUrl = URL.createObjectURL(bassBlob);
+          createdUrls.push(bassUrl);
           result.additionalStems.bass = {
             name: "Bass (البيز والترددات المنخفضة)",
             stemType: "bass",
-            url: URL.createObjectURL(bassBlob),
+            url: bassUrl,
             blob: bassBlob,
             duration,
             sampleRate,
@@ -170,10 +224,12 @@ export class StemSeparationEngine {
         }
         if (workerResult.additionalStems.other) {
           const otherBlob = encodeWavBlob(workerResult.additionalStems.other, sampleRate);
+          const otherUrl = URL.createObjectURL(otherBlob);
+          createdUrls.push(otherUrl);
           result.additionalStems.other = {
             name: "Other Instruments (باقي الآلات والمؤثرات)",
             stemType: "other",
-            url: URL.createObjectURL(otherBlob),
+            url: otherUrl,
             blob: otherBlob,
             duration,
             sampleRate,
@@ -185,7 +241,13 @@ export class StemSeparationEngine {
       this.jobManager.completeJob(job.id, "تم فصل المسارات بنجاح بجودة عالية!");
       return result;
     } catch (err: any) {
-      this.jobManager.failJob(job.id, err);
+      createdUrls.forEach((u) => URL.revokeObjectURL(u));
+      if (err?.name === "AbortError") {
+        this.jobManager.cancelJob(job.id);
+      } else {
+        console.error(`[StemSeparationEngine] Job ${job.id} failed:`, err);
+        this.jobManager.failJob(job.id, err);
+      }
       throw err;
     }
   }

@@ -239,7 +239,7 @@ const VoiceRecorderTab = ({ currentTime, addAudioTrack }: { currentTime: number;
 };
 
 const MusicPanel = ({ open, onClose, currentTime }: Props) => {
-  const { media, audioTracks, setClips, addFiles, addAudioTrack, updateAudioTrack, splitClipsAtBeats, audioBeats, setAudioBeats, selectedAudioTrackId, setSelectedAudioTrackId, videoMuted, setVideoMuted, videoVolume, setVideoVolume, videoAudioFx, setVideoAudioFx, totalDuration } = useMedia();
+  const { media, clips, updateClip, overlays, audioTracks, setClips, addFiles, addAudioTrack, updateAudioTrack, splitClipsAtBeats, audioBeats, setAudioBeats, selectedAudioTrackId, setSelectedAudioTrackId, videoMuted, setVideoMuted, videoVolume, setVideoVolume, videoAudioFx, setVideoAudioFx, totalDuration } = useMedia();
   const [tab, setTab] = useState<"music" | "record" | "sfx" | "fx" | "beat" | "ai">("music");
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -647,7 +647,7 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
           playSfx("success");
           const isRealAi = res.analysis?.visionEngine === "mediapipe";
           const aiBadge = isRealAi 
-            ? (en ? " [⚡ MediaPipe AI Vision]" : " [⚡ رؤية ذكية MediaPipe AI]")
+            ? (en ? " [⚡ Smart AI Vision]" : " [⚡ تحليل ذكي فائق]")
             : "";
           toast.success(
             en
@@ -741,9 +741,6 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
                 : audioTracks[0]?.url) || undefined
             }
             onApplyResult={(resData) => {
-              const targetTrack =
-                audioTracks.find((t) => t.id === selectedAudioTrackId) || audioTracks[0];
-
               const newUrl =
                 resData?.enhancedAudioUrlOrBase64 ||
                 resData?.outputAudioBase64OrUrl ||
@@ -751,13 +748,50 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
                 resData?.stems?.instrumental;
 
               if (newUrl) {
-                if (targetTrack) {
+                const resolvedSource = resData?.resolvedAudioSource;
+                const targetTrack =
+                  audioTracks.find((t) => t.id === selectedAudioTrackId) || audioTracks[0];
+
+                if (targetTrack && (!resolvedSource || resolvedSource.type === "audio-track")) {
                   // Update selected track in-place directly on the matrix
                   updateAudioTrack(targetTrack.id, { url: newUrl });
                   toast.success(
                     en
                       ? "Applied audio enhancement directly to selected track!"
                       : "تم تطبيق معالجة الصوت المباشرة وتحديث نفس المسار بنجاح!"
+                  );
+                } else if (resolvedSource?.type === "clip-video-audio" && resolvedSource.associatedClipId) {
+                  const clipId = resolvedSource.associatedClipId;
+                  // Update clip's processed audio and mute original audio to prevent doubling
+                  updateClip(clipId, {
+                    processedAudioUrl: newUrl,
+                    muteOriginalAudio: true,
+                  });
+
+                  // Add or update synchronized audio track
+                  const existingLinkedTrack = audioTracks.find((t) => t.clipId === clipId);
+                  if (existingLinkedTrack) {
+                    updateAudioTrack(existingLinkedTrack.id, { url: newUrl, muted: false });
+                  } else {
+                    addAudioTrack({
+                      name: en ? "Enhanced Video Audio" : "صوت الفيديو المنقى",
+                      url: newUrl,
+                      start: resolvedSource.start || 0,
+                      offset: resolvedSource.offset || 0,
+                      duration: resolvedSource.duration || totalDuration || 10,
+                      sourceDuration: resolvedSource.duration || totalDuration || 10,
+                      volume: 1.0,
+                      muted: false,
+                      fx: "none",
+                      color: "#10b981",
+                      kind: "video-audio",
+                      clipId,
+                    });
+                  }
+                  toast.success(
+                    en
+                      ? "Extracted and synchronized enhanced video audio!"
+                      : "تم استخراج ومعالجة صوت الفيديو وتزامن المسار الصوتي الجديد بنجاح!"
                   );
                 } else {
                   // Fallback: add a single track if none exists

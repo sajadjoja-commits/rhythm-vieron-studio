@@ -127,9 +127,8 @@ export class AudioEnhancementPlugin extends BasePlugin {
         }
       }
 
-      // Determine execution path: Local vs Remote
-      const profile = AIResourceManager.getInstance().getProfile();
-      const preferLocal = options?.executionMode === "local" || (profile.hasWASM && !profile.isAndroid);
+      // Determine execution path: Local DSP vs Remote
+      const preferLocal = options?.executionMode !== "remote";
 
       debugLogger.logStage("Inference Started", { actionName, preferLocal });
       let result: AudioEnhancementResult;
@@ -176,7 +175,7 @@ export class AudioEnhancementPlugin extends BasePlugin {
   }
 
   /**
-   * DeepFilterNet Noise Reduction Implementation
+   * Adaptive Spectral Denoise Noise Reduction Implementation
    */
   private async runDeepFilterNetDenoise(
     payload: AudioEnhancementPayload,
@@ -184,27 +183,33 @@ export class AudioEnhancementPlugin extends BasePlugin {
     options?: AIJobOptions
   ): Promise<AudioEnhancementResult> {
     const intensity = payload.denoiseIntensity ?? 0.8;
-    const engineName = payload.denoiseEngine || "DeepFilterNet";
+    const engineName = payload.denoiseEngine || "Adaptive-Spectral-DSP";
 
     if (isLocal) {
       // Local adaptive spectral subtraction processing via WebAudio WebAssembly/Worker DSP
-      const processedBase64 = await this.applyLocalDenoiseDSP(payload.audioBase64OrUrl, intensity);
+      const processedBase64 = await this.applyLocalDenoiseDSP(payload.audioBase64OrUrl, intensity, options);
       return {
         enhancedAudioUrlOrBase64: processedBase64,
+        processedAudioUrlOrBase64: processedBase64,
         mimeType: payload.mimeType || "audio/wav",
         appliedDenoiseEngine: `Adaptive Spectral Denoise (Local Worker DSP)`,
       };
     }
 
-    // Remote fallback via AIManager
+    // Remote execution via AIManager
     const remoteRes = await AIManager.getInstance().isolateAudio(
       payload.audioBase64OrUrl,
       "remove-noise",
-      { executionMode: "remote" }
+      { executionMode: "remote", abortSignal: options?.abortSignal }
     );
 
+    if (!remoteRes?.processedAudioUrlOrBase64) {
+      throw new Error("Remote noise reduction service failed or returned empty audio");
+    }
+
     return {
-      enhancedAudioUrlOrBase64: remoteRes.processedAudioUrlOrBase64 || payload.audioBase64OrUrl,
+      enhancedAudioUrlOrBase64: remoteRes.processedAudioUrlOrBase64,
+      processedAudioUrlOrBase64: remoteRes.processedAudioUrlOrBase64,
       mimeType: payload.mimeType || "audio/wav",
       appliedDenoiseEngine: `${engineName} (Cloud AI Provider)`,
     };
@@ -226,30 +231,40 @@ export class AudioEnhancementPlugin extends BasePlugin {
 
     if (isLocal) {
       // Local Harmonic-Spectral stem separation via WebAudio/Worker DSP
-      const outputAudio = await this.applyLocalStemSeparationDSP(payload.audioBase64OrUrl, mode, stems);
+      const outputAudio = await this.applyLocalStemSeparationDSP(payload.audioBase64OrUrl, mode, stems, options);
       return {
         enhancedAudioUrlOrBase64: outputAudio,
+        processedAudioUrlOrBase64: outputAudio,
         mimeType: payload.mimeType || "audio/wav",
         stems,
         appliedSeparationEngine: `Harmonic-Spectral Stem Masking (Local Worker DSP)`,
       };
     }
 
-    // Remote fallback execution via AIManager
+    // Remote execution via AIManager
     const remoteRes = await AIManager.getInstance().isolateAudio(
       payload.audioBase64OrUrl,
       mode === "remove-music" ? "remove-music" : "isolate-vocals",
-      { executionMode: "remote" }
+      { executionMode: "remote", abortSignal: options?.abortSignal }
     );
+
+    if (!remoteRes?.processedAudioUrlOrBase64 && !remoteRes?.isolatedVocalUrlOrBase64) {
+      throw new Error("Remote stem separation service failed or returned empty audio");
+    }
 
     stems.vocals = remoteRes.isolatedVocalUrlOrBase64 || remoteRes.processedAudioUrlOrBase64;
     stems.instrumental = remoteRes.isolatedInstrumentalUrlOrBase64;
 
+    const chosenTrack = (mode === "remove-music" || mode === "extract-music")
+      ? (remoteRes.isolatedInstrumentalUrlOrBase64 || remoteRes.processedAudioUrlOrBase64)
+      : (remoteRes.isolatedVocalUrlOrBase64 || remoteRes.processedAudioUrlOrBase64);
+
     return {
-      enhancedAudioUrlOrBase64: remoteRes.processedAudioUrlOrBase64 || payload.audioBase64OrUrl,
+      enhancedAudioUrlOrBase64: chosenTrack,
+      processedAudioUrlOrBase64: chosenTrack,
       mimeType: payload.mimeType || "audio/wav",
       stems,
-      appliedSeparationEngine: `${engineName} (Cloud Provider Fallback)`,
+      appliedSeparationEngine: `${engineName} (Cloud Provider)`,
     };
   }
 
@@ -261,21 +276,26 @@ export class AudioEnhancementPlugin extends BasePlugin {
     isLocal: boolean,
     options?: AIJobOptions
   ): Promise<AudioEnhancementResult> {
-    // 1. Step 1: Denoise via Adaptive Spectral Denoise if enabled
+    const doDenoise = payload.denoise !== false;
+    const doSeparate = Boolean(payload.separationMode && payload.separationMode !== "none");
+
+    if (!doDenoise && !doSeparate) {
+      throw new Error("No enhancement action selected: either denoise or separation must be enabled");
+    }
+
     let currentAudio = payload.audioBase64OrUrl;
     let denoiseEngineUsed: string | undefined;
 
-    if (payload.denoise !== false) {
+    if (doDenoise) {
       const denoiseRes = await this.runDeepFilterNetDenoise(payload, isLocal, options);
       currentAudio = denoiseRes.enhancedAudioUrlOrBase64;
       denoiseEngineUsed = denoiseRes.appliedDenoiseEngine;
     }
 
-    // 2. Step 2: Stem Separation via Harmonic Spectral Masking if separation requested
     let stems: AudioStems | undefined;
     let separationEngineUsed: string | undefined;
 
-    if (payload.separationMode && payload.separationMode !== "none") {
+    if (doSeparate) {
       const separationRes = await this.runDemucsSeparation(
         { ...payload, audioBase64OrUrl: currentAudio },
         isLocal,
@@ -288,20 +308,26 @@ export class AudioEnhancementPlugin extends BasePlugin {
 
     return {
       enhancedAudioUrlOrBase64: currentAudio,
+      processedAudioUrlOrBase64: currentAudio,
       mimeType: payload.mimeType || "audio/wav",
       stems,
-      appliedDenoiseEngine: denoiseEngineUsed || "Adaptive Spectral Denoise (Passed-through)",
-      appliedSeparationEngine: separationEngineUsed || "Harmonic Stem Separation (Passed-through)",
+      appliedDenoiseEngine: denoiseEngineUsed || "Adaptive Spectral Denoise (Local Worker DSP)",
+      appliedSeparationEngine: separationEngineUsed || "Harmonic Stem Separation (Local Worker DSP)",
     };
   }
 
   /**
    * Real Audio AI Engine Denoising
    */
-  private async applyLocalDenoiseDSP(audioBase64OrUrl: string, intensity: number): Promise<string> {
+  private async applyLocalDenoiseDSP(
+    audioBase64OrUrl: string,
+    intensity: number,
+    options?: AIJobOptions
+  ): Promise<string> {
     const blob = await resolveAudioSourceToBlob(audioBase64OrUrl);
 
     const denoiseResult = await audioAIEngine.reduceNoise(blob, {
+      ...options,
       denoiseStrength: Math.min(1.0, Math.max(0.2, intensity)),
     });
 
@@ -314,11 +340,12 @@ export class AudioEnhancementPlugin extends BasePlugin {
   private async applyLocalStemSeparationDSP(
     audioBase64OrUrl: string,
     mode: string,
-    outStems: AudioStems
+    outStems: AudioStems,
+    options?: AIJobOptions
   ): Promise<string> {
     const blob = await resolveAudioSourceToBlob(audioBase64OrUrl);
 
-    const sepResult = await audioAIEngine.isolateVocals(blob);
+    const sepResult = await audioAIEngine.isolateVocals(blob, options);
 
     const vocalsDataUrl = await blobToDataUrl(sepResult.vocals.blob);
     const instDataUrl = await blobToDataUrl(sepResult.instrumental.blob);

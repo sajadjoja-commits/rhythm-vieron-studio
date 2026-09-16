@@ -29,6 +29,8 @@ import { PayloadValidator } from "@/ai/utils/PayloadValidator";
 import { aiManager, aiRuntime, aiPlugins } from "@/ai";
 import { AITaskType } from "@/ai/types/ai";
 import { VideoJobManager } from "@/ai/video";
+import { useMedia } from "@/context/MediaContext";
+import { audioSourceResolver, ResolvedAudioSource } from "@/ai/audio/AudioSourceResolver";
 
 export interface AIToolConfig {
   id: string;
@@ -42,6 +44,7 @@ export interface AIToolConfig {
   descEn: string;
   icon: any;
   badge: string;
+  badgeType?: "ready-dsp" | "ready-ml" | "heavy-render";
   payload?: Record<string, any>;
 }
 
@@ -58,7 +61,8 @@ const AI_TOOLS_CATALOG: AIToolConfig[] = [
     descAr: "معالجة وتحسين ألوان وإطارات الفيديو وموازنة التباين وديناميكية HDR",
     descEn: "Adaptive CLAHE video dynamic range enhancement & detail sharpening",
     icon: Sparkles,
-    badge: "HDR AI",
+    badge: "READY (DSP)",
+    badgeType: "ready-dsp",
     payload: { isVideo: true },
   },
   {
@@ -67,12 +71,13 @@ const AI_TOOLS_CATALOG: AIToolConfig[] = [
     taskType: "background-removal",
     pluginId: "plugin-video-enhancement",
     actionName: "video-bg-removal",
-    titleAr: "إزالة خلفية الفيديو (Neural Cutout)",
-    titleEn: "Video Background Removal",
+    titleAr: "عزل وتفريغ خلفية الفيديو (Smart Cutout)",
+    titleEn: "Video Background Removal (Smart Cutout)",
     descAr: "عزل الأشخاص والعناصر من الفيديو وتفريغ الخلفية بذكاء مع تثبيت الحواف",
     descEn: "Isolate moving subjects with temporal stabilization & alpha cutout",
     icon: Wand2,
-    badge: "AI CUTOUT",
+    badge: "READY (ML)",
+    badgeType: "ready-ml",
     payload: { isVideo: true },
   },
   {
@@ -86,8 +91,24 @@ const AI_TOOLS_CATALOG: AIToolConfig[] = [
     descAr: "تنظيف تحبيب التصوير في الإضاءة المنخفضة والضوضاء البصرية بحفظ الحواف",
     descEn: "Clean low-light video noise & digital camera grain preserving edge sharpness",
     icon: ShieldCheck,
-    badge: "CLEAN AI",
+    badge: "READY (DSP)",
+    badgeType: "ready-dsp",
     payload: { denoiseIntensity: 0.7 },
+  },
+  {
+    id: "video-autocolor",
+    mediaType: "video",
+    taskType: "enhance-media",
+    pluginId: "plugin-video-enhancement",
+    actionName: "composite-video-enhance",
+    titleAr: "موازنة ألوان الفيديو والتباين (Auto Color & Tone)",
+    titleEn: "Auto Video Color & Dynamic Tone",
+    descAr: "تصحيح الإضاءة وموازنة الألوان والتشبع تلقائياً بحفظ تدرجات البشرة",
+    descEn: "Intelligent auto color grading, exposure balance & dynamic vibrance",
+    icon: Palette,
+    badge: "READY (DSP)",
+    badgeType: "ready-dsp",
+    payload: { isVideo: true, autoColor: true },
   },
 
   // ---------------- IMAGE AI TOOLS ----------------
@@ -97,12 +118,13 @@ const AI_TOOLS_CATALOG: AIToolConfig[] = [
     taskType: "background-removal",
     pluginId: "plugin-image-enhancement",
     actionName: "remove-background",
-    titleAr: "إزالة الخلفية (MediaPipe & Neural)",
-    titleEn: "Remove Background (MediaPipe AI)",
+    titleAr: "عزل وتفريغ الخلفية (Smart Cutout)",
+    titleEn: "AI Background Removal (Smart Cutout)",
     descAr: "عزل دقيق جداً للموضوع وحذف الخلفية بدقة فائقة",
     descEn: "High-precision AI foreground extraction & cutout",
     icon: Scissors,
-    badge: "AI CUTOUT",
+    badge: "READY (ML)",
+    badgeType: "ready-ml",
   },
   {
     id: "face-enhance",
@@ -115,7 +137,8 @@ const AI_TOOLS_CATALOG: AIToolConfig[] = [
     descAr: "توضيح الوجوه ومعالجة تفاصيل العينين والجلد وتفاصيل البورتريه",
     descEn: "Restore facial details, eye sharpness & skin clarity",
     icon: Smile,
-    badge: "FACE RESTORE",
+    badge: "READY (ML)",
+    badgeType: "ready-ml",
   },
   {
     id: "object-remove",
@@ -123,12 +146,13 @@ const AI_TOOLS_CATALOG: AIToolConfig[] = [
     taskType: "background-removal",
     pluginId: "plugin-image-enhancement",
     actionName: "object-remove",
-    titleAr: "حذف العناصر غير المرغوبة (Fourier Inpaint)",
+    titleAr: "حذف العناصر غير المرغوبة (Inpaint)",
     titleEn: "Object & Watermark Inpaint",
     descAr: "إزالة الشوائب والعناصر غير المرغوبة من الخلفية بذكاء",
     descEn: "Intelligent inpainting object & watermark removal",
     icon: Trash2,
-    badge: "INPAINT",
+    badge: "READY (DSP)",
+    badgeType: "ready-dsp",
   },
   {
     id: "denoise",
@@ -141,7 +165,8 @@ const AI_TOOLS_CATALOG: AIToolConfig[] = [
     descAr: "إزالة الضوضاء وتنعيم الصورة بدون فقدان الحواف الحادة",
     descEn: "Remove digital grain preserving sharp boundaries",
     icon: ShieldCheck,
-    badge: "DENOISE",
+    badge: "READY (DSP)",
+    badgeType: "ready-dsp",
   },
   {
     id: "composite-enhance",
@@ -154,7 +179,8 @@ const AI_TOOLS_CATALOG: AIToolConfig[] = [
     descAr: "تنظيف + تحسين الوجوه + موازنة التباين ووضوح التفاصيل دفعة واحدة",
     descEn: "Full pipeline: Denoise + Face Restore + Dynamic HDR Contrast",
     icon: Wand2,
-    badge: "MASTER",
+    badge: "READY (MASTER)",
+    badgeType: "ready-dsp",
   },
 
   // ---------------- AUDIO AI TOOLS ----------------
@@ -164,12 +190,13 @@ const AI_TOOLS_CATALOG: AIToolConfig[] = [
     taskType: "noise-reduction",
     pluginId: "plugin-audio-enhancement",
     actionName: "denoise",
-    titleAr: "إزالة ضوضاء الصوت والموسيقى (DSP Noise Reduction)",
+    titleAr: "إزالة ضوضاء الصوت والموسيقى (Voice & Music Noise Reduction)",
     titleEn: "Voice & Music Noise Reduction",
     descAr: "تنقية ضوضاء المروحة والمكيف والتشويش المباشر وتحديث المسار الصوتي نفسه",
     descEn: "Clean background hiss, hum, and noise directly on the selected audio track",
     icon: Mic,
-    badge: "DSP CLEAN",
+    badge: "READY (DSP)",
+    badgeType: "ready-dsp",
     payload: { denoiseIntensity: 0.85 },
   },
   {
@@ -178,13 +205,44 @@ const AI_TOOLS_CATALOG: AIToolConfig[] = [
     taskType: "vocal-isolation",
     pluginId: "plugin-audio-enhancement",
     actionName: "separate",
-    titleAr: "عزل الصوت والموسيقى (Vocal & Music Isolation)",
+    titleAr: "عزل الصوت والموسيقى (Vocal & Music Track Isolation)",
     titleEn: "Vocal & Music Track Isolation",
-    descAr: "فصل الكلام عن الموسيقى على نفس المسار المحدد دون إنشاء مصفوفات جديدة (اختر: صوت فقط أو موسيقى فقط)",
+    descAr: "فصل الكلام عن الموسيقى على نفس المسار المحدد مع إمكانية التحديد",
     descEn: "Isolate vocals or instrumental directly on the selected track",
     icon: Music2,
-    badge: "TRACK ISOLATION",
+    badge: "READY (DSP)",
+    badgeType: "ready-dsp",
     payload: { mode: "extract-vocals" },
+  },
+  {
+    id: "vocals-only",
+    mediaType: "audio",
+    taskType: "vocal-isolation",
+    pluginId: "plugin-audio-enhancement",
+    actionName: "separate",
+    titleAr: "صوت فقط بدون موسيقى (Vocals Only)",
+    titleEn: "Vocals Only (No Music)",
+    descAr: "استخراج مسار الغناء والكلام البشري وحجب الآلات الموسيقية",
+    descEn: "Isolate human speech and vocals while attenuating backing music",
+    icon: Mic,
+    badge: "READY (DSP)",
+    badgeType: "ready-dsp",
+    payload: { mode: "extract-vocals" },
+  },
+  {
+    id: "music-only",
+    mediaType: "audio",
+    taskType: "vocal-isolation",
+    pluginId: "plugin-audio-enhancement",
+    actionName: "separate",
+    titleAr: "موسيقى فقط بدون صوت (Music Only)",
+    titleEn: "Music Only (No Voice)",
+    descAr: "حذف الصوت البشري تماماً والإبقاء على الموسيقى التصويرية والإيقاع",
+    descEn: "Isolate backing music and instruments while removing human voice",
+    icon: Music2,
+    badge: "READY (DSP)",
+    badgeType: "ready-dsp",
+    payload: { mode: "extract-music" },
   },
 ];
 
@@ -217,6 +275,17 @@ export const AIToolsPanel = ({
   const activeAbortRef = useRef<AbortController | null>(null);
 
   const en = getLang() === "en";
+
+  const {
+    audioTracks,
+    selectedAudioTrackId,
+    clips,
+    selectedClipId,
+    media,
+    overlays,
+    selectedOverlayId,
+    currentTime,
+  } = useMedia();
 
   // Filter ONLY tools matching the active media type
   const availableTools = useMemo(() => {
@@ -302,16 +371,46 @@ export const AIToolsPanel = ({
       return;
     }
 
-    if (targetMediaType === "audio" && !mediaInput) {
-      setIsExecuting(false);
-      setActiveToolId(null);
-      activeAbortRef.current = null;
-      toast.error(
-        en
-          ? "Please select or add an audio track in the timeline first to process it."
-          : "يرجى اختيار أو إضافة مسار صوتي في الخط الزمني أولاً لتطبيق المعالجة عليه."
-      );
-      return;
+    let finalAudioInput = mediaInput;
+    let audioCleanupFn: (() => void) | null = null;
+    let resolvedAudioInfo: ResolvedAudioSource | null = null;
+
+    if (targetMediaType === "audio") {
+      const resolved = audioSourceResolver.resolve({
+        audioTracks,
+        selectedAudioTrackId,
+        clips,
+        selectedClipId,
+        media,
+        overlays,
+        selectedOverlayId,
+        currentTime,
+      });
+
+      if (!resolved && !mediaInput) {
+        setIsExecuting(false);
+        setActiveToolId(null);
+        activeAbortRef.current = null;
+        toast.error(
+          en
+            ? "No audio source found. Please add an audio track or a video clip with audio."
+            : "لم يتم العثور على أي مصدر صوتي. يرجى إضافة مسار صوتي أو مقطع فيديو يحتوي على صوت."
+        );
+        return;
+      }
+
+      if (resolved) {
+        resolvedAudioInfo = resolved;
+        try {
+          setStatusText(en ? "Extracting audio stream..." : "جاري استخراج ودفق الصوت بدقة أصلية...");
+          const prep = await audioSourceResolver.prepareAudioForProcessing(resolved);
+          finalAudioInput = prep.audioUrl;
+          audioCleanupFn = prep.cleanup;
+        } catch (prepErr: any) {
+          console.warn("Audio extraction fallback notice:", prepErr);
+          if (!finalAudioInput) finalAudioInput = resolved.url;
+        }
+      }
     }
 
     const currentMode = toolConfig.id === "separate-vocals" ? isolationMode : toolConfig.payload?.mode || "extract-vocals";
@@ -324,10 +423,10 @@ export const AIToolsPanel = ({
       inputMediaType: targetMediaType,
       mediaType: targetMediaType,
       domain: targetMediaType,
-      mediaUrlOrBase64: mediaInput,
+      mediaUrlOrBase64: targetMediaType === "audio" ? finalAudioInput : mediaInput,
       imageBase64OrUrl: targetMediaType === "image" ? mediaInput : undefined,
       videoBase64OrUrl: targetMediaType === "video" ? mediaInput : undefined,
-      audioBase64OrUrl: targetMediaType === "audio" ? mediaInput : undefined,
+      audioBase64OrUrl: targetMediaType === "audio" ? finalAudioInput : undefined,
       toolId: toolConfig.id,
       pluginId: toolConfig.pluginId,
       historyId: `hist_${Date.now()}`,
@@ -410,7 +509,16 @@ export const AIToolsPanel = ({
     const cacheKey = aiManager.cache.generateHash(toolConfig.taskType, payload);
     const cachedData = aiManager.cache.get<any>(cacheKey);
 
-    if (cachedData) {
+    // Stale check for audio: if cached output is identical to input, invalidate it
+    const isAudioTool = targetMediaType === "audio";
+    const cachedInputStr = String(payload?.audioBase64OrUrl || payload?.audioBase64 || "").trim();
+    const cachedOutputStr = String(
+      cachedData?.enhancedAudioUrlOrBase64 || cachedData?.processedAudioUrlOrBase64 || ""
+    ).trim();
+
+    if (isAudioTool && cachedData && cachedInputStr && cachedOutputStr && cachedInputStr === cachedOutputStr) {
+      aiManager.cache.delete(cacheKey);
+    } else if (cachedData) {
       aiRuntime.historyManager.recordJob(
         toolConfig.taskType,
         "AICache",
@@ -509,7 +617,10 @@ export const AIToolsPanel = ({
         );
 
         if (onApplyResult) {
-          await onApplyResult(response.data);
+          await onApplyResult({
+            ...response.data,
+            resolvedAudioSource: resolvedAudioInfo,
+          });
         } else {
           playSfx("success");
           toast.success(
@@ -547,6 +658,7 @@ export const AIToolsPanel = ({
       setLastError(errorMsg);
       toast.error(errorMsg);
     } finally {
+      audioCleanupFn?.();
       unsubscribeJob();
       activeAbortRef.current = null;
       setIsExecuting(false);
@@ -769,7 +881,15 @@ export const AIToolsPanel = ({
                         <h4 className="text-xs font-extrabold text-foreground leading-tight">
                           {en ? tool.titleEn : tool.titleAr}
                         </h4>
-                        <span className="mt-0.5 inline-block text-[9px] font-bold px-1.5 py-0.2 rounded bg-primary/10 text-primary border border-primary/20">
+                        <span
+                          className={`mt-0.5 inline-block text-[9px] font-bold px-1.5 py-0.2 rounded border ${
+                            tool.badgeType === "ready-dsp"
+                              ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                              : tool.badgeType === "ready-ml"
+                              ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20"
+                              : "bg-primary/10 text-primary border-primary/20"
+                          }`}
+                        >
                           {tool.badge}
                         </span>
                       </div>

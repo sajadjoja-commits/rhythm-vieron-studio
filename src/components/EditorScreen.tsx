@@ -2110,6 +2110,8 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
                     overlay={interpolatedOverlay}
                     selected={selectedOverlayId === o.id}
                     containerRef={previewRef}
+                    currentTime={currentTime}
+                    isPlaying={isPlaying}
                     onSelect={setSelectedOverlayId}
                     onUpdate={handleUpdateOverlay}
                   />

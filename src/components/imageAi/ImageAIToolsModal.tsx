@@ -78,7 +78,7 @@ const TOOLS_CONFIG: ToolTab[] = [
     descAr: "عزل وتفريغ الخلفيات بنقاء عالي مع معالجة حواف الشعر والملابس",
     descEn: "Neural foreground cutout & edge-refined transparent alpha",
     icon: Scissors,
-    badge: "MediaPipe Neural",
+    badge: "Smart Cutout",
     accentColor: "#3b82f6",
   },
   {

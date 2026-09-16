@@ -86,9 +86,20 @@ export class LocalAudioFilter extends LocalProvider {
       executionMode: "local",
     });
 
+    let mappedData: any = res.data;
+    if (res.data) {
+      const d = res.data as any;
+      mappedData = {
+        ...d,
+        processedAudioUrlOrBase64: d.processedAudioUrlOrBase64 || d.enhancedAudioUrlOrBase64,
+        isolatedVocalUrlOrBase64: d.stems?.vocals,
+        isolatedInstrumentalUrlOrBase64: d.stems?.instrumental,
+      };
+    }
+
     return {
       success: res.success,
-      data: res.data as unknown as TResult,
+      data: mappedData as unknown as TResult,
       providerUsed: this.id,
       executionTimeMs: Date.now() - startTime,
       error: res.error,

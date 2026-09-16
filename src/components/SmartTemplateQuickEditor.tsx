@@ -172,8 +172,8 @@ export default function SmartTemplateQuickEditor({ initialTemplate, onBack, onOp
       const isRealMediaPipe = res.analysis?.visionEngine === "mediapipe";
       toast.success(
         isRTL()
-          ? `تم المونتاج بنجاح! ${isRealMediaPipe ? "(⚡ ذكاء MediaPipe)" : ""}`
-          : `Montage generated! ${isRealMediaPipe ? "(⚡ MediaPipe AI Vision)" : ""}`
+          ? `تم المونتاج بنجاح! ${isRealMediaPipe ? "(⚡ ذكاء بصري فائق)" : ""}`
+          : `Montage generated! ${isRealMediaPipe ? "(⚡ Smart AI Vision)" : ""}`
       );
 
       // Update Media Context
@@ -725,7 +725,7 @@ export default function SmartTemplateQuickEditor({ initialTemplate, onBack, onOp
               <div className="flex items-center gap-1.5">
                 {montageResult?.analysis?.visionEngine === "mediapipe" && (
                   <span className="text-[9px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 font-bold flex items-center gap-0.5">
-                    ⚡ MediaPipe AI
+                    ⚡ Smart Vision
                   </span>
                 )}
                 <span className="text-[10px] text-primary bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20 font-bold">
