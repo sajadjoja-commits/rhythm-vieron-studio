@@ -806,6 +806,9 @@ export const TransitionPanel = ({ open, clipId, onClose }: Props) => {
     getSampleImages();
   }, []);
 
+  const transitionType = clip?.transitionIn?.type;
+  const transitionDur = clip?.transitionIn?.duration;
+
   useEffect(() => {
     if (clip?.transitionIn) {
       setSelected(clip.transitionIn.type);
@@ -816,7 +819,7 @@ export const TransitionPanel = ({ open, clipId, onClose }: Props) => {
       setSelected("gsap-elastic-zoom");
       setDuration(0.5);
     }
-  }, [clipId, clip?.transitionIn]);
+  }, [clipId, transitionType, transitionDur]);
 
   useEffect(() => {
     if (!open) {

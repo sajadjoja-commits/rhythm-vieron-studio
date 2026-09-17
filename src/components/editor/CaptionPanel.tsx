@@ -3,10 +3,9 @@ import { useMedia, Caption, CaptionAnimation, CaptionTemplate } from "@/context/
 import { useAdGate } from "@/context/AdGateContext";
 import { X, Plus, Trash2, Type, Languages, Sparkles, Loader2, Palette, Eye, EyeOff, Check, Music, AlertTriangle, CheckCircle2, RotateCw, RefreshCw, Search, Layers, Sliders, Zap, BookOpen, Radio, Youtube, Instagram, MapPin, Quote, Star, Flame, Award, WrapText, FlipHorizontal, FlipVertical, Upload, FileText } from "lucide-react";
 import { toast } from "sonner";
-import { extractAudioBase64, extractAudioInChunks, mergeChunkResults, TranscribedSegment } from "@/lib/audioExtract";
 import { Capacitor } from "@capacitor/core";
-import { transcribeLocally } from "@/lib/localTranscribe";
-import { AIManager } from "@/ai/AIManager";
+import { transcribeLocally, TranscribedSegment } from "@/lib/localTranscribe";
+import { AudioSourceResolver } from "@/ai/audio/AudioSourceResolver";
 import { analyzeAudioTrack } from "@/lib/beatDetector";
 import { parseSRT } from "@/lib/srtParser";
 import { getLang } from "@/lib/i18n";
@@ -655,7 +654,7 @@ const STICKERS_LIST = [
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
-  const { captions, setCaptions, captionStyle, setCaptionStyle, totalDuration, media } = useMedia();
+  const { captions, setCaptions, captionStyle, setCaptionStyle, totalDuration, media, clips, audioTracks, overlays } = useMedia();
   const { requestAccess } = useAdGate();
   const [editingText, setEditingText] = useState("");
   const [extracting, setExtracting] = useState(false);
@@ -859,77 +858,47 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
     setCaptions((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
 
   const autoExtract = async () => {
-    const isAndroid =
-      Capacitor.isNativePlatform() || Capacitor.getPlatform() === "android";
+    // 1. Resolve Audio Source across timeline (Audio track > Video Clip > Overlay > Media item)
+    const resolved = AudioSourceResolver.getInstance().resolve({
+      audioTracks,
+      clips,
+      media,
+      overlays,
+      currentTime,
+    });
 
-    // On Web/PWA, first-time model download might require network if not cached yet
-    if (!isAndroid && typeof navigator !== "undefined" && !navigator.onLine) {
-      const offlineMsg = en
-        ? "Network connection might be needed for initial Whisper model download."
-        : "تنبيه: يلزم وجود اتصال بالإنترنت لتحميل نموذج Whisper لأول مرة على الويب.";
-      toast.info(offlineMsg);
-    }
+    const fallbackMediaItem = media.find((m) => m.type === "video" || m.type === "audio");
+    const targetSource = resolved?.file || resolved?.url || fallbackMediaItem?.file || fallbackMediaItem?.url;
 
-    // Check video or audio item in media library
-    const mediaItem = media.find((m) => m.type === "video" || m.type === "audio");
-    
-    if (!mediaItem && audioTracks.length === 0) {
-      toast.error(en ? "No video or audio file found to extract speech from" : "لا يوجد ملف فيديو أو صوت لاستخراج الكلام منه");
+    if (!targetSource) {
+      toast.error(
+        en
+          ? "No audio or video source found for speech recognition"
+          : "لا يوجد مصدر صوت أو فيديو لاستخراج الكلام منه"
+      );
       return;
     }
 
     setExtractError(null);
     setExtracting(true);
     setExtractProgress(10);
-    const initialMsg = isAndroid
-      ? (en ? "Transcribing speech locally on-device..." : "جارٍ استخراج وتفريغ الكلام محلياً (بدون إنترنت)...")
-      : (en ? "Transcribing speech locally with Whisper AI..." : "جارٍ استخراج وتفريغ الكلام محلياً عبر Whisper AI...");
-    setExtractMsg(initialMsg);
+    setExtractMsg(en ? "Preparing audio for speech extraction..." : "تجهيز مقطع الصوت لاستخراج الكلام...");
 
     try {
-      const targetFile = mediaItem?.file;
-      if (!targetFile) {
-        throw new Error(en ? "Source media file unavailable" : "ملف الوسائط المصدر غير متوفر");
-      }
-
-      let mergedItems: TranscribedSegment[] = [];
-
-      try {
-        mergedItems = await transcribeLocally(targetFile, {
-          language: captionStyle.language,
-          onProgress: (p) => {
-            setExtractProgress(p.progress);
-            setExtractMsg(p.message);
-          },
-        });
-      } catch (localErr: any) {
-        console.warn("[CaptionPanel] Local Whisper error, falling back to Groq Cloud AI:", localErr);
-        setExtractMsg(en ? "Transcribing with Groq Cloud AI..." : "جارٍ استخراج وتفريغ الكلام عبر سحابة Groq الذكية...");
-        setExtractProgress(40);
-
-        try {
-          const duration = Math.min(totalDuration || 180, 180);
-          const base64 = await extractAudioBase64(targetFile, 0, duration);
-          setExtractProgress(65);
-          const aiRes = await AIManager.getInstance().transcribe(base64, captionStyle.language);
-          if (aiRes && aiRes.segments && aiRes.segments.length > 0) {
-            mergedItems = aiRes.segments.map((s) => ({
-              start: s.start,
-              end: s.end,
-              text: s.text,
-            }));
-          } else {
-            throw localErr;
-          }
-        } catch (cloudErr) {
-          throw localErr || cloudErr;
-        }
-      }
+      const mergedItems = await transcribeLocally(targetSource, {
+        language: captionStyle.language,
+        startTime: resolved?.start || 0,
+        endTime: resolved ? resolved.start + resolved.duration : undefined,
+        onProgress: (p) => {
+          setExtractProgress(p.progress);
+          setExtractMsg(p.message);
+        },
+      });
 
       setExtractProgress(100);
 
       if (!mergedItems || mergedItems.length === 0) {
-        toast.error(en ? "No speech detected in media" : "لم يتم العثور على كلام في المقطع");
+        toast.info(en ? "No speech detected in media" : "لم يتم العثور على كلام في المقطع");
         setExtracting(false);
         setExtractProgress(0);
         setExtractMsg("");
@@ -949,8 +918,8 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
       playSfx("success");
       toast.success(
         en
-          ? `Extracted ${newCaps.length} captions successfully (Local Whisper AI)`
-          : `تم استخراج ${newCaps.length} كابشن محلياً بنجاح (بدون إنترنت)`
+          ? `Extracted ${newCaps.length} captions successfully`
+          : `تم استخراج ${newCaps.length} كابشن بنجاح (محلياً)`
       );
 
       // Jump to list tab and focus first caption text field automatically for fast editing
@@ -965,16 +934,18 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
         setExtractProgress(0);
         setExtractMsg("");
       }, 800);
-
     } catch (e: any) {
-      console.error("AutoExtract Error:", e);
-      setExtractError(e.message || (en ? "Failed to extract speech" : "فشل استخراج الكلام"));
-      toast.error(
-        e.message || (en ? "Failed to extract speech" : "فشل استخراج الكلام"),
-        {
-          duration: 8000,
-        }
-      );
+      console.error("[CaptionPanel] Speech extraction failure:", e);
+      const isMissingModel =
+        e?.code === "model_missing" ||
+        (e?.message && e.message.includes("Caption model is not available on this device"));
+
+      const userDisplayError = isMissingModel
+        ? "Caption model is not available on this device."
+        : e?.message || (en ? "Failed to extract speech" : "فشل استخراج الكلام محلياً");
+
+      setExtractError(userDisplayError);
+      toast.error(userDisplayError, { duration: 8000 });
       setExtracting(false);
       setExtractProgress(0);
       setExtractMsg("");
@@ -982,9 +953,19 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
   };
 
   const regenerateSegment = async (capId: string, start: number, end: number) => {
-    const videoItem = media.find((m) => m.type === "video");
-    if (!videoItem) {
-      toast.error(en ? "No video found to extract audio from" : "لا يوجد فيديو لاستخراج الصوت منه");
+    const resolved = AudioSourceResolver.getInstance().resolve({
+      audioTracks,
+      clips,
+      media,
+      overlays,
+      currentTime: start,
+    });
+
+    const fallbackMediaItem = media.find((m) => m.type === "video" || m.type === "audio");
+    const targetSource = resolved?.file || resolved?.url || fallbackMediaItem?.file || fallbackMediaItem?.url;
+
+    if (!targetSource) {
+      toast.error(en ? "No audio source found to re-transcribe" : "لا يوجد مصدر صوت لإعادة استخراج المقطع منه");
       return;
     }
 
@@ -992,28 +973,11 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
     toast.info(en ? "Re-transcribing segment locally..." : "جارٍ إعادة استخراج المقطع المحدّد محلياً...");
 
     try {
-      let items: TranscribedSegment[] = [];
-      try {
-        items = await transcribeLocally(videoItem.file, {
-          startTime: start,
-          endTime: end,
-          language: captionStyle.language,
-        });
-      } catch (locErr) {
-        console.warn("[CaptionPanel] Segment local transcription failed, trying cloud fallback:", locErr);
-        const segDuration = Math.max(0.1, end - start);
-        const base64 = await extractAudioBase64(videoItem.file, start, segDuration);
-        const cloudRes = await AIManager.getInstance().transcribe(base64, captionStyle.language);
-        if (cloudRes && cloudRes.segments && cloudRes.segments.length > 0) {
-          items = cloudRes.segments.map((s) => ({
-            start: s.start + start,
-            end: s.end + start,
-            text: s.text,
-          }));
-        } else {
-          throw locErr;
-        }
-      }
+      const items = await transcribeLocally(targetSource, {
+        startTime: start,
+        endTime: end,
+        language: captionStyle.language,
+      });
 
       if (items && items.length > 0) {
         const newText = items.map((i: any) => i.text).join(" ").trim();
@@ -1024,8 +988,14 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
         toast.warning(en ? "No speech detected in this segment" : "لم يتم التعرف على كلام في هذا المقطع القصير");
       }
     } catch (err: any) {
-      console.error("Segment re-transcription error:", err);
-      toast.error(err.message || (en ? "Failed to re-transcribe segment" : "فشلت إعادة استخراج الجزء المحدد"));
+      console.error("[CaptionPanel] Segment re-transcription error:", err);
+      const isMissing =
+        err?.code === "model_missing" ||
+        (err?.message && err.message.includes("Caption model is not available on this device"));
+      const msg = isMissing
+        ? "Caption model is not available on this device."
+        : err?.message || (en ? "Failed to re-transcribe segment" : "فشلت إعادة استخراج الجزء المحدد");
+      toast.error(msg);
     } finally {
       setRegeneratingId(null);
     }
@@ -1261,9 +1231,7 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
             >
               <Sparkles className="w-4 h-4 text-white animate-pulse" />
               <span className="tracking-wide">
-                {Capacitor.isNativePlatform() || Capacitor.getPlatform() === "android"
-                  ? (en ? "Auto-Extract Speech (Offline)" : "استخراج تلقائي محلي للكلام (بدون إنترنت)")
-                  : (en ? "Auto-Extract Speech (Whisper AI)" : "استخراج تلقائي محلي للكلام (Whisper AI)")}
+                {en ? "Auto-Extract Speech" : "استخراج تلقائي للكلام"}
               </span>
             </button>
 

@@ -397,7 +397,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
 
   useEffect(() => {
     if (!resolved?.clip.id) {
-      setActiveTransition((prev) => prev === null ? null : null);
+      setActiveTransition((prev) => (prev !== null ? null : prev));
       return;
     }
     const trans = resolved.clip.transitionIn;
@@ -421,12 +421,12 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
         });
         const remaining = (trans.duration - elapsed) * 1000;
         const t = setTimeout(() => {
-          setActiveTransition((prev) => prev === null ? null : null);
+          setActiveTransition((prev) => (prev !== null ? null : prev));
         }, remaining);
         return () => clearTimeout(t);
       }
     }
-    setActiveTransition((prev) => prev === null ? null : null);
+    setActiveTransition((prev) => (prev !== null ? null : prev));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolved?.clip.id, currentTime, transitionInType, transitionInDur, clipStart]);
 
@@ -690,7 +690,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
 
     // 2. Resiliently resolve target clip
     const clip = (clipId ? clips.find((c) => c.id === clipId) : null)
-      || resolved?.clip
+      || resolveTimelineTime(currentTimeRef.current)?.clip
       || clips[0];
 
     if (!clip) {
@@ -794,7 +794,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
 
     // 7. Apply to active HTMLVideoElement and verify decode
     const wasPlaying = isPlayingRef.current && !activeEl.paused;
-    const preservedPlaybackPos = activeEl.currentTime || (resolved?.mediaTime || clip.in || 0);
+    const preservedPlaybackPos = activeEl.currentTime || clip.in || 0;
     const preservedVolume = activeEl.volume;
     const preservedMuted = activeEl.muted;
     const preservedPlaybackRate = activeEl.playbackRate || (clip.speed || 1);
@@ -972,14 +972,14 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
 
     console.log(`[EditorScreen] Processed video successfully attached and verified in preview for clip ${clip.id}`);
     return true;
-  }, [clips, getMediaById, updateMediaItem, setClips, resolved]);
+  }, [clips, getMediaById, updateMediaItem, setClips, resolveTimelineTime]);
 
   // Register direct preview attacher with VideoJobManager
   useEffect(() => {
     const unregisterAttacher = VideoJobManager.getInstance().registerPreviewAttacher(async (job, result) => {
       console.log(`[EditorScreen] Executing direct preview attacher for job ${job.id}`);
       const targetClip = (job.targetClipId ? clips.find((c) => c.id === job.targetClipId) : null)
-        || resolved?.clip
+        || resolveTimelineTime(currentTimeRef.current)?.clip
         || clips[0];
       if (!targetClip) {
         throw new PreviewIntegrationError(
@@ -1002,7 +1002,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     return () => {
       unregisterAttacher();
     };
-  }, [applyProcessedVideoToEditor, clips, resolved]);
+  }, [applyProcessedVideoToEditor, clips, resolveTimelineTime]);
 
   // Subscribe to background Video Job Manager completions (for jobs completed while elsewhere)
   useEffect(() => {
@@ -1012,7 +1012,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
           return;
         }
         const targetClip = (job.targetClipId ? clips.find((c) => c.id === job.targetClipId) : null)
-          || resolved?.clip
+          || resolveTimelineTime(currentTimeRef.current)?.clip
           || clips[0];
 
         if (targetClip) {
@@ -1041,7 +1041,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     return () => {
       unsubscribe();
     };
-  }, [applyProcessedVideoToEditor, clips, resolved]);
+  }, [applyProcessedVideoToEditor, clips, resolveTimelineTime]);
 
   // Preload a clip into a standby video element without affecting audio or UI
   const preloadSlot = useCallback((
@@ -1241,7 +1241,9 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     if (!isPlaying || !hasMedia) return;
     lastTickRef.current = performance.now();
     const activeEl = activeSlotRef.current === 0 ? videoRefA.current : videoRefB.current;
-    if (activeEl && activeMedia?.type === "video") {
+    const curR = resolveTimelineTime(currentTimeRef.current);
+    const curMedia = curR ? getMediaById(curR.clip.mediaId) : null;
+    if (activeEl && curMedia?.type === "video") {
       activeEl.play().catch(() => {
         setIsPlaying(false);
         isPlayingRef.current = false;
@@ -1292,7 +1294,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
       elA?.pause();
       elB?.pause();
     };
-  }, [isPlaying, hasMedia, totalDuration, activeMedia?.id, activeMedia?.type, resolveTimelineTime]);
+  }, [isPlaying, hasMedia, totalDuration, resolveTimelineTime, getMediaById]);
 
   const seek = useCallback((t: number) => {
     setIsPlaying(false);
@@ -1599,7 +1601,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     if (!width || !height) return;
     if (userHasSetRatio && !force) return;
     const bestIndex = findClosestRatioIndex(width, height);
-    setActiveRatio(bestIndex);
+    setActiveRatio((prev) => (prev === bestIndex ? prev : bestIndex));
   }, [userHasSetRatio]);
 
   // Automatically detect and match preview aspect ratio to active video/media dimensions

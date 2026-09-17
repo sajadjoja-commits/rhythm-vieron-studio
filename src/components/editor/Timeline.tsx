@@ -156,7 +156,7 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
       acc += len;
     }
     if (foundId) {
-      setSelectedClipId(foundId);
+      setSelectedClipId((prev) => (prev === foundId ? prev : foundId));
     }
   }, [currentTime, clips]);
 
@@ -294,7 +294,7 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     if (!el) return;
     const ro = new ResizeObserver(([entry]) => {
       const w = entry.contentRect.width;
-      setContainerW(w);
+      setContainerW((prev) => (Math.abs(prev - w) < 1 ? prev : w));
       onWidthChange?.(w);
     });
     ro.observe(el);

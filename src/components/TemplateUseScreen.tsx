@@ -87,7 +87,7 @@ export default function TemplateUseScreen({ templateId, templateObj, onBack }: P
       if (data.filters) setFilters(data.filters);
       if (data.vfx) setVfx(data.vfx);
     }
-  }, [template, setClips, setCaptions, setOverlays, setAudioTracks, setFilters, setVfx, setProjectName]);
+  }, [template?.id, setClips, setCaptions, setOverlays, setAudioTracks, setFilters, setVfx, setProjectName]);
 
   // Handle media playback loop
   useEffect(() => {

@@ -92,7 +92,7 @@ export default function SmartTemplateQuickEditor({ initialTemplate, onBack, onOp
   // Sync title
   useEffect(() => {
     setProjectName(`Quick ${selectedTemplate.nameEn}`);
-  }, [selectedTemplate, setProjectName]);
+  }, [selectedTemplate.nameEn, setProjectName]);
 
   // Handle Playhead
   useEffect(() => {

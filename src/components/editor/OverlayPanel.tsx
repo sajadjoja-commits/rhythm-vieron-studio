@@ -108,7 +108,7 @@ const OverlayPanel = ({ open, onClose, currentTime }: Props) => {
       } else {
         setSelectedId(overlays[0].id);
       }
-    } else if (overlays.length === 0) {
+    } else if (overlays.length === 0 && selectedId !== null) {
       setSelectedId(null);
     }
   }, [overlays, currentTime, selectedId]);
