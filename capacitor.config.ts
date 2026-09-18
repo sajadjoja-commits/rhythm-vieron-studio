@@ -5,9 +5,6 @@ const config: CapacitorConfig = {
   appName: 'Vireon AI Studio',
   webDir: 'dist',
   backgroundColor: '#090d16',
-  server: {
-    androidScheme: 'https',
-  },
   android: {
     allowMixedContent: false,
     captureInput: true,

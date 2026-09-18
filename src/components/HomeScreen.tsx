@@ -88,7 +88,6 @@ const HomeScreen = ({
           <div>
             <div className="flex items-center gap-2">
               <h1 className="font-heading text-lg font-bold text-foreground leading-none">Vireon AI</h1>
-              <span className="bg-emerald-500/20 text-emerald-400 text-[8px] font-bold px-1.5 py-0.5 rounded border border-emerald-500/30 animate-pulse">OTA TEST SUCCESS</span>
             </div>
             <p className="text-[9px] text-muted-foreground mt-0.5">{en ? "Smart Video & AI Suite" : "محرر فيديو واستوديو AI ذكي"}</p>
           </div>

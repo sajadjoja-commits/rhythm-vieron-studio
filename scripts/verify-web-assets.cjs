@@ -6,6 +6,26 @@ const ROOT_DIR = path.resolve(__dirname, '..');
 const DIST_DIR = path.join(ROOT_DIR, 'dist');
 const ANDROID_ASSETS_DIR = path.join(ROOT_DIR, 'android', 'app', 'src', 'main', 'assets', 'public');
 
+const IGNORED_METADATA = new Set([
+  'capacitor.js',
+  'cordova.js',
+  'cordova_plugins.js',
+  'build_info.json',
+  'fingerprint.txt'
+]);
+
+function getCategory(relPath) {
+  const lower = relPath.toLowerCase();
+  if (lower.endsWith('.js') || lower.endsWith('.mjs')) return 'JS';
+  if (lower.endsWith('.css')) return 'CSS';
+  if (/\.(png|jpe?g|gif|svg|webp|ico|avif)$/.test(lower)) return 'Images';
+  if (/\.(mp3|wav|ogg|m4a|aac|flac)$/.test(lower)) return 'Audio';
+  if (lower.endsWith('.wasm')) return 'WASM';
+  if (lower.endsWith('.webmanifest') || lower.endsWith('.manifest')) return 'Manifest';
+  if (lower.endsWith('.html')) return 'HTML';
+  return 'Other';
+}
+
 function log(msg) {
   console.log(msg);
 }
@@ -13,6 +33,15 @@ function log(msg) {
 function getFileHash(filePath) {
   const content = fs.readFileSync(filePath);
   return crypto.createHash('sha256').update(content).digest('hex');
+}
+
+function computeFingerprint(files) {
+  const hash = crypto.createHash('sha256');
+  for (const file of [...files].sort((a, b) => a.relPath.localeCompare(b.relPath))) {
+    hash.update(file.relPath);
+    hash.update(fs.readFileSync(file.fullPath));
+  }
+  return hash.digest('hex');
 }
 
 function getAllFiles(dirPath, relativeTo = dirPath) {
@@ -27,8 +56,9 @@ function getAllFiles(dirPath, relativeTo = dirPath) {
       results = results.concat(getAllFiles(fullPath, relativeTo));
     } else {
       const relPath = path.relative(relativeTo, fullPath).replace(/\\/g, '/');
-      // Ignore Capacitor/Cordova generated files
-      if (!['capacitor.js', 'cordova.js', 'cordova_plugins.js', 'fingerprint.txt'].includes(relPath) && !relPath.startsWith('plugins/')) {
+      // Ignore Capacitor/Cordova bridge files and web build metadata so they
+      // never cause a spurious difference between dist and Android assets.
+      if (!IGNORED_METADATA.has(relPath) && !relPath.startsWith('plugins/')) {
         results.push({
           relPath,
           fullPath,
@@ -49,6 +79,9 @@ if (!fs.existsSync(DIST_DIR)) {
 
 const distFiles = getAllFiles(DIST_DIR);
 const androidFiles = getAllFiles(ANDROID_ASSETS_DIR);
+
+const distFingerprint = computeFingerprint(distFiles);
+const androidFingerprint = computeFingerprint(androidFiles);
 
 const distMap = new Map(distFiles.map(f => [f.relPath, f]));
 const androidMap = new Map(androidFiles.map(f => [f.relPath, f]));
@@ -78,9 +111,22 @@ androidMap.forEach((_, relPath) => {
 
 log(`dist files: ${distFiles.length}`);
 log(`android assets files: ${androidFiles.length}`);
+log(`dist fingerprint: ${distFingerprint}`);
+log(`android fingerprint: ${androidFingerprint}`);
 log(`Missing files: ${missing}`);
 log(`Extra files: ${extra}`);
 log(`Changed files: ${changed.length}`);
+
+const distCategories = {};
+for (const f of distFiles) {
+  const cat = getCategory(f.relPath);
+  distCategories[cat] = (distCategories[cat] || 0) + 1;
+}
+log('');
+log('File type breakdown (dist):');
+for (const cat of ['JS', 'CSS', 'Images', 'Audio', 'WASM', 'Manifest', 'HTML', 'Other']) {
+  log(`  ${cat}: ${distCategories[cat] || 0}`);
+}
 
 if (changed.length > 0) {
   log('\nChanged files:');
@@ -88,7 +134,16 @@ if (changed.length > 0) {
 }
 
 if (missing === 0 && extra === 0 && changed.length === 0) {
-  log('Verification successful.');
+  console.log('');
+  console.log('=========================================');
+  console.log('VIERON SYNC SUCCESS');
+  console.log(`Dist files: ${distFiles.length}`);
+  console.log(`Android assets files: ${androidFiles.length}`);
+  console.log('Missing files: 0');
+  console.log('Extra files: 0');
+  console.log('Changed files: 0');
+  console.log('Web build and Android assets are identical.');
+  console.log('=========================================');
   process.exit(0);
 } else {
   log('Verification failed.');
