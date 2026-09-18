@@ -122,11 +122,18 @@ export class VideoAnalysisWorkerManager {
       in: seg.in,
       out: seg.out,
       motion: 0.5,
+      sharpness: 0.6,
+      blurPenalty: 1.0,
+      exposureQuality: 1.0,
+      actionIntensity: 0.5,
+      temporalStability: 0.8,
       faceScore: 0,
       handScore: 0,
       handVelocityScore: 0,
       brightness: 0.6,
       colorfulness: 0.5,
+      containsTransition: false,
+      overallQuality: 0.65,
     }));
   }
 

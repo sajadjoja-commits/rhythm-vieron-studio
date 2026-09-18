@@ -20,6 +20,7 @@ const AudioPlayback = ({ tracks, currentTime, isPlaying }: Props) => {
   // Hook up FX chain whenever fx/volume/muted changes
   useEffect(() => {
     const ctx = getAudioContext();
+    if (!ctx) return;
     if (ctx.state === "suspended") ctx.resume().catch(() => {});
     tracks.forEach((t) => {
       const el = audioRefs.current.get(t.id);

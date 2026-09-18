@@ -3,6 +3,7 @@ import { describe, it } from "vitest";
 import { render } from "@testing-library/react";
 import EditorScreen from "@/components/EditorScreen";
 import { MediaProvider } from "@/context/MediaContext";
+import { AdGateProvider } from "@/context/AdGateContext";
 
 describe("EditorScreen Render Check", () => {
   it("mounts EditorScreen without infinite loops", async () => {
@@ -18,7 +19,9 @@ describe("EditorScreen Render Check", () => {
     try {
       render(
         <MediaProvider>
-          <EditorScreen onBack={() => {}} />
+          <AdGateProvider>
+            <EditorScreen onBack={() => {}} />
+          </AdGateProvider>
         </MediaProvider>
       );
       await new Promise((r) => setTimeout(r, 400));
