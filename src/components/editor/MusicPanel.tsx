@@ -239,7 +239,7 @@ const VoiceRecorderTab = ({ currentTime, addAudioTrack }: { currentTime: number;
 };
 
 const MusicPanel = ({ open, onClose, currentTime }: Props) => {
-  const { media, audioTracks, setClips, addFiles, addAudioTrack, updateAudioTrack, splitClipsAtBeats, audioBeats, setAudioBeats, selectedAudioTrackId, setSelectedAudioTrackId, videoMuted, setVideoMuted, videoVolume, setVideoVolume, videoAudioFx, setVideoAudioFx, totalDuration } = useMedia();
+  const { media, clips, updateClip, overlays, audioTracks, setClips, addFiles, addAudioTrack, updateAudioTrack, splitClipsAtBeats, audioBeats, setAudioBeats, selectedAudioTrackId, setSelectedAudioTrackId, videoMuted, setVideoMuted, videoVolume, setVideoVolume, videoAudioFx, setVideoAudioFx, totalDuration } = useMedia();
   const [tab, setTab] = useState<"music" | "record" | "sfx" | "fx" | "beat" | "ai">("music");
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -647,7 +647,7 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
           playSfx("success");
           const isRealAi = res.analysis?.visionEngine === "mediapipe";
           const aiBadge = isRealAi 
-            ? (en ? " [⚡ MediaPipe AI Vision]" : " [⚡ رؤية ذكية MediaPipe AI]")
+            ? (en ? " [⚡ Smart AI Vision]" : " [⚡ تحليل ذكي فائق]")
             : "";
           toast.success(
             en
@@ -735,31 +735,70 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
             open={tab === "ai"}
             onClose={() => setTab("music")}
             mediaType="audio"
-            currentMediaUrlOrBase64={audioTracks[0]?.url || undefined}
+            currentMediaUrlOrBase64={
+              (selectedAudioTrackId
+                ? audioTracks.find((t) => t.id === selectedAudioTrackId)?.url
+                : audioTracks[0]?.url) || undefined
+            }
             onApplyResult={(resData) => {
-              if (resData?.stems) {
-                let addedCount = 0;
-                if (resData.stems.vocals) {
-                  addAudioTrack({
-                    name: en ? "Vocals (Isolated)" : "Vocals (غناء منفصل)",
-                    url: resData.stems.vocals,
-                    start: 0,
-                    offset: 0,
-                    duration: totalDuration || 10,
-                    sourceDuration: totalDuration || 10,
-                    volume: 1.0,
-                    muted: false,
-                    fx: "none",
-                    color: "#ec4899",
-                    kind: "voice",
+              const newUrl =
+                resData?.enhancedAudioUrlOrBase64 ||
+                resData?.outputAudioBase64OrUrl ||
+                resData?.stems?.vocals ||
+                resData?.stems?.instrumental;
+
+              if (newUrl) {
+                const resolvedSource = resData?.resolvedAudioSource;
+                const targetTrack =
+                  audioTracks.find((t) => t.id === selectedAudioTrackId) || audioTracks[0];
+
+                if (targetTrack && (!resolvedSource || resolvedSource.type === "audio-track")) {
+                  // Update selected track in-place directly on the matrix
+                  updateAudioTrack(targetTrack.id, { url: newUrl });
+                  toast.success(
+                    en
+                      ? "Applied audio enhancement directly to selected track!"
+                      : "تم تطبيق معالجة الصوت المباشرة وتحديث نفس المسار بنجاح!"
+                  );
+                } else if (resolvedSource?.type === "clip-video-audio" && resolvedSource.associatedClipId) {
+                  const clipId = resolvedSource.associatedClipId;
+                  // Update clip's processed audio and mute original audio to prevent doubling
+                  updateClip(clipId, {
+                    processedAudioUrl: newUrl,
+                    muteOriginalAudio: true,
                   });
-                  addedCount++;
-                }
-                if (resData.stems.instrumental) {
+
+                  // Add or update synchronized audio track
+                  const existingLinkedTrack = audioTracks.find((t) => t.clipId === clipId);
+                  if (existingLinkedTrack) {
+                    updateAudioTrack(existingLinkedTrack.id, { url: newUrl, muted: false });
+                  } else {
+                    addAudioTrack({
+                      name: en ? "Enhanced Video Audio" : "صوت الفيديو المنقى",
+                      url: newUrl,
+                      start: resolvedSource.start || 0,
+                      offset: resolvedSource.offset || 0,
+                      duration: resolvedSource.duration || totalDuration || 10,
+                      sourceDuration: resolvedSource.duration || totalDuration || 10,
+                      volume: 1.0,
+                      muted: false,
+                      fx: "none",
+                      color: "#10b981",
+                      kind: "video-audio",
+                      clipId,
+                    });
+                  }
+                  toast.success(
+                    en
+                      ? "Extracted and synchronized enhanced video audio!"
+                      : "تم استخراج ومعالجة صوت الفيديو وتزامن المسار الصوتي الجديد بنجاح!"
+                  );
+                } else {
+                  // Fallback: add a single track if none exists
                   addAudioTrack({
-                    name: en ? "Instrumental (Music)" : "Instrumental (موسيقى بدون غناء)",
-                    url: resData.stems.instrumental,
-                    start: 0,
+                    name: en ? "Processed Audio Track" : "مسار الصوت المنقى",
+                    url: newUrl,
+                    start: currentTime,
                     offset: 0,
                     duration: totalDuration || 10,
                     sourceDuration: totalDuration || 10,
@@ -769,76 +808,8 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
                     color: "#8b5cf6",
                     kind: "music",
                   });
-                  addedCount++;
+                  toast.success(en ? "Added Processed Audio Track!" : "تمت إضافة مسار الصوت المعالج!");
                 }
-                if (resData.stems.drums) {
-                  addAudioTrack({
-                    name: en ? "Drums Track" : "Drums (درامز)",
-                    url: resData.stems.drums,
-                    start: 0,
-                    offset: 0,
-                    duration: totalDuration || 10,
-                    sourceDuration: totalDuration || 10,
-                    volume: 1.0,
-                    muted: false,
-                    fx: "none",
-                    color: "#f59e0b",
-                    kind: "music",
-                  });
-                  addedCount++;
-                }
-                if (resData.stems.bass) {
-                  addAudioTrack({
-                    name: en ? "Bass Track" : "Bass (بيز)",
-                    url: resData.stems.bass,
-                    start: 0,
-                    offset: 0,
-                    duration: totalDuration || 10,
-                    sourceDuration: totalDuration || 10,
-                    volume: 1.0,
-                    muted: false,
-                    fx: "none",
-                    color: "#10b981",
-                    kind: "music",
-                  });
-                  addedCount++;
-                }
-                if (resData.stems.other) {
-                  addAudioTrack({
-                    name: en ? "Other Instruments" : "Other (آلات أخرى)",
-                    url: resData.stems.other,
-                    start: 0,
-                    offset: 0,
-                    duration: totalDuration || 10,
-                    sourceDuration: totalDuration || 10,
-                    volume: 1.0,
-                    muted: false,
-                    fx: "none",
-                    color: "#06b6d4",
-                    kind: "music",
-                  });
-                  addedCount++;
-                }
-                toast.success(
-                  en
-                    ? `Added ${addedCount} Separated Audio Tracks!`
-                    : `تمت إضافة ${addedCount} مسارات صوتية مفصولة بنجاح إلى التايم لاين!`
-                );
-              } else if (resData?.outputAudioBase64OrUrl) {
-                addAudioTrack({
-                  name: en ? "AI Processed Audio" : "صوت معالج بالذكاء الاصطناعي",
-                  url: resData.outputAudioBase64OrUrl,
-                  start: currentTime,
-                  offset: 0,
-                  duration: totalDuration || 10,
-                  sourceDuration: totalDuration || 10,
-                  volume: 1.0,
-                  muted: false,
-                  fx: "none",
-                  color: "#8b5cf6",
-                  kind: "music",
-                });
-                toast.success(en ? "Added AI Audio Track!" : "تمت إضافة مسار الصوت المعالج بالذكاء الاصطناعي!");
               }
             }}
           />

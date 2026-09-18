@@ -274,8 +274,14 @@ export async function analyzeBufferAsync(
 let _ac: AudioContext | null = null;
 export const getAudioContext = () => {
   if (!_ac) {
-    const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
-    _ac = new Ctx();
+    const Ctx = typeof window !== "undefined" ? ((window as any).AudioContext || (window as any).webkitAudioContext) : null;
+    if (Ctx) {
+      try {
+        _ac = new Ctx();
+      } catch {
+        _ac = null;
+      }
+    }
   }
-  return _ac!;
+  return _ac;
 };

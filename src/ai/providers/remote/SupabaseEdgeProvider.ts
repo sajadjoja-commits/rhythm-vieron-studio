@@ -66,25 +66,14 @@ export class SupabaseEdgeProvider extends RemoteProvider {
     const isArabic = lang === "ar" || lang === "arabic";
     const langCode = isArabic ? "ar" : lang;
 
-    // 1. Try 'transcribe-groq' Edge Function
-    let response = await supabase.functions.invoke("transcribe-groq", {
+    // Invoke standard transcribe Edge Function if remote is explicitly requested
+    const response = await supabase.functions.invoke("transcribe", {
       body: {
         audioBase64: payload.audioBase64,
         mimeType: payload.mimeType || "audio/wav",
         language: langCode,
       },
     });
-
-    // 2. Fallback to 'transcribe' Edge Function if error
-    if (response.error || !response.data?.captions) {
-      response = await supabase.functions.invoke("transcribe", {
-        body: {
-          audioBase64: payload.audioBase64,
-          mimeType: payload.mimeType || "audio/wav",
-          language: langCode,
-        },
-      });
-    }
 
     if (response.error || !response.data?.captions) {
       throw new Error(response.error?.message || "Edge function transcription failed to return captions");

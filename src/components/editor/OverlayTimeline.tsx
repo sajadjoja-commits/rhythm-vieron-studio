@@ -231,21 +231,36 @@ const OverlayTimeline = memo(({ currentTime, pxPerSec, containerW, isPlaying, fo
                 key={o.id} 
                 data-overlay-item
                 onClick={() => setSelectedId(o.id)}
-                className={`absolute rounded-xl flex items-center justify-between cursor-grab overflow-hidden border shadow-md transition-all ${focused && isSelected ? "border-emerald-300 ring-2 ring-emerald-400 z-20" : "border-emerald-500/40 hover:border-emerald-400/70 opacity-90"}`}
+                className={`absolute flex items-center justify-between cursor-grab shadow-md transition-all ${
+                  focused && isSelected
+                    ? "z-20 overflow-visible rounded-none"
+                    : "rounded-xl border border-emerald-500/40 hover:border-emerald-400/70 opacity-90 overflow-hidden"
+                }`}
                 style={{ left, width: w, height: 32, top: (focused ? lane : 0) * ROW + 2, background: `linear-gradient(135deg, rgba(16,185,129,0.55), rgba(5,150,105,0.3))` }}
                 onPointerDown={(e) => {
                   setSelectedId(o.id);
                   onDown(e, o, "move");
                 }}
               >
+                {/* Seamless unified selection outline spanning handles and overlay cleanly */}
                 {focused && isSelected && (
-                  <TimelineTrimHandle side="left" variant="emerald" onPointerDown={(e) => onDown(e, o, "left")} />
+                  <div className="absolute -left-3.5 sm:-left-4 -right-3.5 sm:-right-4 -top-[2px] -bottom-[2px] rounded-xl border-2 border-emerald-400 ring-2 ring-emerald-400/40 pointer-events-none z-30" />
+                )}
+
+                {focused && isSelected && (
+                  <TimelineTrimHandle
+                    side="left"
+                    variant="emerald"
+                    onPointerDown={(e) => onDown(e, o, "left")}
+                    className="absolute -left-3.5 sm:-left-4 top-0 bottom-0 z-20"
+                  />
                 )}
                 
                 {/* Keyframe diamonds overlay */}
                 <div className="absolute inset-x-0 inset-y-0 pointer-events-none z-10 overflow-visible">
                   {(o.keyframes || []).map((kf) => {
-                    const pct = (kf.time / Math.max(0.1, o.end - o.start)) * 100;
+                    const oDur = Math.max(0.01, o.end - o.start);
+                    const xPos = (kf.time / oDur) * w;
                     const kfGlobalTime = o.start + kf.time;
                     const isOver = Math.abs(currentTime - kfGlobalTime) < 0.08;
                     return (
@@ -257,7 +272,7 @@ const OverlayTimeline = memo(({ currentTime, pxPerSec, containerW, isPlaying, fo
                             : "bg-blue-500 border-blue-200 z-10"
                         }`}
                         style={{ 
-                          left: `${Math.max(0, Math.min(100, pct))}%`, 
+                          left: `${xPos}px`, 
                           top: "50%",
                           transform: "translate(-50%, -50%) rotate(45deg)" 
                         }}
@@ -267,20 +282,28 @@ const OverlayTimeline = memo(({ currentTime, pxPerSec, containerW, isPlaying, fo
                 </div>
 
                 {/* Thumbnail */}
-                {o.type === "image" ? (
-                  <img src={o.url} alt="" className="w-6 h-6 object-cover rounded flex-shrink-0" />
-                ) : (
-                  <video src={o.url} className="w-6 h-6 object-cover rounded flex-shrink-0" muted />
-                )}
-                <span className="flex-1 text-[9px] text-white font-bold truncate px-1 z-10">{o.name}</span>
+                <div className="flex items-center gap-1.5 pl-1.5 flex-1 min-w-0 z-10">
+                  {o.type === "image" ? (
+                    <img src={o.url} alt="" className="w-5 h-5 object-cover rounded flex-shrink-0" />
+                  ) : (
+                    <video src={o.url} className="w-5 h-5 object-cover rounded flex-shrink-0" muted />
+                  )}
+                  <span className="text-[9px] text-white font-bold truncate">{o.name}</span>
+                </div>
                 {focused && isSelected && (
                   <button onPointerDown={(e) => e.stopPropagation()} onClick={() => removeOverlay(o.id)}
-                    className="w-5 h-5 flex items-center justify-center flex-shrink-0 text-white/70 hover:text-white transition-colors z-10">
+                    className="w-5 h-5 flex items-center justify-center flex-shrink-0 text-white/70 hover:text-white transition-colors z-10 mr-1">
                     <Trash2 className="w-2.5 h-2.5" />
                   </button>
                 )}
                 {focused && isSelected && (
-                  <TimelineTrimHandle side="right" variant="emerald" isMaxReached={isMaxReached} onPointerDown={(e) => onDown(e, o, "right")} />
+                  <TimelineTrimHandle
+                    side="right"
+                    variant="emerald"
+                    isMaxReached={isMaxReached}
+                    onPointerDown={(e) => onDown(e, o, "right")}
+                    className="absolute -right-3.5 sm:-right-4 top-0 bottom-0 z-20"
+                  />
                 )}
               </div>
             );

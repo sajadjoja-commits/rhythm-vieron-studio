@@ -7,11 +7,14 @@ interface Props {
   overlay: OverlayItem;
   selected: boolean;
   containerRef: React.RefObject<HTMLDivElement>;
+  currentTime?: number;
+  isPlaying?: boolean;
   onSelect: (id: string) => void;
   onUpdate: (id: string, patch: Partial<OverlayItem>) => void;
 }
 
-const InteractiveOverlay = memo(({ overlay, selected, containerRef, onSelect, onUpdate }: Props) => {
+const InteractiveOverlay = memo(({ overlay, selected, containerRef, currentTime = 0, isPlaying = false, onSelect, onUpdate }: Props) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
   const gestureRef = useRef<{
     mode: "drag" | "scale" | "rotate" | null;
     startX: number;
@@ -189,6 +192,36 @@ const InteractiveOverlay = memo(({ overlay, selected, containerRef, onSelect, on
     onUpdate(overlay.id, { scale: newScale });
   }, [overlay, onUpdate]);
 
+  // Synchronize video overlay playback and timing with main timeline
+  useEffect(() => {
+    if (overlay.type === "video" && videoRef.current) {
+      const vid = videoRef.current;
+      const targetTime = Math.max(0, currentTime - overlay.start);
+      if (Math.abs(vid.currentTime - targetTime) > 0.15) {
+        try {
+          vid.currentTime = targetTime;
+        } catch {}
+      }
+
+      vid.muted = overlay.muted ?? true;
+      vid.volume = overlay.volume ?? 1;
+
+      if (isPlaying) {
+        vid.play().catch(() => {});
+      } else {
+        vid.pause();
+      }
+    }
+  }, [currentTime, isPlaying, overlay.type, overlay.start, overlay.muted, overlay.volume]);
+
+  const cornerRadiusPx = overlay.cornerRadius !== undefined ? overlay.cornerRadius : 8;
+  const borderStyle = overlay.borderWidth && overlay.borderWidth > 0
+    ? `${overlay.borderWidth}px solid ${overlay.borderColor || "#ffffff"}`
+    : "none";
+  const shadowStyle = overlay.shadowBlur && overlay.shadowBlur > 0
+    ? `0 4px ${overlay.shadowBlur}px ${overlay.shadowColor || "rgba(0,0,0,0.5)"}`
+    : "none";
+
   return (
     <div
       className={`absolute z-10 transition-shadow ${selected ? "" : ""}`}
@@ -214,16 +247,29 @@ const InteractiveOverlay = memo(({ overlay, selected, containerRef, onSelect, on
         <img
           src={overlay.url}
           alt=""
-          className="max-w-[200px] max-h-[200px] rounded pointer-events-none"
+          className="max-w-[200px] max-h-[200px] pointer-events-none object-contain"
+          style={{
+            borderRadius: `${cornerRadiusPx}px`,
+            border: borderStyle,
+            boxShadow: shadowStyle,
+            width: overlay.width ? `${overlay.width}px` : undefined,
+            height: overlay.height ? `${overlay.height}px` : undefined,
+          }}
           draggable={false}
         />
       ) : (
         <video
+          ref={videoRef}
           src={overlay.url}
-          className="max-w-[200px] max-h-[200px] rounded pointer-events-none"
-          autoPlay
-          muted
-          loop
+          className="max-w-[200px] max-h-[200px] pointer-events-none object-contain"
+          style={{
+            borderRadius: `${cornerRadiusPx}px`,
+            border: borderStyle,
+            boxShadow: shadowStyle,
+            width: overlay.width ? `${overlay.width}px` : undefined,
+            height: overlay.height ? `${overlay.height}px` : undefined,
+          }}
+          muted={overlay.muted ?? true}
           playsInline
         />
       )}

@@ -3,8 +3,9 @@ import { useMedia, Caption, CaptionAnimation, CaptionTemplate } from "@/context/
 import { useAdGate } from "@/context/AdGateContext";
 import { X, Plus, Trash2, Type, Languages, Sparkles, Loader2, Palette, Eye, EyeOff, Check, Music, AlertTriangle, CheckCircle2, RotateCw, RefreshCw, Search, Layers, Sliders, Zap, BookOpen, Radio, Youtube, Instagram, MapPin, Quote, Star, Flame, Award, WrapText, FlipHorizontal, FlipVertical, Upload, FileText } from "lucide-react";
 import { toast } from "sonner";
-import { extractAudioBase64, extractAudioInChunks, mergeChunkResults, TranscribedSegment } from "@/lib/audioExtract";
-import { transcribeWithGroq } from "@/lib/groqTranscribe";
+import { Capacitor } from "@capacitor/core";
+import { transcribeLocally, TranscribedSegment } from "@/lib/localTranscribe";
+import { AudioSourceResolver } from "@/ai/audio/AudioSourceResolver";
 import { analyzeAudioTrack } from "@/lib/beatDetector";
 import { parseSRT } from "@/lib/srtParser";
 import { getLang } from "@/lib/i18n";
@@ -653,7 +654,7 @@ const STICKERS_LIST = [
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
-  const { captions, setCaptions, captionStyle, setCaptionStyle, totalDuration, media } = useMedia();
+  const { captions, setCaptions, captionStyle, setCaptionStyle, totalDuration, media, clips, audioTracks, overlays } = useMedia();
   const { requestAccess } = useAdGate();
   const [editingText, setEditingText] = useState("");
   const [extracting, setExtracting] = useState(false);
@@ -857,90 +858,47 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
     setCaptions((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
 
   const autoExtract = async () => {
-    // Check internet connection
-    if (typeof navigator !== "undefined" && !navigator.onLine) {
-      const offlineMsg = en
-        ? "Internet connection required for speech recognition."
-        : "تنبيه: يلزم وجود اتصال بالإنترنت لاستخراج الكلام.";
-      setExtractError(offlineMsg);
-      toast.error(offlineMsg);
-      return;
-    }
+    // 1. Resolve Audio Source across timeline (Audio track > Video Clip > Overlay > Media item)
+    const resolved = AudioSourceResolver.getInstance().resolve({
+      audioTracks,
+      clips,
+      media,
+      overlays,
+      currentTime,
+    });
 
-    // Check video or audio item in media library
-    const mediaItem = media.find((m) => m.type === "video" || m.type === "audio");
-    
-    if (!mediaItem && audioTracks.length === 0) {
-      toast.error(en ? "No video or audio file found to extract speech from" : "لا يوجد ملف فيديو أو صوت لاستخراج الكلام منه");
+    const fallbackMediaItem = media.find((m) => m.type === "video" || m.type === "audio");
+    const targetSource = resolved?.file || resolved?.url || fallbackMediaItem?.file || fallbackMediaItem?.url;
+
+    if (!targetSource) {
+      toast.error(
+        en
+          ? "No audio or video source found for speech recognition"
+          : "لا يوجد مصدر صوت أو فيديو لاستخراج الكلام منه"
+      );
       return;
     }
 
     setExtractError(null);
     setExtracting(true);
-    setExtractProgress(0);
-    const cleanMsg = en ? "Extracting speech..." : "جاري استخراج الكلام...";
-    setExtractMsg(cleanMsg);
-
-    let progressVal = 0;
-    let currentPhase: "loading" | "processing" | "done" = "loading";
-
-    const interval = setInterval(() => {
-      if (currentPhase === "loading") {
-        if (progressVal < 45) {
-          progressVal += 3;
-        }
-      } else if (currentPhase === "processing") {
-        if (progressVal < 50) {
-          progressVal = 50;
-        } else if (progressVal < 95) {
-          progressVal += 2;
-        }
-      }
-      setExtractProgress(Math.min(100, progressVal));
-    }, 100);
+    setExtractProgress(10);
+    setExtractMsg(en ? "Preparing audio for speech extraction..." : "تجهيز مقطع الصوت لاستخراج الكلام...");
 
     try {
-      // 1. Extract audio (or chunks if > 60s) from media file
-      const targetFile = mediaItem?.file;
-      if (!targetFile) {
-        throw new Error(en ? "Source media file unavailable" : "ملف الوسائط المصدر غير متوفر");
-      }
+      const mergedItems = await transcribeLocally(targetSource, {
+        language: captionStyle.language,
+        startTime: resolved?.start || 0,
+        endTime: resolved ? resolved.start + resolved.duration : undefined,
+        onProgress: (p) => {
+          setExtractProgress(p.progress);
+          setExtractMsg(p.message);
+        },
+      });
 
-      setExtractMsg(en ? "Preparing audio..." : "جارٍ تجهيز الصوت...");
-      const { totalDuration: audioLen, chunks } = await extractAudioInChunks(targetFile, 25, 2);
-      
-      currentPhase = "processing";
-
-      let mergedItems: TranscribedSegment[] = [];
-
-      for (let i = 0; i < chunks.length; i++) {
-        const chunk = chunks[i];
-        if (chunks.length > 1) {
-          const chunkMsg = en
-            ? `Transcribing chunk ${i + 1} of ${chunks.length}...`
-            : `جاري تفريغ الجزء ${i + 1} من ${chunks.length}...`;
-          setExtractMsg(chunkMsg);
-        } else {
-          setExtractMsg(en ? "Extracting speech..." : "جاري استخراج الكلام...");
-        }
-
-        const currentPct = Math.round(((i + 0.2) / chunks.length) * 100);
-        setExtractProgress(currentPct);
-
-        const chunkItems = await transcribeWithGroq(chunk.base64, captionStyle.language);
-        mergedItems = mergeChunkResults(mergedItems, chunkItems, chunk.start);
-
-        const completedPct = Math.round(((i + 1) / chunks.length) * 100);
-        setExtractProgress(completedPct);
-      }
-
-      currentPhase = "done";
-      progressVal = 100;
       setExtractProgress(100);
 
-      if (mergedItems.length === 0) {
-        clearInterval(interval);
-        toast.error(en ? "No speech detected in media" : "لم يتم العثور على كلام في المقطع");
+      if (!mergedItems || mergedItems.length === 0) {
+        toast.info(en ? "No speech detected in media" : "لم يتم العثور على كلام في المقطع");
         setExtracting(false);
         setExtractProgress(0);
         setExtractMsg("");
@@ -950,9 +908,9 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
       const newCaps: Caption[] = mergedItems.map((c) => ({
         id: uid(),
         start: Math.max(0, Number(c.start) || 0),
-        end: Math.min(totalDuration || audioLen, Number(c.end) || 0),
+        end: Math.min(totalDuration || c.end, Number(c.end) || 0),
         text: String(c.text || "").trim(),
-        confidence: 0.92,
+        confidence: 0.95,
         animation: captionStyle.animation,
       }));
 
@@ -960,8 +918,8 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
       playSfx("success");
       toast.success(
         en
-          ? `Extracted ${newCaps.length} captions successfully${chunks.length > 1 ? ` across ${chunks.length} parts` : ""}`
-          : `تم استخراج ${newCaps.length} كابشن بنجاح${chunks.length > 1 ? ` عبر ${chunks.length} أجزاء` : ""}`
+          ? `Extracted ${newCaps.length} captions successfully`
+          : `تم استخراج ${newCaps.length} كابشن بنجاح (محلياً)`
       );
 
       // Jump to list tab and focus first caption text field automatically for fast editing
@@ -972,22 +930,22 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
       }, 450);
 
       setTimeout(() => {
-        clearInterval(interval);
         setExtracting(false);
         setExtractProgress(0);
         setExtractMsg("");
       }, 800);
-
     } catch (e: any) {
-      clearInterval(interval);
-      console.error("AutoExtract Error:", e);
-      setExtractError(e.message || (en ? "Failed to extract speech" : "فشل استخراج الكلام"));
-      toast.error(
-        e.message || (en ? "Failed to extract speech" : "فشل استخراج الكلام"),
-        {
-          duration: 8000,
-        }
-      );
+      console.error("[CaptionPanel] Speech extraction failure:", e);
+      const isMissingModel =
+        e?.code === "model_missing" ||
+        (e?.message && e.message.includes("Caption model is not available on this device"));
+
+      const userDisplayError = isMissingModel
+        ? "Caption model is not available on this device."
+        : e?.message || (en ? "Failed to extract speech" : "فشل استخراج الكلام محلياً");
+
+      setExtractError(userDisplayError);
+      toast.error(userDisplayError, { duration: 8000 });
       setExtracting(false);
       setExtractProgress(0);
       setExtractMsg("");
@@ -995,36 +953,49 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
   };
 
   const regenerateSegment = async (capId: string, start: number, end: number) => {
-    if (typeof navigator !== "undefined" && !navigator.onLine) {
-      toast.error(en ? "Internet connection required for re-transcription" : "يلزم وجود اتصال بالإنترنت لإعادة الاستخراج");
-      return;
-    }
+    const resolved = AudioSourceResolver.getInstance().resolve({
+      audioTracks,
+      clips,
+      media,
+      overlays,
+      currentTime: start,
+    });
 
-    const videoItem = media.find((m) => m.type === "video");
-    if (!videoItem) {
-      toast.error(en ? "No video found to extract audio from" : "لا يوجد فيديو لاستخراج الصوت منه");
+    const fallbackMediaItem = media.find((m) => m.type === "video" || m.type === "audio");
+    const targetSource = resolved?.file || resolved?.url || fallbackMediaItem?.file || fallbackMediaItem?.url;
+
+    if (!targetSource) {
+      toast.error(en ? "No audio source found to re-transcribe" : "لا يوجد مصدر صوت لإعادة استخراج المقطع منه");
       return;
     }
 
     setRegeneratingId(capId);
-    toast.info(en ? "Re-transcribing segment..." : "جارٍ إعادة استخراج المقطع المحدّد...");
+    toast.info(en ? "Re-transcribing segment locally..." : "جارٍ إعادة استخراج المقطع المحدّد محلياً...");
 
     try {
-      const { base64 } = await extractAudioBase64(videoItem.file, start, end);
-      const items = await transcribeWithGroq(base64, captionStyle.language);
+      const items = await transcribeLocally(targetSource, {
+        startTime: start,
+        endTime: end,
+        language: captionStyle.language,
+      });
 
       if (items && items.length > 0) {
         const newText = items.map((i: any) => i.text).join(" ").trim();
-        const newConf = typeof items[0]?.confidence === "number" ? items[0].confidence : 0.95;
-        updateCap(capId, { text: newText, confidence: newConf });
+        updateCap(capId, { text: newText, confidence: 0.95 });
         playSfx("success");
         toast.success(en ? "Segment re-transcribed successfully!" : "تمت إعادة استخراج المقطع بنجاح!");
       } else {
         toast.warning(en ? "No speech detected in this segment" : "لم يتم التعرف على كلام في هذا المقطع القصير");
       }
     } catch (err: any) {
-      console.error("Segment re-transcription error:", err);
-      toast.error(err.message || (en ? "Failed to re-transcribe segment" : "فشلت إعادة استخراج الجزء المحدد"));
+      console.error("[CaptionPanel] Segment re-transcription error:", err);
+      const isMissing =
+        err?.code === "model_missing" ||
+        (err?.message && err.message.includes("Caption model is not available on this device"));
+      const msg = isMissing
+        ? "Caption model is not available on this device."
+        : err?.message || (en ? "Failed to re-transcribe segment" : "فشلت إعادة استخراج الجزء المحدد");
+      toast.error(msg);
     } finally {
       setRegeneratingId(null);
     }
@@ -1239,7 +1210,7 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
         ) : extractError ? (
           <div className="w-full mb-3 p-3 bg-destructive/15 border border-destructive/30 rounded-xl flex flex-col items-center gap-2 text-center animate-in fade-in slide-in-from-top-2 duration-200">
             <p className="text-[11px] font-bold text-destructive">
-              {en ? "Speech extraction failed. Please check your internet connection and try again." : "فشل استخراج الكلام. يرجى التثبت من الاتصال بالإنترنت وإعادة المحاولة."}
+              {en ? "Speech extraction failed. Please try again." : "فشل استخراج الكلام. يرجى إعادة المحاولة."}
             </p>
             <p className="text-[10px] text-muted-foreground line-clamp-2 max-w-md bg-black/20 p-1.5 rounded-lg border border-border/20 font-mono">
               {extractError}
@@ -1260,7 +1231,7 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
             >
               <Sparkles className="w-4 h-4 text-white animate-pulse" />
               <span className="tracking-wide">
-                {en ? "Auto-Extract Speech (AI)" : "استخراج تلقائي للكلام (AI)"}
+                {en ? "Auto-Extract Speech" : "استخراج تلقائي للكلام"}
               </span>
             </button>
 

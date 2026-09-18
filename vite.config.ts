@@ -1,7 +1,67 @@
-import { defineConfig } from "vite";
+import { defineConfig, Plugin } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
+import fs from "fs";
 import { VitePWA } from "vite-plugin-pwa";
+
+/**
+ * Return true 404 for missing models/wasm/data files instead of SPA HTML fallback
+ */
+function missingStaticAssets404Plugin(): Plugin {
+  return {
+    name: "missing-static-assets-404",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const rawUrl = req.url || "";
+        const pathname = rawUrl.split("?")[0];
+        if (
+          pathname.startsWith("/models/") ||
+          pathname.startsWith("/wasm/") ||
+          /\.(json|wasm|onnx|bin|safetensors|pt)$/i.test(pathname)
+        ) {
+          const cleanPath = pathname.replace(/^\/+/, "");
+          const publicFile = path.resolve(__dirname, "public", cleanPath);
+          if (!fs.existsSync(publicFile)) {
+            res.statusCode = 404;
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({ error: "Static asset not found", path: pathname }));
+            return;
+          }
+        }
+        next();
+      });
+    },
+  };
+}
+
+/**
+ * Ensure ORT WASM files are present in public/wasm/ort
+ */
+function ensureOrtWasmAssetsPlugin(): Plugin {
+  return {
+    name: "ensure-ort-wasm-assets",
+    buildStart() {
+      try {
+        const targetDir = path.resolve(__dirname, "public/wasm/ort");
+        const srcDir = path.resolve(__dirname, "node_modules/@xenova/transformers/dist");
+        if (fs.existsSync(srcDir)) {
+          if (!fs.existsSync(targetDir)) {
+            fs.mkdirSync(targetDir, { recursive: true });
+          }
+          const wasmFiles = fs.readdirSync(srcDir).filter((f) => f.endsWith(".wasm"));
+          for (const file of wasmFiles) {
+            const dest = path.join(targetDir, file);
+            if (!fs.existsSync(dest)) {
+              fs.copyFileSync(path.join(srcDir, file), dest);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[ensureOrtWasmAssetsPlugin] Warning:", err);
+      }
+    },
+  };
+}
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
@@ -13,6 +73,8 @@ export default defineConfig(({ mode }) => ({
     },
   },
   plugins: [
+    ensureOrtWasmAssetsPlugin(),
+    missingStaticAssets404Plugin(),
     react(),
     VitePWA({
       registerType: "autoUpdate",
@@ -31,9 +93,11 @@ export default defineConfig(({ mode }) => ({
         navigateFallback: "/index.html",
         navigateFallbackDenylist: [
           /^\/api/,
+          /^\/models\//,
+          /^\/wasm\//,
           /^\/src\//,
           /^\/@/,
-          /\.(js|ts|tsx|jsx|json|css)$/i,
+          /\.(js|ts|tsx|jsx|json|css|wasm|onnx|bin|safetensors|pt)$/i,
           /^https:\/\/huggingface\.co/,
           /^https:\/\/hf-mirror\.com/
         ],

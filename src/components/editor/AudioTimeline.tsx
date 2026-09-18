@@ -350,10 +350,20 @@ const AudioBlock = ({ track, pxPerSec, containerW, currentTime, totalDuration, t
     <div
       data-audio-block
       onClick={onSelect}
-      className={`absolute h-[44px] rounded-xl overflow-hidden border shadow-lg transition-all ${focused && isSelected ? "border-indigo-300 ring-2 ring-indigo-400" : "border-white/20"}`}
+      className={`absolute h-[44px] overflow-visible shadow-lg transition-all ${
+        focused && isSelected ? "z-20" : "rounded-xl border border-white/20 hover:border-white/40"
+      }`}
       style={{ left, width, top, background: `linear-gradient(135deg, ${track.color}cc, ${track.color}88)` }}
     >
-      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full opacity-80 pointer-events-none" />
+      {/* Seamless unified selection outline spanning handles and waveform cleanly */}
+      {focused && isSelected && (
+        <div className="absolute -left-3.5 sm:-left-4 -right-3.5 sm:-right-4 -top-[2px] -bottom-[2px] rounded-xl border-2 border-cyan-400 ring-2 ring-cyan-400/40 pointer-events-none z-30" />
+      )}
+
+      {/* Waveform canvas */}
+      <div className={`absolute inset-0 overflow-hidden pointer-events-none ${focused && isSelected ? "rounded-none" : "rounded-xl"}`}>
+        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full opacity-80" />
+      </div>
 
       {/* Beat markers overlay on this audio block */}
       {effectiveBeats.map((b, i) => {
@@ -397,7 +407,8 @@ const AudioBlock = ({ track, pxPerSec, containerW, currentTime, totalDuration, t
         {/* Keyframe diamonds overlay */}
         <div className="absolute inset-x-0 inset-y-0 pointer-events-none z-10 overflow-visible">
           {(track.keyframes || []).map((kf) => {
-            const pct = (kf.time / Math.max(0.1, track.duration)) * 100;
+            const trackDur = Math.max(0.01, track.duration);
+            const xPos = (kf.time / trackDur) * width;
             const kfGlobalTime = track.start + kf.time;
             const isOver = Math.abs(currentTime - kfGlobalTime) < 0.08;
             return (
@@ -409,7 +420,7 @@ const AudioBlock = ({ track, pxPerSec, containerW, currentTime, totalDuration, t
                     : "bg-blue-500 border-blue-200 z-10"
                 }`}
                 style={{ 
-                  left: `${Math.max(0, Math.min(100, pct))}%`, 
+                  left: `${xPos}px`, 
                   top: "50%",
                   transform: "translate(-50%, -50%) rotate(45deg)" 
                 }}
@@ -452,11 +463,22 @@ const AudioBlock = ({ track, pxPerSec, containerW, currentTime, totalDuration, t
         </>
       )}
 
-      {/* trim edge handles */}
+      {/* trim edge handles positioned outside so playhead stops at their inner edges */}
       {focused && isSelected && (
         <>
-          <TimelineTrimHandle side="left" variant="cyan" onPointerDown={(e) => onPointerDown(e, "in")} className="absolute left-0 top-0 bottom-0" />
-          <TimelineTrimHandle side="right" variant="cyan" isMaxReached={track.duration > 0 && (track.end || (track.start + track.duration)) >= (track.start + track.duration - 0.05)} onPointerDown={(e) => onPointerDown(e, "out")} className="absolute right-0 top-0 bottom-0" />
+          <TimelineTrimHandle
+            side="left"
+            variant="cyan"
+            onPointerDown={(e) => onPointerDown(e, "in")}
+            className="absolute -left-3.5 sm:-left-4 top-0 bottom-0 z-20"
+          />
+          <TimelineTrimHandle
+            side="right"
+            variant="cyan"
+            isMaxReached={track.duration > 0 && (track.end || (track.start + track.duration)) >= (track.start + track.duration - 0.05)}
+            onPointerDown={(e) => onPointerDown(e, "out")}
+            className="absolute -right-3.5 sm:-right-4 top-0 bottom-0 z-20"
+          />
         </>
       )}
     </div>

@@ -154,7 +154,7 @@ export class AIOutputVerifier {
         return {
           passed: false,
           domain: "audio",
-          reason: "[AIOutputVerifier] Audio Demucs stems are identical to original input. Stem separation failed.",
+          reason: "[AIOutputVerifier] Audio separation stems are identical to original input. Stem separation failed.",
           metrics: { isIdentical: true },
         };
       }

@@ -55,7 +55,13 @@ export type TransitionType =
   | "cube-rotate"
   | "color-flow"
   | "retro-pixel"
-  | "star-warp";
+  | "star-warp"
+  | "liquid-melt"
+  | "cross-zoom"
+  | "glitch-rgb-shatter"
+  | "burn-film"
+  | "kaleido-spin"
+  | "heart-zoom";
 
 export interface Transition {
   type: TransitionType;
@@ -98,6 +104,8 @@ export interface Clip {
   hasAlpha?: boolean;
   previewBgMode?: "checkerboard" | "black" | "green" | "white" | "custom";
   previewBgColor?: string;
+  processedAudioUrl?: string;
+  muteOriginalAudio?: boolean;
 }
 
 export function interpolateKeyframes(
@@ -266,6 +274,7 @@ export interface AudioTrackItem {
   fx: AudioFxType;
   color: string;
   kind: "music" | "sfx" | "voice" | "video-audio";
+  clipId?: string;
   fadeIn?: number;
   fadeOut?: number;
   keyframes?: Keyframe[];
@@ -273,7 +282,10 @@ export interface AudioTrackItem {
   bpm?: number;
 }
 
-export type FilterType = "brightness" | "contrast" | "saturate" | "grayscale" | "sepia" | "blur" | "hue-rotate" | "invert" | "vintage" | "warm" | "cool" | "dramatic" | "noir" | "fade-edge" | "duotone" | "dream" | "neon" | "sepia-blue";
+export type FilterType = 
+  | "brightness" | "contrast" | "saturate" | "grayscale" | "sepia" | "blur" | "hue-rotate" | "invert" 
+  | "vintage" | "warm" | "cool" | "dramatic" | "noir" | "fade-edge" | "duotone" | "dream" | "neon" | "sepia-blue"
+  | "cyberpunk-teal-orange" | "emerald-forest" | "golden-hour" | "vaporwave-pastel" | "polaroid-matte" | "monochrome-red";
 export interface FilterItem { 
   id: string; 
   type: FilterType; 
@@ -299,13 +311,43 @@ export type VfxType =
   // Weather & Nature VFX
   | "rain-storm" | "snow-blizzard" | "fire-embers" | "fog-smoke" | "thunder-lightning" | "sparkles-stars" | "bubbles-floating"
   // Dance & Music Party VFX
-  | "disco-strobe" | "bass-shake-pulse" | "neon-equalizer" | "rgb-rave" | "laser-beams" | "kaleidoscope-dance";
+  | "disco-strobe" | "bass-shake-pulse" | "neon-equalizer" | "rgb-rave" | "laser-beams" | "kaleidoscope-dance"
+  // Modern Special VFX
+  | "cyber-hologram" | "matrix-digital-rain" | "aurora-borealis" | "golden-dust" | "electric-sparks" | "rgb-echo";
 export interface VfxItem { id: string; type: VfxType; start: number; end: number; intensity: number; keyframes?: Keyframe[]; }
 
 export interface OverlayItem {
-  id: string; url: string; type: "image" | "video"; name: string; file: File;
-  start: number; end: number; x: number; y: number; scale: number;
-  opacity?: number; rotation?: number; blend?: string; brightness?: number;
+  id: string;
+  url: string;
+  type: "image" | "video";
+  name: string;
+  file?: File;
+  start: number;
+  end: number;
+  x: number; // 0..100%
+  y: number; // 0..100%
+  scale: number;
+  width?: number;
+  height?: number;
+  opacity?: number;
+  rotation?: number;
+  blend?: string;
+  brightness?: number;
+  cornerRadius?: number; // 0..60px
+  borderWidth?: number; // 0..12px
+  borderColor?: string;
+  shadowBlur?: number; // 0..40px
+  shadowColor?: string;
+  cropX?: number;
+  cropY?: number;
+  cropW?: number;
+  cropH?: number;
+  muted?: boolean; // for video overlays
+  volume?: number; // 0..1 for video overlays
+  audioAction?: "mix" | "mute" | "solo";
+  zIndex?: number;
+  flipH?: boolean;
+  flipV?: boolean;
   keyframes?: Keyframe[];
 }
 
@@ -368,12 +410,19 @@ interface MediaContextType {
 
 const MediaContext = createContext<MediaContextType | null>(null);
 
-const getVideoDuration = (file: File): Promise<number> =>
+const getVideoMetadata = (file: File): Promise<{ duration: number; width: number; height: number }> =>
   new Promise((resolve) => {
     const video = document.createElement("video");
     video.preload = "metadata";
-    video.onloadedmetadata = () => { resolve(video.duration || 0); URL.revokeObjectURL(video.src); };
-    video.onerror = () => resolve(0);
+    video.onloadedmetadata = () => { 
+      resolve({ 
+        duration: video.duration || 0, 
+        width: video.videoWidth || 0, 
+        height: video.videoHeight || 0 
+      }); 
+      URL.revokeObjectURL(video.src); 
+    };
+    video.onerror = () => resolve({ duration: 0, width: 0, height: 0 });
     video.src = URL.createObjectURL(file);
   });
 
@@ -719,18 +768,25 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
     setClips((prev) => [...prev, ...items.map<Clip>((m) => ({ id: uid(), mediaId: m.id, in: 0, out: m.duration || 5 }))]);
     toast.success(t("toast.mediaUploaded", { n: items.length }));
     items.forEach((m) => {
-      if (m.type !== "video") return;
-      getVideoDuration(m.file).then((d) => {
-        const dur = d || 5;
-        setMedia((prev) => prev.map((x) => (x.id === m.id ? { ...x, duration: dur } : x)));
-        setClips((prev) => prev.map((c) => c.mediaId === m.id && c.in === 0 && (c.out === 5 || c.out === 0) ? { ...c, out: dur } : c));
-      });
-      if (m.file) {
-        extractVideoFrameThumbnail(m.file).then((thumb) => {
-          if (thumb) {
-            setMedia((prev) => prev.map((x) => (x.id === m.id ? { ...x, thumbnail: thumb } : x)));
-          }
+      if (m.type === "video") {
+        getVideoMetadata(m.file).then((meta) => {
+          const dur = meta.duration || 5;
+          setMedia((prev) => prev.map((x) => (x.id === m.id ? { ...x, duration: dur, width: meta.width, height: meta.height } : x)));
+          setClips((prev) => prev.map((c) => c.mediaId === m.id && c.in === 0 && (c.out === 5 || c.out === 0) ? { ...c, out: dur } : c));
         });
+        if (m.file) {
+          extractVideoFrameThumbnail(m.file).then((thumb) => {
+            if (thumb) {
+              setMedia((prev) => prev.map((x) => (x.id === m.id ? { ...x, thumbnail: thumb } : x)));
+            }
+          });
+        }
+      } else if (m.type === "image") {
+        const img = new Image();
+        img.onload = () => {
+          setMedia((prev) => prev.map((x) => (x.id === m.id ? { ...x, width: img.naturalWidth, height: img.naturalHeight } : x)));
+        };
+        img.src = m.url;
       }
     });
     return items;
@@ -768,9 +824,37 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
       const c = prev[idx];
       const splitAt = c.in + localTime;
       if (splitAt <= c.in + 0.05 || splitAt >= c.out - 0.05) { toast.error(t("toast.splitTooClose")); return prev; }
-      const left: Clip = { ...c, out: splitAt };
-      const right: Clip = { id: uid(), mediaId: c.mediaId, in: splitAt, out: c.out, speed: c.speed, scale: c.scale, panX: c.panX, panY: c.panY, flipH: c.flipH, flipV: c.flipV };
-      const next = [...prev]; next.splice(idx, 1, left, right);
+
+      // Partition keyframes between left and right clips
+      const leftKeyframes = (c.keyframes || []).filter((k) => k.time <= localTime);
+      const rightKeyframes = (c.keyframes || [])
+        .filter((k) => k.time > localTime)
+        .map((k) => ({ ...k, time: Math.max(0, k.time - localTime) }));
+
+      const left: Clip = { 
+        ...c, 
+        out: splitAt,
+        keyframes: leftKeyframes.length > 0 ? leftKeyframes : undefined,
+      };
+      const right: Clip = { 
+        id: uid(), 
+        mediaId: c.mediaId, 
+        in: splitAt, 
+        out: c.out, 
+        speed: c.speed, 
+        scale: c.scale, 
+        panX: c.panX, 
+        panY: c.panY, 
+        flipH: c.flipH, 
+        flipV: c.flipV,
+        rotation: c.rotation,
+        opacity: c.opacity,
+        volume: c.volume,
+        transitionIn: undefined, // New cut point starts clean with CapCut cut indicator
+        keyframes: rightKeyframes.length > 0 ? rightKeyframes : undefined,
+      };
+      const next = [...prev]; 
+      next.splice(idx, 1, left, right);
       toast.success(t("toast.splitDone"));
       return next;
     });

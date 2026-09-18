@@ -722,6 +722,102 @@ function renderVfxFrame(ctx: CanvasRenderingContext2D, type: VfxType, p: number,
       break;
     }
 
+    case "cyber-hologram": {
+      ctx.fillStyle = "rgba(6, 182, 212, 0.25)";
+      ctx.fillRect(0, 0, W, H);
+      for (let y = 0; y < H; y += 4) {
+        ctx.fillStyle = "rgba(6, 182, 212, 0.35)";
+        ctx.fillRect(0, y, W, 1);
+      }
+      ctx.strokeStyle = "#06b6d4";
+      ctx.lineWidth = 1.5;
+      const cl = 10;
+      ctx.beginPath();
+      ctx.moveTo(4, 4 + cl); ctx.lineTo(4, 4); ctx.lineTo(4 + cl, 4);
+      ctx.moveTo(W - 4 - cl, 4); ctx.lineTo(W - 4, 4); ctx.lineTo(W - 4, 4 + cl);
+      ctx.moveTo(4, H - 4 - cl); ctx.lineTo(4, H - 4); ctx.lineTo(4 + cl, H - 4);
+      ctx.moveTo(W - 4 - cl, H - 4); ctx.lineTo(W - 4, H - 4); ctx.lineTo(W - 4, H - 4 - cl);
+      ctx.stroke();
+      break;
+    }
+
+    case "matrix-digital-rain": {
+      ctx.fillStyle = "rgba(10, 25, 15, 0.8)";
+      ctx.fillRect(0, 0, W, H);
+      const cols = 8;
+      const cw = W / cols;
+      for (let c = 0; c < cols; c++) {
+        const dropY = ((p * 100 + c * 25) % (H + 20)) - 10;
+        const grad = ctx.createLinearGradient(0, dropY - 20, 0, dropY);
+        grad.addColorStop(0, "transparent");
+        grad.addColorStop(0.8, "rgba(34, 197, 94, 0.8)");
+        grad.addColorStop(1, "#86efac");
+        ctx.fillStyle = grad;
+        ctx.fillRect(c * cw + 2, Math.max(0, dropY - 20), cw - 4, 20);
+      }
+      break;
+    }
+
+    case "aurora-borealis": {
+      ctx.fillStyle = "rgba(15, 23, 42, 0.7)";
+      ctx.fillRect(0, 0, W, H);
+      for (let j = 0; j < 2; j++) {
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        for (let x = 0; x <= W; x += 6) {
+          const y = 8 + j * 12 + Math.sin(x * 0.08 + p * 6 + j) * 8;
+          ctx.lineTo(x, y);
+        }
+        ctx.lineTo(W, 0);
+        ctx.closePath();
+        ctx.fillStyle = j === 0 ? "rgba(16, 185, 129, 0.5)" : "rgba(168, 85, 247, 0.4)";
+        ctx.fill();
+      }
+      break;
+    }
+
+    case "golden-dust": {
+      for (let k = 0; k < 12; k++) {
+        const kx = ((k * 31 + p * 40) % W);
+        const ky = ((k * 19 - p * 30 + H) % H);
+        const rad = ctx.createRadialGradient(kx, ky, 0, kx, ky, 5);
+        rad.addColorStop(0, "#ffffff");
+        rad.addColorStop(0.4, "rgba(245, 158, 11, 0.8)");
+        rad.addColorStop(1, "transparent");
+        ctx.fillStyle = rad;
+        ctx.beginPath();
+        ctx.arc(kx, ky, 5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      break;
+    }
+
+    case "electric-sparks": {
+      ctx.strokeStyle = "#38bdf8";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      let sx = W * 0.2;
+      let sy = 0;
+      ctx.moveTo(sx, sy);
+      for (let s = 0; s < 4; s++) {
+        sx += (Math.sin(p * 20 + s) * 15);
+        sy += H / 4;
+        ctx.lineTo(sx, sy);
+      }
+      ctx.stroke();
+      break;
+    }
+
+    case "rgb-echo": {
+      const off = Math.sin(p * Math.PI) * 4;
+      ctx.strokeStyle = "rgba(239, 68, 68, 0.6)";
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(4 + off, 4, W - 8, H - 8);
+      ctx.strokeStyle = "rgba(6, 182, 212, 0.6)";
+      ctx.strokeRect(4 - off, 4, W - 8, H - 8);
+      break;
+    }
+
     default:
       break;
   }

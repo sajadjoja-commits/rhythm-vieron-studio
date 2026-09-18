@@ -250,6 +250,78 @@ const FILTER_LIB: {
     badgeEn: "INVERT",
     characterImg: "https://images.unsplash.com/photo-1542206395-9feb3edaa68d?auto=format&fit=crop&w=100&q=40&fm=webp",
     cssFilter: "invert(1) contrast(1.1)"
+  },
+  {
+    type: "cyberpunk-teal-orange",
+    label: "تيل & أورانج سينمائي",
+    labelEn: "Hollywood Teal & Orange",
+    color: "#0ea5e9",
+    preview: "linear-gradient(135deg, #0284c7, #f97316)",
+    icon: "🎬",
+    badge: "سينمائي",
+    badgeEn: "HOLLYWOOD",
+    characterImg: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=40&fm=webp",
+    cssFilter: "contrast(1.25) saturate(1.35) hue-rotate(-12deg) sepia(0.22)"
+  },
+  {
+    type: "emerald-forest",
+    label: "زمردي الغابة",
+    labelEn: "Emerald Forest",
+    color: "#059669",
+    preview: "linear-gradient(135deg, #059669, #064e3b)",
+    icon: "🌲",
+    badge: "طبيعة",
+    badgeEn: "NATURE",
+    characterImg: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=100&q=40&fm=webp",
+    cssFilter: "hue-rotate(25deg) saturate(1.4) contrast(1.15) brightness(0.96)"
+  },
+  {
+    type: "golden-hour",
+    label: "الساعة الذهبية",
+    labelEn: "Golden Hour Glow",
+    color: "#f59e0b",
+    preview: "linear-gradient(135deg, #f59e0b, #b45309)",
+    icon: "🌇",
+    badge: "غروب",
+    badgeEn: "SUNSET",
+    characterImg: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&q=40&fm=webp",
+    cssFilter: "sepia(0.42) saturate(1.45) contrast(1.1) brightness(1.08)"
+  },
+  {
+    type: "vaporwave-pastel",
+    label: "فيبور ويف باستيل",
+    labelEn: "Vaporwave Pastel",
+    color: "#c084fc",
+    preview: "linear-gradient(135deg, #e879f9, #818cf8)",
+    icon: "🌴",
+    badge: "جمالي",
+    badgeEn: "SYNTHWAVE",
+    characterImg: "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=100&q=40&fm=webp",
+    cssFilter: "hue-rotate(300deg) saturate(1.35) contrast(1.08) brightness(1.06)"
+  },
+  {
+    type: "polaroid-matte",
+    label: "بولارويد مطفي",
+    labelEn: "Polaroid Matte",
+    color: "#d4d4d8",
+    preview: "linear-gradient(135deg, #e4e4e7, #71717a)",
+    icon: "📸",
+    badge: "مطفي",
+    badgeEn: "MATTE",
+    characterImg: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=100&q=40&fm=webp",
+    cssFilter: "contrast(0.9) brightness(1.12) sepia(0.2) saturate(0.85)"
+  },
+  {
+    type: "monochrome-red",
+    label: "أحادي قرمزي",
+    labelEn: "Monochrome Ruby",
+    color: "#dc2626",
+    preview: "linear-gradient(135deg, #ef4444, #18181b)",
+    icon: "🩸",
+    badge: "درامي",
+    badgeEn: "RUBY",
+    characterImg: "https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?auto=format&fit=crop&w=100&q=40&fm=webp",
+    cssFilter: "grayscale(0.75) sepia(0.35) hue-rotate(320deg) contrast(1.4) brightness(0.95)"
   }
 ];
 

@@ -9,6 +9,7 @@ import MediaPicker from "@/components/MediaPicker";
 import { applyThemeToDOM } from "@/lib/theme";
 import { safeStorage } from "@/lib/safeStorage";
 import AuthScreen from "@/components/AuthScreen";
+import { VireonLogo } from "@/components/VireonLogo";
 import { Capacitor } from "@capacitor/core";
 import { Browser } from "@capacitor/browser";
 import { App as CapApp } from "@capacitor/app";
@@ -46,10 +47,8 @@ const SmartTemplateQuickEditor = lazyWithRetry(() => import("@/components/SmartT
 
 const ScreenLoader = () => (
   <div className="min-h-[100dvh] w-full flex flex-col items-center justify-center bg-background text-foreground animate-pulse">
-    <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center mb-3">
-      <Loader2 className="w-5 h-5 text-primary animate-spin" />
-    </div>
-    <span className="text-xs font-semibold tracking-wider text-muted-foreground">Vireon AI</span>
+    <VireonLogo className="w-12 h-12 mb-3 drop-shadow-lg" />
+    <span className="text-xs font-semibold tracking-wider text-muted-foreground">Vireon AI Studio</span>
   </div>
 );
 
@@ -341,9 +340,7 @@ const Index = () => {
   if (exitOverlay) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-zinc-950 text-white p-6 animate-fade-in">
-        <div className="w-16 h-16 rounded-2xl gradient-primary flex items-center justify-center mb-6 shadow-lg shadow-primary/20">
-          <span className="text-2xl font-extrabold tracking-wider text-primary-foreground">V</span>
-        </div>
+        <VireonLogo className="w-16 h-16 mb-6 shadow-xl shadow-primary/20" />
         <h1 className="text-xl font-heading font-extrabold text-foreground mb-2 text-center">
           {isRTL() ? "تم الخروج بنجاح" : "Successfully Exited"}
         </h1>
@@ -365,8 +362,9 @@ const Index = () => {
 
   if (!authChecked) {
     return (
-      <div className="min-h-[100dvh] flex items-center justify-center bg-background">
-        <div className="animate-pulse text-primary font-heading font-bold text-lg">Vireon AI</div>
+      <div className="min-h-[100dvh] flex items-center justify-center bg-background flex-col gap-3">
+        <VireonLogo className="w-14 h-14 animate-pulse" />
+        <div className="animate-pulse text-primary font-heading font-bold text-lg">Vireon AI Studio</div>
       </div>
     );
   }

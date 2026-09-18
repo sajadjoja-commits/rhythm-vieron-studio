@@ -38,7 +38,7 @@ export default function CropOverlay({ open, onClose, clip, mediaItem, onApplyCro
         h: clip.cropH ?? 100,
       });
     }
-  }, [open, clip]);
+  }, [open, clip?.id, clip?.cropX, clip?.cropY, clip?.cropW, clip?.cropH]);
 
   const handleStartDrag = (type: DragType, e: React.MouseEvent | React.TouchEvent) => {
     e.preventDefault();

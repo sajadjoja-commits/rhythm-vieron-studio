@@ -8,7 +8,7 @@ import { PayloadValidator } from "../../utils/PayloadValidator";
 
 export class LocalImageProcessor extends LocalProvider {
   public id = "local-image-processor";
-  public name = "Local AI Image Processor (RMBG-2.0, MediaPipe, GFPGAN, LaMa, SCUNet)";
+  public name = "Local AI Image Processor (MediaPipe, Fourier Inpainting, Bilateral Denoise)";
   public supportedTasks: AITaskType[] = [
     "background-removal",
     "enhance-media",

@@ -20,6 +20,7 @@ interface Props {
   pxPerSec?: number;
   onOpenCover?: () => void;
   onFocus?: () => void;
+  onDeselect?: () => void;
 }
 
 const TRANSITION_ICON: Record<TransitionType, string> = {
@@ -29,16 +30,19 @@ const TRANSITION_ICON: Record<TransitionType, string> = {
   "whip-pan": "💨", "zoom-blur": "🌀", "glitch-slice": "⚡", "page-flip": "📖",
   "gsap-elastic-zoom": "🚀", "gsap-3d-flip": "💎", "gsap-stagger-wipe": "🪄", "gsap-elastic-bounce": "⚡",
   "sun-flare": "☀️", "light-leak": "🌅", "brush-paint": "🖌️", "bokeh-blur": "🎭",
-  "cinematic-bars": "🎬", "cube-rotate": "📦", "color-flow": "🌈", "retro-pixel": "👾", "star-warp": "⭐"
+  "cinematic-bars": "🎬", "cube-rotate": "📦", "color-flow": "🌈", "retro-pixel": "👾", "star-warp": "⭐",
+  "liquid-melt": "💧", "cross-zoom": "💥", "glitch-rgb-shatter": "⚡", "burn-film": "🔥", "kaleido-spin": "🌀", "heart-zoom": "💖"
 };
 
 const KeyframeMarkers = memo(({ clip, clipGlobalStart, pxPerSec, currentTime }: { clip: any; clipGlobalStart: number; pxPerSec: number; currentTime: number }) => {
   const seenTimes = new Set<string>();
   const kfs = clip.keyframes || [];
   if (kfs.length === 0) return null;
+  const clipLen = Math.max(0.01, (clip.out || 0) - (clip.in || 0));
+  const clipPx = clipLen * pxPerSec;
   
   return (
-    <div className="absolute inset-x-0 top-0 bottom-0 pointer-events-none z-30 flex items-center overflow-visible">
+    <div className="absolute inset-x-0 top-0 bottom-0 pointer-events-none z-20 flex items-center overflow-visible">
       {kfs.map((kf: any) => {
         const tKey = kf.time.toFixed(2);
         if (seenTimes.has(tKey)) return null;
@@ -47,19 +51,22 @@ const KeyframeMarkers = memo(({ clip, clipGlobalStart, pxPerSec, currentTime }: 
         const kfGlobalTime = clipGlobalStart + kf.time;
         // Turn green if the playhead is over/near the keyframe, blue otherwise
         const isOver = Math.abs(currentTime - kfGlobalTime) < 0.08;
+        
+        // Exact keyframe alignment
+        const xPos = kf.time * pxPerSec;
 
         return (
           <div
-            key={kf.id}
-            className={`absolute w-2.5 h-2.5 border border-white shadow transition-all duration-150 ${
+            key={kf.id || `${kf.property}-${tKey}`}
+            className={`absolute w-3 h-3 border border-white shadow transition-all duration-150 ${
               isOver
-                ? "bg-emerald-500 scale-125 border-emerald-200 ring-2 ring-emerald-400/50 z-40"
-                : "bg-blue-500 border-blue-200 z-30"
+                ? "bg-emerald-500 scale-125 border-emerald-200 ring-2 ring-emerald-400/50 z-25"
+                : "bg-blue-500 border-blue-200 z-20"
             }`}
             style={{
-              left: `${kf.time * pxPerSec}px`,
-              transform: "translateX(-50%) rotate(45deg)",
-              top: "42%",
+              left: `${xPos}px`,
+              transform: "translate(-50%, -50%) rotate(45deg)",
+              top: "50%",
             }}
             title={`${kf.property}: ${kf.value}`}
           />
@@ -70,7 +77,7 @@ const KeyframeMarkers = memo(({ clip, clipGlobalStart, pxPerSec, currentTime }: 
 });
 KeyframeMarkers.displayName = "KeyframeMarkers";
 
-const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUserScrub, onWidthChange, onPxPerSecChange, hidePlayhead, focused, pxPerSec: propPxPerSec, onOpenCover, onFocus }: Props) => {
+const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUserScrub, onWidthChange, onPxPerSecChange, hidePlayhead, focused, pxPerSec: propPxPerSec, onOpenCover, onFocus, onDeselect }: Props) => {
   const { clips, getMediaById, totalDuration, removeClip, trimClip, moveClip, videoMuted, setVideoMuted, coverImage, audioBeats } = useMedia();
 
   const autoCover = useMemo(() => {
@@ -102,6 +109,13 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
   const [dragDx, setDragDx] = useState(0);
   const [isTrimming, setIsTrimming] = useState(false);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+
+  // Auto-deselect clip when track focus is cleared
+  useEffect(() => {
+    if (focused === false) {
+      setSelectedClipId(null);
+    }
+  }, [focused]);
   const isScrubbingRef = useRef(false);
   const isTrimmingRef = useRef(false);
   isTrimmingRef.current = isTrimming;
@@ -142,7 +156,7 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
       acc += len;
     }
     if (foundId) {
-      setSelectedClipId(foundId);
+      setSelectedClipId((prev) => (prev === foundId ? prev : foundId));
     }
   }, [currentTime, clips]);
 
@@ -280,7 +294,7 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     if (!el) return;
     const ro = new ResizeObserver(([entry]) => {
       const w = entry.contentRect.width;
-      setContainerW(w);
+      setContainerW((prev) => (Math.abs(prev - w) < 1 ? prev : w));
       onWidthChange?.(w);
     });
     ro.observe(el);
@@ -409,6 +423,9 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
       if (!hasMoved && !isPinchingRef.current) {
         const snapped = applySnap(clickedTime);
         onSeek(snapped);
+        // Discrete tap on timeline background or ruler deselects clip
+        setSelectedClipId(null);
+        onDeselect?.();
       } else if (hasMoved && !isPinchingRef.current && Math.abs(velocity) > 0.05) {
         // Trigger high-performance momentum inertia scrolling
         let currentVelocity = velocity;
@@ -448,7 +465,7 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     };
     window.addEventListener("pointermove", move, { passive: true });
     window.addEventListener("pointerup", up);
-  }, [halfW, pxPerSec, totalDuration, onSeek, onUserScrub, applySnap, stopInertia]);
+  }, [halfW, pxPerSec, totalDuration, onSeek, onUserScrub, applySnap, stopInertia, onDeselect]);
 
   const startTrim = useCallback((e: React.PointerEvent, clipId: string, edge: "in" | "out", clip: { in: number; out: number; mediaId: string }) => {
     e.stopPropagation();
@@ -547,91 +564,158 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     ? Math.max(0, Math.min(clips.length - 1, Math.round((fromIdx * slotWidth + dragDx) / slotWidth))) 
     : -1;
 
+  const longPressTimerRef = useRef<number | null>(null);
+
   const startMove = useCallback((e: React.PointerEvent, clipId: string) => {
+    // Stop event bubbling so outer timeline canvas click listener doesn't overwrite our seek
     e.stopPropagation();
-    setSelectedClipId(clipId);
-    onFocus?.();
 
-    const targetEl = e.currentTarget as HTMLElement;
-    const pointerId = e.pointerId;
-    try {
-      targetEl.setPointerCapture(pointerId);
-    } catch {}
+    // If clicking on a trim handle or delete button, let them handle it
+    if ((e.target as HTMLElement).closest("[data-no-scrub]")) return;
 
-    let startXAdjusted = e.clientX;
-    lastPointerXRef.current = e.clientX;
     const clipIdx = clips.findIndex((c) => c.id === clipId);
     if (clipIdx === -1) return;
 
-    let moved = false;
-    const HOLD = 6;
+    // Determine current clip index from playhead position prior to click
+    let currentClipIdx = -1;
+    let accTimeline = 0;
+    for (let i = 0; i < clips.length; i++) {
+      const dur = clips[i].out - clips[i].in;
+      if (currentTimeRef.current >= accTimeline - 0.05 && currentTimeRef.current < accTimeline + dur - 0.05) {
+        currentClipIdx = i;
+        break;
+      }
+      accTimeline += dur;
+    }
+    if (currentClipIdx === -1 && clips.length > 0) {
+      currentClipIdx = currentTimeRef.current >= accTimeline ? clips.length - 1 : 0;
+    }
 
-    const updateMove = (currentX: number) => {
-      const dx = currentX - startXAdjusted;
-      if (!moved && Math.abs(dx) < HOLD) return;
-      moved = true;
-      setDragId(clipId);
-      setDragDx(dx);
-    };
+    const prevSelectedClipId = selectedClipId;
+    const prevIdx = clips.findIndex((c) => c.id === prevSelectedClipId);
+    const refIdx = prevIdx !== -1 ? prevIdx : currentClipIdx;
+    const isNewClip = clipId !== prevSelectedClipId || refIdx !== clipIdx;
+
+    // Calculate target clip's start and end on the timeline
+    let accTime = 0;
+    let targetStart = 0;
+    let targetEnd = 0;
+    for (let i = 0; i < clips.length; i++) {
+      const c = clips[i];
+      const dur = c.out - c.in;
+      if (c.id === clipId) {
+        targetStart = accTime;
+        targetEnd = accTime + dur;
+        break;
+      }
+      accTime += dur;
+    }
+
+    setSelectedClipId(clipId);
+    onFocus?.();
+
+    let targetTime = targetStart;
+    if (clipIdx > refIdx) {
+      // Going forward to next/later clip -> snap directly to FIRST handle (start)
+      targetTime = targetStart;
+    } else if (clipIdx < refIdx) {
+      // Going backward to previous/earlier clip -> snap directly to LAST handle (end)
+      // (Using targetEnd - 0.04 keeps resolveTimelineTime safely inside target clip showing its last frame)
+      targetTime = Math.max(targetStart, targetEnd - 0.04);
+    } else {
+      // Same clip clicked
+      targetTime = currentTimeRef.current;
+    }
+
+    if (isNewClip) {
+      onSeek(targetTime);
+      triggerHapticTick("light");
+    }
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let lastX = startX;
+    let hasMoved = false;
+    let isReorderMode = false;
+
+    // CapCut style long-press (350ms): hold to reorder
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = window.setTimeout(() => {
+      if (!hasMoved) {
+        isReorderMode = true;
+        setDragId(clipId);
+        triggerHapticTick("medium");
+        try { navigator.vibrate?.(35); } catch {}
+      }
+    }, 350);
 
     const move = (ev: PointerEvent) => {
-      lastPointerXRef.current = ev.clientX;
-      updateMove(ev.clientX);
+      const currentX = ev.clientX;
+      const currentY = ev.clientY;
+      const dxTotal = currentX - startX;
+      const dyTotal = currentY - startY;
+
+      if (Math.hypot(dxTotal, dyTotal) > 8) {
+        hasMoved = true;
+        if (!isReorderMode && longPressTimerRef.current) {
+          clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
+      }
+
+      if (isReorderMode) {
+        lastPointerXRef.current = currentX;
+        setDragDx(dxTotal);
+      } else if (hasMoved) {
+        // Smooth timeline scrub across clips only after intentional drag
+        const dxStep = currentX - lastX;
+        lastX = currentX;
+        const nextTime = Math.max(0, Math.min(totalDuration, currentTimeRef.current - dxStep / pxPerSecRef.current));
+        onSeek(nextTime);
+        onUserScrub?.(true);
+      }
     };
 
     const up = () => {
-      stopAutoScroll();
-      try {
-        if (targetEl && targetEl.hasPointerCapture(pointerId)) {
-          targetEl.releasePointerCapture(pointerId);
-        }
-      } catch {}
-
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
+      onUserScrub?.(false);
 
-      const finalX = lastPointerXRef.current;
-      const dx = finalX - startXAdjusted;
-
-      if (moved) {
+      if (isReorderMode) {
+        const finalX = lastPointerXRef.current;
+        const dx = finalX - startX;
         const target = Math.max(0, Math.min(clips.length - 1, Math.round((clipIdx * slotWidth + dx) / slotWidth)));
         moveClip(clipId, target);
         triggerHapticTick("medium");
         try { navigator.vibrate?.(12); } catch {}
-      } else {
-        // Gravitate/snap playhead cursor to the clicked clip start ONLY if not already inside its boundaries!
-        let clipGlobalStart = 0;
-        for (let i = 0; i < clipIdx; i++) {
-          clipGlobalStart += clips[i].out - clips[i].in;
-        }
-        const clipDuration = clips[clipIdx].out - clips[clipIdx].in;
-        const clipGlobalEnd = clipGlobalStart + clipDuration;
-        
-        if (currentTime > clipGlobalEnd) {
-          onSeek(clipGlobalEnd);
+        setDragId(null);
+        setDragDx(0);
+      } else if (!hasMoved) {
+        if (isNewClip) {
+          // Confirm discrete tap jumped to first or last handle
+          onSeek(targetTime);
           triggerHapticTick("light");
-          try { navigator.vibrate?.(15); } catch {}
-        } else if (currentTime < clipGlobalStart) {
-          onSeek(clipGlobalStart);
-          triggerHapticTick("light");
-          try { navigator.vibrate?.(15); } catch {}
+        } else {
+          // Discrete tap inside the ALREADY selected clip: place playhead at tapped spot
+          const rect = containerRef.current?.getBoundingClientRect();
+          if (rect) {
+            const tappedTime = Math.max(0, Math.min(totalDuration, currentTimeRef.current + (startX - rect.left - halfW) / pxPerSecRef.current));
+            onSeek(tappedTime);
+            triggerHapticTick("light");
+          }
         }
       }
-      setDragId(null);
-      setDragDx(0);
     };
-
-    startAutoScroll((deltaSec, speed) => {
-      const scrolledPx = speed * deltaSec * 80;
-      startXAdjusted -= scrolledPx;
-      updateMove(lastPointerXRef.current);
-    });
 
     window.addEventListener("pointermove", move, { passive: true });
     window.addEventListener("pointerup", up);
     window.addEventListener("pointercancel", up);
-  }, [clips, slotWidth, moveClip, startAutoScroll, stopAutoScroll, onSeek, currentTime, onFocus]);
+  }, [clips, selectedClipId, slotWidth, moveClip, onSeek, totalDuration, onUserScrub, onFocus, halfW]);
 
   const translateX = isReordering && fromIdx !== -1
     ? halfW - (fromIdx * slotWidth + COMPACT_W / 2)
@@ -644,6 +728,7 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
       const len = clip.out - clip.in;
       const w = len * pxPerSec;
       const left = acc * pxPerSec;
+      const clipGlobalStart = acc;
       acc += len;
       if (!media) return null;
 
@@ -685,32 +770,16 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
             opacity: isReordering && !dragging ? 0.75 : 1,
             transition: dragging ? "none" : isReordering ? "all 200ms cubic-bezier(0.16, 1, 0.3, 1)" : "all 150ms cubic-bezier(0.16, 1, 0.3, 1)",
           }}
-          data-no-scrub
         >
-          {!isReordering && idx > 0 && (
-            <button
-              data-no-scrub
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => { e.stopPropagation(); onOpenTransition(clip.id); }}
-              className="absolute -left-3 top-1/2 -translate-y-1/2 z-20 w-6 h-6 rounded-full gradient-primary glow-primary-sm flex items-center justify-center"
-            >
-              {clip.transitionIn && clip.transitionIn.type !== "none" ? (
-                <span className="text-[10px] text-primary-foreground">{TRANSITION_ICON[clip.transitionIn.type]}</span>
-              ) : (
-                <Plus className="w-3 h-3 text-primary-foreground" />
-              )}
-            </button>
-          )}
-
           <div
-            className={`relative h-full rounded-xl overflow-hidden cursor-grab active:cursor-grabbing shadow-md transition-all duration-150 ${
+            className={`relative h-full overflow-visible cursor-grab active:cursor-grabbing shadow-md transition-all duration-150 ${
               dragging 
                 ? "border-2 border-amber-400 ring-4 ring-amber-400/80 z-30 shadow-2xl bg-slate-950/95 backdrop-blur-md rounded-2xl transform shadow-amber-500/40 brightness-110 flex items-center justify-center" 
                 : isReordering
-                ? "border-2 border-slate-600/80 bg-slate-900/90 shadow-lg"
+                ? "border-2 border-slate-600/80 bg-slate-900/90 shadow-lg rounded-xl"
                 : focused !== false && selectedClipId === clip.id
-                ? "border-2 border-primary ring-2 ring-primary/40 bg-secondary"
-                : "border border-primary/30 hover:border-primary/60 bg-secondary"
+                ? "bg-secondary z-20"
+                : "rounded-xl border border-white/20 hover:border-white/40 bg-secondary"
             }`}
             onPointerDown={(e) => startMove(e, clip.id)}
             onContextMenu={(e) => e.preventDefault()}
@@ -724,33 +793,54 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
                 <span>#{idx + 1}</span>
               </div>
             )}
-            <ClipThumbnails
-              clip={clip}
-              media={media}
-              pxPerSec={pxPerSec}
-              isDragging={dragging || isReordering}
-              isInteracting={isTrimming || isReordering}
-            />
+
+            {/* Seamless unified selection outline spanning handles and media cleanly */}
+            {!isReordering && focused !== false && selectedClipId === clip.id && (
+              <div className="absolute -left-3.5 sm:-left-4 -right-3.5 sm:-right-4 -top-[2px] -bottom-[2px] rounded-xl border-2 border-primary ring-2 ring-primary/40 pointer-events-none z-30" />
+            )}
+
+            {/* Thumbnails clipped neatly: straight edges when selected to connect flush with handles, rounded-xl when unselected */}
+            <div className={`absolute inset-0 overflow-hidden pointer-events-none ${focused !== false && selectedClipId === clip.id ? "rounded-none" : "rounded-xl"}`}>
+              <ClipThumbnails
+                clip={clip}
+                media={media}
+                pxPerSec={pxPerSec}
+                isDragging={dragging || isReordering}
+                isInteracting={isTrimming || isReordering}
+              />
+            </div>
             
+            {/* Keyframe Markers Layer inside clip (z-20) */}
+            {!isReordering && (
+              <KeyframeMarkers
+                clip={clip}
+                clipGlobalStart={clipGlobalStart}
+                pxPerSec={pxPerSec}
+                currentTime={currentTime}
+              />
+            )}
+
+            {/* Left Trim Handle positioned outside to the left so playhead at 0s stops at its inner edge */}
             {!isReordering && focused !== false && selectedClipId === clip.id && (
               <TimelineTrimHandle
                 side="left"
                 variant="primary"
                 onPointerDown={(e) => startTrim(e, clip.id, "in", clip)}
-                className="absolute left-0 top-0 bottom-0"
+                className="absolute -left-3.5 sm:-left-4 top-0 bottom-0 z-20"
               />
             )}
+            {/* Right Trim Handle positioned outside to the right so playhead at clip end stops at its inner edge */}
             {!isReordering && focused !== false && selectedClipId === clip.id && (
               <TimelineTrimHandle
                 side="right"
                 variant="primary"
                 isMaxReached={media?.type === "video" && media.duration > 0 && clip.out >= media.duration - 0.05}
                 onPointerDown={(e) => startTrim(e, clip.id, "out", clip)}
-                className="absolute right-0 top-0 bottom-0"
+                className="absolute -right-3.5 sm:-right-4 top-0 bottom-0 z-20"
               />
             )}
             {!isReordering && (
-              <div className="absolute inset-x-0 bottom-0 px-1.5 py-0.5 bg-black/60 backdrop-blur-xs flex items-center justify-between z-10">
+              <div className={`absolute inset-x-0 bottom-0 px-1.5 py-0.5 bg-black/60 backdrop-blur-xs flex items-center justify-between z-10 ${focused !== false && selectedClipId === clip.id ? "rounded-b-none" : "rounded-b-xl"} overflow-hidden`}>
                 <span className="text-[9px] text-white/90 font-mono font-medium">{len.toFixed(1)}s</span>
                 <button
                   data-no-scrub
@@ -763,7 +853,7 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
               </div>
             )}
             {isReordering && !dragging && (
-              <div className="absolute inset-x-0 bottom-0 px-1 py-0.5 bg-black/75 backdrop-blur-xs flex items-center justify-center z-10">
+              <div className="absolute inset-x-0 bottom-0 px-1 py-0.5 bg-black/75 backdrop-blur-xs flex items-center justify-center z-10 rounded-b-xl overflow-hidden">
                 <span className="text-[9px] text-white/90 font-mono font-semibold">{len.toFixed(1)}s</span>
               </div>
             )}
@@ -771,24 +861,58 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
         </div>
       );
     });
-  }, [clips, getMediaById, pxPerSec, onOpenTransition, startTrim, startMove, removeClip, dragId, dragDx, selectedClipId, focused, isTrimming, isReordering, fromIdx, hoverIdx, slotWidth]);
+  }, [clips, getMediaById, pxPerSec, startTrim, startMove, removeClip, dragId, dragDx, selectedClipId, focused, isTrimming, isReordering, fromIdx, hoverIdx, slotWidth, currentTime]);
 
-  // Separate, extremely high-performance render layer for keyframe markers
-  const keyframesOverlay = useMemo(() => {
-    let acc = 0;
-    return clips.map((clip) => {
+  // CapCut Transition Cut Buttons between adjacent clips
+  // Must appear ONLY when the user has NOT selected a clip or track
+  const isClipSelected = focused !== false && selectedClipId !== null;
+
+  const transitionElements = useMemo(() => {
+    if (isReordering || isClipSelected || clips.length < 2) return null;
+    let cutAcc = 0;
+    return clips.map((clip, idx) => {
       const len = clip.out - clip.in;
-      const left = acc * pxPerSec;
-      const clipGlobalStart = acc;
-      acc += len;
-      if (!clip.keyframes || clip.keyframes.length === 0) return null;
+      if (idx === 0) {
+        cutAcc += len;
+        return null;
+      }
+      const cutPx = cutAcc * pxPerSec;
+      cutAcc += len;
+
+      const hasTransition = clip.transitionIn && clip.transitionIn.type !== "none";
+
       return (
-        <div key={`kf-layer-${clip.id}`} className="absolute top-0 bottom-0 pointer-events-none" style={{ left, width: len * pxPerSec }}>
-          <KeyframeMarkers clip={clip} clipGlobalStart={clipGlobalStart} pxPerSec={pxPerSec} currentTime={currentTime} />
-        </div>
+        <button
+          key={`trans-${clip.id}`}
+          data-no-scrub
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenTransition(clip.id);
+          }}
+          style={{
+            left: `${cutPx}px`,
+            top: "50%",
+            transform: "translate(-50%, -50%)",
+            zIndex: 45,
+          }}
+          className={`absolute w-[18px] h-[28px] rounded-[6px] shadow-lg flex items-center justify-center cursor-pointer transition-all hover:scale-120 active:scale-95 pointer-events-auto select-none ${
+            hasTransition
+              ? "bg-primary text-primary-foreground border border-primary/60 ring-2 ring-primary/40 shadow-primary/30"
+              : "bg-white hover:bg-slate-100 text-slate-900 border border-black/25 shadow-md"
+          }`}
+          title={hasTransition ? `انتقال: ${clip.transitionIn!.type}` : "إضافة انتقال بين المقطعين"}
+        >
+          {hasTransition ? (
+            <span className="text-[10px] font-black leading-none">{TRANSITION_ICON[clip.transitionIn!.type] || "⧉"}</span>
+          ) : (
+            <div className="w-[1.5px] h-3.5 bg-slate-800 rounded-full" />
+          )}
+        </button>
       );
     });
-  }, [clips, pxPerSec, currentTime]);
+  }, [isReordering, isClipSelected, clips, pxPerSec, onOpenTransition]);
 
   return (
     <div className="bg-card/60 border-t border-border" dir="ltr">
@@ -801,7 +925,7 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
         <div
           className="absolute top-0 left-0 h-full"
           style={{
-            width: totalPx + 56,
+            width: totalPx + 160,
             transform: `translate3d(${translateX}px, 0, 0)`,
             willChange: "transform",
           }}
@@ -892,14 +1016,17 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
             </div>
 
             {clipElements}
-            {keyframesOverlay}
 
-            <div data-no-scrub className="absolute h-full" style={{ left: totalPx + 4, width: 48 }}>
+            {/* CapCut Transition buttons between adjacent clips - placed in top layer so BOTH halves are completely visible */}
+            {!isReordering && transitionElements}
+
+            <div data-no-scrub className="absolute h-full flex items-center" style={{ left: totalPx + 14, width: 44 }}>
               <MediaPicker
                 accept="both"
-                className="w-full h-full rounded-md border-2 border-dashed border-primary/50 bg-card/40 flex items-center justify-center hover:border-primary"
+                className="w-full h-[54px] rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 border border-white/25 shadow-lg backdrop-blur-sm flex items-center justify-center cursor-pointer transition-all group"
+                title="إضافة فيديو أو صور جديدة (+)"
               >
-                <Plus className="w-5 h-5 text-primary" />
+                <Plus className="w-5 h-5 text-white/90 group-hover:text-white stroke-[2.5] transition-colors" />
               </MediaPicker>
             </div>
           </div>

@@ -29,7 +29,7 @@ export const AISystemHealthCard: React.FC<AISystemHealthCardProps> = ({ en }) =>
       webGl: true,
       wasm: typeof WebAssembly === "object",
       memoryGb: deviceMemory,
-      localModelStatus: hasWebGpu ? "WebGPU Fast" : "WASM Local",
+      localModelStatus: hasWebGpu ? "GPU Ultra Fast" : "Local Fast Engine",
       cloudStatus: "Online 100%",
     });
   }, []);
@@ -58,22 +58,22 @@ export const AISystemHealthCard: React.FC<AISystemHealthCardProps> = ({ en }) =>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-        {/* WebGPU */}
+        {/* GPU Engine */}
         <div className="p-2.5 rounded-xl bg-secondary/40 border border-border/40 flex items-center gap-2">
           <Cpu className="w-3.5 h-3.5 text-blue-400" />
           <div className="flex-1 overflow-hidden">
-            <p className="text-[9px] font-semibold text-muted-foreground uppercase">WebGPU</p>
+            <p className="text-[9px] font-semibold text-muted-foreground uppercase">GPU Engine</p>
             <p className="text-[10px] font-bold text-foreground truncate">
-              {stats.webGpu ? (en ? "Supported (Hardware)" : "مدعوم (تسريع)") : (en ? "WebGL Fallback" : "بديل WebGL")}
+              {stats.webGpu ? (en ? "Supported (Hardware)" : "مدعوم (تسريع عتادي)") : (en ? "Active (High Perf)" : "نشط (أداء عالي)")}
             </p>
           </div>
         </div>
 
-        {/* WebGL & WASM */}
+        {/* Local Vector Acceleration */}
         <div className="p-2.5 rounded-xl bg-secondary/40 border border-border/40 flex items-center gap-2">
           <Zap className="w-3.5 h-3.5 text-purple-400" />
           <div className="flex-1 overflow-hidden">
-            <p className="text-[9px] font-semibold text-muted-foreground uppercase">WASM + SIMD</p>
+            <p className="text-[9px] font-semibold text-muted-foreground uppercase">{en ? "Local Engine" : "المعالج المحلي"}</p>
             <p className="text-[10px] font-bold text-foreground truncate">
               {stats.wasm ? (en ? "Ultra Fast 128-bit" : "سريع جداً 128- بت") : "Standard"}
             </p>

@@ -40,70 +40,70 @@ export class AuditTest {
       description: "تنقية التحبيب والضوضاء وموازنة التباين والألوان بنقاء عالي.",
     });
 
-    // 3. GFPGAN Face Restore
+    // 3. Face Restore
     report.push({
-      name: "تحسين تفاصيل الوجه (GFPGAN v1.4)",
+      name: "تحسين تفاصيل الوجه (MediaPipe BlazeFace + Detail Restore)",
       category: "Image",
       action: "face-enhance",
       status: "Working",
       isLocalAvailable: true,
-      engine: "GFPGAN v1.4 Neural Facial Restoration & Contrast S-Curve Engine",
-      description: "استعادة الملامح الدقيقة وتوضيح الوجوه في الصور باستخدام GFPGAN v1.4.",
+      engine: "MediaPipe BlazeFace Neural Detection & High-Frequency Detail Filter",
+      description: "استعادة الملامح الدقيقة وتوضيح الوجوه في الصور باستخدام MediaPipe وفلاتر التردد العالي.",
     });
 
     // 4. Object Removal
     report.push({
-      name: "إزالة العناصر والأجسام (LaMa Inpainting)",
+      name: "إزالة العناصر والأجسام (Fast Fourier Inpainting)",
       category: "Image",
       action: "object-remove",
       status: "Working",
       isLocalAvailable: true,
-      engine: "LaMa Fast Fourier Inpainting Engine",
+      engine: "Fast Fourier Texture Inpainting & Biharmonic Diffusion",
       description: "إزالة العناصر غير المرغوبة وترميم خلفية الصورة بمصفوفة الترددات السريعة.",
     });
 
     // 5. Image Denoise
     report.push({
-      name: "إزالة التشويش من الصور (SCUNet / NAFNet)",
+      name: "إزالة التشويش من الصور (Bilateral Spatial Denoise)",
       category: "Image",
       action: "denoise",
       status: "Working",
       isLocalAvailable: true,
-      engine: "SCUNet & NAFNet Bilateral Spatial Denoise Matrix",
+      engine: "Bilateral Spatial Denoise & Luminance Equalizer Matrix",
       description: "تنقية الصور من الضوضاء البصرية وتشوهات الضغط دون فقد الخامات الحادة.",
     });
 
     // 6. Audio Denoise
     report.push({
-      name: "إزالة ضوضاء الصوت (DeepFilterNet)",
+      name: "إزالة ضوضاء الصوت (Adaptive Spectral Denoise)",
       category: "Audio",
       action: "denoise",
       status: "Working",
       isLocalAvailable: true,
-      engine: "DeepFilterNet v3 Low-Latency Speech Denoise DSP",
+      engine: "STFT Adaptive Spectral Subtraction & Wiener Filter DSP",
       description: "تصفية الضجيج والضوضاء الناتجة عن المكيفات والهواء والكهرباء.",
     });
 
     // 7. Audio Enhancement
     report.push({
-      name: "تحسين نبرة ووضوح الصوت (DeepFilterNet + RNNoise)",
+      name: "تحسين نبرة ووضوح الصوت (Dynamic Spectral Equalizer)",
       category: "Audio",
       action: "audio-enhance-composite",
       status: "Working",
       isLocalAvailable: true,
-      engine: "DeepFilterNet + RNNoise Dynamic Equalizer & Multi-band Vocal Compressor",
+      engine: "Dynamic Spectral Equalizer & Multi-band Vocal Compressor DSP",
       description: "تنعيم النبرة وموازنة الترددات وضغط الصوت ديناميكياً لزيادة الوضوح.",
     });
 
-    // 8. Demucs Stem Separation
+    // 8. Stem Separation
     report.push({
-      name: "عزل الصوت والموسيقى (Demucs v4 / HTDemucs)",
+      name: "عزل الصوت والموسيقى (Harmonic-Spectral Splitter)",
       category: "Audio",
       action: "separate",
       status: "Working",
       isLocalAvailable: true,
-      engine: "Demucs v4 / HTDemucs Neural Stem Extractor & Bandpass Filter",
-      description: "فصل الصوت البشري (Vocals) عن التراكات الموسيقية والخلفية الصوتية.",
+      engine: "Harmonic-Percussive Source Separation & Spectral Masking DSP",
+      description: "فصل الصوت البشري (Vocals) عن التراكات الموسيقية والخلفية الصوتية بتقنية DSP.",
     });
 
     // 9. Video Clarity & Enhancement

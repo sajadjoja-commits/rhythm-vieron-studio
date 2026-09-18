@@ -38,12 +38,10 @@ export const AILoadingOverlay: React.FC<AILoadingOverlayProps> = ({
   onCancel,
 }) => {
   const [internalProgress, setInternalProgress] = useState(0);
-  const [stageIndex, setStageIndex] = useState(0);
 
   useEffect(() => {
     if (!isVisible) {
       setInternalProgress(0);
-      setStageIndex(0);
       return;
     }
 
@@ -61,14 +59,12 @@ export const AILoadingOverlay: React.FC<AILoadingOverlayProps> = ({
     }
   }, [isVisible, progress]);
 
-  useEffect(() => {
-    if (internalProgress < 20) setStageIndex(0);
-    else if (internalProgress < 40) setStageIndex(1);
-    else if (internalProgress < 60) setStageIndex(2);
-    else if (internalProgress < 80) setStageIndex(3);
-    else if (internalProgress < 95) setStageIndex(4);
-    else setStageIndex(5);
-  }, [internalProgress]);
+  const stageIndex = internalProgress < 20 ? 0
+    : internalProgress < 40 ? 1
+    : internalProgress < 60 ? 2
+    : internalProgress < 80 ? 3
+    : internalProgress < 95 ? 4
+    : 5;
 
   if (!isVisible) return null;
 
