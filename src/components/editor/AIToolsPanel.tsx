@@ -20,7 +20,12 @@ import {
   HardDrive,
   Info,
   ArrowUpRight,
-  Clock
+  Clock,
+  Eye,
+  EyeOff,
+  Layers,
+  Video,
+  Image as ImageIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { getLang } from "@/lib/i18n";
@@ -56,8 +61,8 @@ const AI_TOOLS_CATALOG: AIToolConfig[] = [
     taskType: "enhance-media",
     pluginId: "plugin-video-enhancement",
     actionName: "composite-video-enhance",
-    titleAr: "تحسين ووضوح الفيديو (AI Clarity & HDR)",
-    titleEn: "AI Video Clarity & HDR Enhance",
+    titleAr: "تحسين ووضوح الفيديو (HDR)",
+    titleEn: "Video Clarity & HDR Enhance",
     descAr: "معالجة وتحسين ألوان وإطارات الفيديو وموازنة التباين وديناميكية HDR",
     descEn: "Adaptive CLAHE video dynamic range enhancement & detail sharpening",
     icon: Sparkles,
@@ -71,8 +76,8 @@ const AI_TOOLS_CATALOG: AIToolConfig[] = [
     taskType: "background-removal",
     pluginId: "plugin-video-enhancement",
     actionName: "video-bg-removal",
-    titleAr: "عزل وتفريغ خلفية الفيديو (Smart Cutout)",
-    titleEn: "Video Background Removal (Smart Cutout)",
+    titleAr: "عزل وتفريغ خلفية الفيديو",
+    titleEn: "Smart Video Cutout",
     descAr: "عزل الأشخاص والعناصر من الفيديو وتفريغ الخلفية بذكاء مع تثبيت الحواف",
     descEn: "Isolate moving subjects with temporal stabilization & alpha cutout",
     icon: Wand2,
@@ -101,7 +106,7 @@ const AI_TOOLS_CATALOG: AIToolConfig[] = [
     taskType: "enhance-media",
     pluginId: "plugin-video-enhancement",
     actionName: "composite-video-enhance",
-    titleAr: "موازنة ألوان الفيديو والتباين (Auto Color & Tone)",
+    titleAr: "موازنة ألوان الفيديو والتباين",
     titleEn: "Auto Video Color & Dynamic Tone",
     descAr: "تصحيح الإضاءة وموازنة الألوان والتشبع تلقائياً بحفظ تدرجات البشرة",
     descEn: "Intelligent auto color grading, exposure balance & dynamic vibrance",
@@ -118,8 +123,8 @@ const AI_TOOLS_CATALOG: AIToolConfig[] = [
     taskType: "background-removal",
     pluginId: "plugin-image-enhancement",
     actionName: "remove-background",
-    titleAr: "عزل وتفريغ الخلفية (Smart Cutout)",
-    titleEn: "AI Background Removal (Smart Cutout)",
+    titleAr: "عزل وتفريغ خلفية الصورة",
+    titleEn: "Image Background Cutout",
     descAr: "عزل دقيق جداً للموضوع وحذف الخلفية بدقة فائقة",
     descEn: "High-precision AI foreground extraction & cutout",
     icon: Scissors,
@@ -132,7 +137,7 @@ const AI_TOOLS_CATALOG: AIToolConfig[] = [
     taskType: "enhance-media",
     pluginId: "plugin-image-enhancement",
     actionName: "face-enhance",
-    titleAr: "تحسين الوجوه والبورتريه (Face Detail Restore)",
+    titleAr: "تحسين ملامح الوجوه والبورتريه",
     titleEn: "Portrait & Face Detail Restore",
     descAr: "توضيح الوجوه ومعالجة تفاصيل العينين والجلد وتفاصيل البورتريه",
     descEn: "Restore facial details, eye sharpness & skin clarity",
@@ -146,7 +151,7 @@ const AI_TOOLS_CATALOG: AIToolConfig[] = [
     taskType: "background-removal",
     pluginId: "plugin-image-enhancement",
     actionName: "object-remove",
-    titleAr: "حذف العناصر غير المرغوبة (Inpaint)",
+    titleAr: "حذف العناصر غير المرغوبة",
     titleEn: "Object & Watermark Inpaint",
     descAr: "إزالة الشوائب والعناصر غير المرغوبة من الخلفية بذكاء",
     descEn: "Intelligent inpainting object & watermark removal",
@@ -160,7 +165,7 @@ const AI_TOOLS_CATALOG: AIToolConfig[] = [
     taskType: "noise-reduction",
     pluginId: "plugin-image-enhancement",
     actionName: "denoise",
-    titleAr: "تنقية التحبيب (Bilateral Image Denoise)",
+    titleAr: "تنقية التحبيب وتشويش الصورة",
     titleEn: "Bilateral Image Denoise",
     descAr: "إزالة الضوضاء وتنعيم الصورة بدون فقدان الحواف الحادة",
     descEn: "Remove digital grain preserving sharp boundaries",
@@ -190,9 +195,9 @@ const AI_TOOLS_CATALOG: AIToolConfig[] = [
     taskType: "noise-reduction",
     pluginId: "plugin-audio-enhancement",
     actionName: "denoise",
-    titleAr: "إزالة ضوضاء الصوت والموسيقى (Voice & Music Noise Reduction)",
-    titleEn: "Voice & Music Noise Reduction",
-    descAr: "تنقية ضوضاء المروحة والمكيف والتشويش المباشر وتحديث المسار الصوتي نفسه",
+    titleAr: "إزالة ضوضاء وتشويش الصوت",
+    titleEn: "Voice & Audio Noise Reduction",
+    descAr: "تنقية ضوضاء المروحة والمكيف والتشويش المباشر وتحديث المسار الصوتي",
     descEn: "Clean background hiss, hum, and noise directly on the selected audio track",
     icon: Mic,
     badge: "READY (DSP)",
@@ -205,9 +210,9 @@ const AI_TOOLS_CATALOG: AIToolConfig[] = [
     taskType: "vocal-isolation",
     pluginId: "plugin-audio-enhancement",
     actionName: "separate",
-    titleAr: "عزل الصوت والموسيقى (Vocal & Music Track Isolation)",
-    titleEn: "Vocal & Music Track Isolation",
-    descAr: "فصل الكلام عن الموسيقى على نفس المسار المحدد مع إمكانية التحديد",
+    titleAr: "عزل الصوت عن الموسيقى",
+    titleEn: "Vocal & Music Isolation",
+    descAr: "فصل الكلام البشري عن الموسيقى على المسار المحدد مع خيار التبديل",
     descEn: "Isolate vocals or instrumental directly on the selected track",
     icon: Music2,
     badge: "READY (DSP)",
@@ -220,8 +225,8 @@ const AI_TOOLS_CATALOG: AIToolConfig[] = [
     taskType: "vocal-isolation",
     pluginId: "plugin-audio-enhancement",
     actionName: "separate",
-    titleAr: "صوت فقط بدون موسيقى (Vocals Only)",
-    titleEn: "Vocals Only (No Music)",
+    titleAr: "استخراج الصوت البشري فقط",
+    titleEn: "Vocals Only",
     descAr: "استخراج مسار الغناء والكلام البشري وحجب الآلات الموسيقية",
     descEn: "Isolate human speech and vocals while attenuating backing music",
     icon: Mic,
@@ -235,8 +240,8 @@ const AI_TOOLS_CATALOG: AIToolConfig[] = [
     taskType: "vocal-isolation",
     pluginId: "plugin-audio-enhancement",
     actionName: "separate",
-    titleAr: "موسيقى فقط بدون صوت (Music Only)",
-    titleEn: "Music Only (No Voice)",
+    titleAr: "استخراج الموسيقى فقط",
+    titleEn: "Instrumental Only",
     descAr: "حذف الصوت البشري تماماً والإبقاء على الموسيقى التصويرية والإيقاع",
     descEn: "Isolate backing music and instruments while removing human voice",
     icon: Music2,
@@ -254,6 +259,7 @@ interface AIToolsPanelProps {
   targetClipId?: string;
   targetMediaId?: string;
   onApplyResult?: (resultData: any) => void | Promise<void | boolean>;
+  embedded?: boolean;
 }
 
 export const AIToolsPanel = ({
@@ -264,6 +270,7 @@ export const AIToolsPanel = ({
   targetClipId,
   targetMediaId,
   onApplyResult,
+  embedded = false,
 }: AIToolsPanelProps) => {
   const [isExecuting, setIsExecuting] = useState(false);
   const [activeToolId, setActiveToolId] = useState<string | null>(null);
@@ -272,9 +279,15 @@ export const AIToolsPanel = ({
   const [showHistory, setShowHistory] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const [isolationMode, setIsolationMode] = useState<"extract-vocals" | "extract-music">("extract-vocals");
+  const [selectedCategory, setSelectedCategory] = useState<"all" | "video" | "audio" | "image">(mediaType);
+  const [isPeeking, setIsPeeking] = useState(false);
   const activeAbortRef = useRef<AbortController | null>(null);
 
   const en = getLang() === "en";
+
+  useEffect(() => {
+    setSelectedCategory(mediaType);
+  }, [mediaType]);
 
   const {
     audioTracks,
@@ -287,10 +300,16 @@ export const AIToolsPanel = ({
     currentTime,
   } = useMedia();
 
-  // Filter ONLY tools matching the active media type
-  const availableTools = useMemo(() => {
-    return AI_TOOLS_CATALOG.filter((tool) => tool.mediaType === mediaType);
-  }, [mediaType]);
+  // Tools for the selected category tab or embedded media type
+  const displayedTools = useMemo(() => {
+    if (embedded) {
+      return AI_TOOLS_CATALOG.filter((tool) => tool.mediaType === mediaType);
+    }
+    if (selectedCategory === "all") return AI_TOOLS_CATALOG;
+    return AI_TOOLS_CATALOG.filter((tool) => tool.mediaType === selectedCategory);
+  }, [selectedCategory, embedded, mediaType]);
+
+  const availableTools = displayedTools;
 
   // Sync with active background video job if one exists
   useEffect(() => {
@@ -666,49 +685,73 @@ export const AIToolsPanel = ({
     }
   };
 
-  return (
-    <div
-      className="fixed inset-x-0 bottom-0 z-50 bg-card/95 backdrop-blur-2xl border-t border-primary/20 shadow-2xl rounded-t-3xl max-h-[85vh] flex flex-col animate-in slide-in-from-bottom duration-300"
-      dir={en ? "ltr" : "rtl"}
-    >
-      {/* Header */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-border/40">
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl gradient-primary flex items-center justify-center text-white shadow-md shadow-primary/20">
-            <Sparkles className="w-5 h-5" />
+  if (isPeeking) {
+    return (
+      <div
+        className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-card/95 border border-primary/40 rounded-full px-4 py-2 flex items-center gap-3 shadow-2xl backdrop-blur-xl animate-in fade-in duration-200"
+        dir={en ? "ltr" : "rtl"}
+      >
+        <button
+          onClick={() => {
+            playSfx("click");
+            setIsPeeking(false);
+          }}
+          className="flex items-center gap-2 text-xs font-bold text-foreground hover:text-primary transition-colors active:scale-95"
+        >
+          <Eye className="w-4 h-4 text-primary animate-pulse" />
+          <span>{en ? "Show AI Studio" : "إظهار لوحة الذكاء الاصطناعي"}</span>
+        </button>
+        {isExecuting && (
+          <div className="flex items-center gap-2 pl-3 border-l border-border/50">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+            <span className="text-xs font-mono font-bold text-primary">{executingProgress}%</span>
           </div>
-          <div>
-            <h3 className="text-sm font-extrabold text-foreground flex items-center gap-2">
-              {mediaType === "video"
-                ? en
-                  ? "AI Video Tools"
-                  : "أدوات الذكاء الاصطناعي للفيديو"
-                : mediaType === "image"
-                ? en
-                  ? "AI Image Tools"
-                  : "أدوات الذكاء الاصطناعي للصور"
-                : en
-                ? "AI Audio Tools"
-                : "أدوات الذكاء الاصطناعي للصوت"}
-              <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-primary/20 text-primary border border-primary/30">
-                AI Manager
-              </span>
-            </h3>
-            <p className="text-[11px] text-muted-foreground">
-              {en
-                ? "Powered by AI Plugins, Cache & History"
-                : "مدعوم بواسطة المحرك الذكي والتخزين المؤقت"}
-            </p>
-          </div>
-        </div>
+        )}
+        <button
+          onClick={() => {
+            playSfx("click");
+            onClose();
+          }}
+          className="w-6 h-6 rounded-full bg-secondary/80 flex items-center justify-center text-muted-foreground hover:text-foreground"
+          title={en ? "Close panel" : "إغلاق الواجهة"}
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    );
+  }
 
-        <div className="flex items-center gap-2">
+  // Embedded mode for direct inline mounting inside other panels (e.g. MusicPanel)
+  if (embedded) {
+    return (
+      <div className="space-y-3 w-full animate-in fade-in duration-200" dir={en ? "ltr" : "rtl"}>
+        {/* Clean embedded header banner */}
+        <div className="flex items-center justify-between p-3 rounded-2xl bg-secondary/30 border border-border/40">
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+            <div className="w-8 h-8 rounded-xl gradient-primary flex items-center justify-center text-white shadow-xs shrink-0">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h4 className="text-xs font-bold text-foreground flex items-center gap-1.5 truncate">
+                {en ? "Smart Audio AI Tools" : "أدوات الذكاء الاصطناعي للصوت"}
+                <span className="px-1.5 py-0.5 text-[9px] font-bold rounded-full bg-primary/20 text-primary border border-primary/30 uppercase">
+                  DSP & AI
+                </span>
+              </h4>
+              <p className="text-[10px] text-muted-foreground truncate">
+                {en
+                  ? "Vocal isolation, instrumental extraction & DSP noise removal"
+                  : "عزل الصوت البشري، استخراج الموسيقى، وتنقية التشويش"}
+              </p>
+            </div>
+          </div>
           <button
+            type="button"
             onClick={() => {
               playSfx("click");
               setShowHistory(!showHistory);
             }}
-            className={`px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all ${
+            className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all shrink-0 ${
               showHistory
                 ? "bg-primary text-white"
                 : "bg-secondary hover:bg-secondary/80 text-foreground"
@@ -717,12 +760,296 @@ export const AIToolsPanel = ({
             <History className="w-3.5 h-3.5" />
             <span>{en ? "History" : "السجل"}</span>
             {historyRecords.length > 0 && (
+              <span className="w-4 h-4 rounded-full bg-primary text-primary-foreground text-[9px] font-bold flex items-center justify-center">
+                {historyRecords.length}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Execution Progress Bar Overlay */}
+        {isExecuting && (
+          <div className="p-3 rounded-2xl bg-primary/10 border border-primary/20 backdrop-blur-md space-y-2">
+            <div className="flex items-center justify-between text-xs font-bold text-primary">
+              <span className="flex items-center gap-2 max-w-[65%] truncate">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-primary shrink-0" />
+                <span className="truncate">{statusText || (en ? "Processing..." : "جاري المعالجة...")}</span>
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs font-black">{executingProgress}%</span>
+                <button
+                  onClick={handleCancelExecution}
+                  className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/15 transition-all flex items-center justify-center"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+            <div className="w-full bg-secondary/80 rounded-full h-1.5 overflow-hidden">
+              <div
+                className="bg-primary h-full transition-all duration-300 rounded-full"
+                style={{ width: `${executingProgress}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Last Error Notice */}
+        {lastError && !isExecuting && (
+          <div className="p-2.5 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-xs flex items-center justify-between">
+            <span className="truncate max-w-[85%]">{lastError}</span>
+            <button
+              onClick={() => setLastError(null)}
+              className="p-1 hover:bg-destructive/20 rounded text-destructive/80 hover:text-destructive"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Content Area */}
+        <div className="space-y-2.5">
+          {showHistory ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between mb-2 px-1">
+                <span className="text-xs font-bold text-muted-foreground flex items-center gap-1.5">
+                  <HardDrive className="w-3.5 h-3.5 text-primary" />
+                  {en ? "Recorded Operations (AI History)" : "سجل العمليات المحفوظة"}
+                </span>
+              </div>
+              {historyRecords.length === 0 ? (
+                <div className="py-8 text-center text-xs text-muted-foreground bg-secondary/30 rounded-2xl border border-border/30">
+                  {en ? "No recorded operations yet." : "لا توجد عمليات سابقة ملقطة بالسجل حتى الآن."}
+                </div>
+              ) : (
+                historyRecords.map((rec) => (
+                  <div
+                    key={rec.id}
+                    className="p-3 rounded-2xl bg-secondary/40 border border-border/40 flex items-center justify-between hover:bg-secondary/60 transition-all"
+                  >
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center shrink-0">
+                        <CheckCircle2 className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h4 className="text-xs font-bold text-foreground truncate">
+                          {rec.payloadSummary || rec.taskType}
+                        </h4>
+                        <p className="text-[10px] text-muted-foreground flex items-center gap-2 mt-0.5">
+                          <span>{new Date(rec.timestamp).toLocaleTimeString()}</span>
+                          <span>•</span>
+                          <span>{rec.providerUsed}</span>
+                          {rec.durationMs > 0 && (
+                            <>
+                              <span>•</span>
+                              <span>{rec.durationMs}ms</span>
+                            </>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                    {rec.resultData && (
+                      <button
+                        onClick={() => {
+                          playSfx("click");
+                          if (onApplyResult) onApplyResult(rec.resultData);
+                          toast.success(en ? "Applied historical result!" : "تم تطبيق النتيجة السابقة!");
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-primary/20 hover:bg-primary/30 text-primary text-xs font-bold transition-all active:scale-95 shrink-0"
+                      >
+                        {en ? "Reuse" : "إعادة تطبيق"}
+                      </button>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {availableTools.map((tool) => {
+                const IconComp = tool.icon;
+                const isActive = activeToolId === tool.id;
+                return (
+                  <div
+                    key={tool.id}
+                    className={`relative p-3.5 rounded-2xl border transition-all flex flex-col justify-between ${
+                      isActive
+                        ? "bg-primary/15 border-primary ring-2 ring-primary/40 shadow-lg scale-[1.01]"
+                        : "bg-secondary/30 border-border/50 hover:border-primary/40 hover:bg-secondary/60"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0 shadow-inner">
+                          <IconComp className="w-4.5 h-4.5" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <h4 className="text-xs font-extrabold text-foreground leading-snug truncate">
+                            {en ? tool.titleEn : tool.titleAr}
+                          </h4>
+                          <span
+                            className={`mt-1 inline-block text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+                              tool.badgeType === "ready-dsp"
+                                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                                : tool.badgeType === "ready-ml"
+                                ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20"
+                                : "bg-primary/10 text-primary border-primary/20"
+                            }`}
+                          >
+                            <bdi dir="ltr">{tool.badge}</bdi>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mb-3 leading-relaxed">
+                      {en ? tool.descEn : tool.descAr}
+                    </p>
+                    {tool.id === "separate-vocals" && (
+                      <div className="mb-3 p-1 rounded-xl bg-background/70 border border-border/50 flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            playSfx("click");
+                            setIsolationMode("extract-vocals");
+                          }}
+                          className={`flex-1 py-1.5 px-2 rounded-lg text-[10px] font-bold transition-all truncate text-center ${
+                            isolationMode === "extract-vocals"
+                              ? "bg-primary text-primary-foreground shadow-xs"
+                              : "hover:bg-secondary text-muted-foreground"
+                          }`}
+                        >
+                          {en ? "Vocals Only" : "صوت بشري فقط"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            playSfx("click");
+                            setIsolationMode("extract-music");
+                          }}
+                          className={`flex-1 py-1.5 px-2 rounded-lg text-[10px] font-bold transition-all truncate text-center ${
+                            isolationMode === "extract-music"
+                              ? "bg-primary text-primary-foreground shadow-xs"
+                              : "hover:bg-secondary text-muted-foreground"
+                          }`}
+                        >
+                          {en ? "Music Only" : "موسيقى فقط"}
+                        </button>
+                      </div>
+                    )}
+                    <button
+                      onClick={() => {
+                        if (isActive) {
+                          handleExitAndBackground();
+                        } else {
+                          handleRunTool(tool);
+                        }
+                      }}
+                      className={`w-full py-2 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 transition-all active:scale-95 shadow-sm ${
+                        isActive
+                          ? "bg-primary text-white hover:bg-primary/90"
+                          : "gradient-primary text-white hover:opacity-95 disabled:opacity-50"
+                      }`}
+                    >
+                      {isActive ? (
+                        <div className="flex items-center justify-between w-full px-1">
+                          <span className="flex items-center gap-1.5">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>{en ? "Processing..." : "جاري المعالجة..."}</span>
+                          </span>
+                          <span
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleExitAndBackground();
+                            }}
+                            className="text-[10px] px-2 py-0.5 rounded-lg bg-white/25 hover:bg-white/35 flex items-center gap-1 font-bold cursor-pointer transition-all shadow-sm"
+                            title={en ? "Exit & Wait in background" : "خروج والانتظار في الخلفية"}
+                          >
+                            <ArrowUpRight className="w-3 h-3" />
+                            <span>{en ? "Exit & Wait" : "خروج والانتظار"}</span>
+                          </span>
+                        </div>
+                      ) : (
+                        <>
+                          <Sparkles className="w-3.5 h-3.5" />
+                          <span>{en ? "Apply AI Tool" : "تشغيل الأداة الذكية"}</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="fixed inset-x-0 bottom-0 z-50 bg-card/95 backdrop-blur-2xl border-t border-primary/20 shadow-2xl rounded-t-3xl max-h-[78vh] flex flex-col animate-in slide-in-from-bottom duration-300"
+      dir={en ? "ltr" : "rtl"}
+    >
+      {/* Mobile Sheet Drag Handle */}
+      <div className="w-10 h-1 rounded-full bg-border/80 mx-auto mt-2.5 shrink-0" />
+
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border/40">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl gradient-primary flex items-center justify-center text-white shadow-md shadow-primary/20 shrink-0">
+            <Sparkles className="w-4 h-4" />
+          </div>
+          <div>
+            <h3 className="text-xs sm:text-sm font-extrabold text-foreground flex items-center gap-1.5">
+              {en ? "AI Creative Studio" : "استوديو الذكاء الاصطناعي"}
+              <span className="px-1.5 py-0.5 text-[9px] font-bold rounded-full bg-primary/20 text-primary border border-primary/30 uppercase">
+                {selectedCategory === "all" ? (en ? "ALL" : "الكل") : selectedCategory}
+              </span>
+            </h3>
+            <p className="text-[10px] text-muted-foreground">
+              {en
+                ? "Fast neural segmentation & high-precision DSP"
+                : "أدوات عزل وفصل ذكية ومعالجة عالية الدقة"}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          {/* Peek / Preview Button */}
+          <button
+            onClick={() => {
+              playSfx("click");
+              setIsPeeking(true);
+            }}
+            className="px-2.5 py-1 rounded-full text-xs font-semibold bg-secondary/80 hover:bg-secondary text-foreground flex items-center gap-1 transition-all active:scale-95"
+            title={en ? "Peek work & preview video" : "رؤية العمل ومعاينة الفيديو"}
+          >
+            <Eye className="w-3.5 h-3.5 text-primary" />
+            <span className="hidden sm:inline">{en ? "See Work" : "رؤية العمل"}</span>
+          </button>
+
+          {/* History Button */}
+          <button
+            onClick={() => {
+              playSfx("click");
+              setShowHistory(!showHistory);
+            }}
+            className={`px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all ${
+              showHistory
+                ? "bg-primary text-white"
+                : "bg-secondary/80 hover:bg-secondary text-foreground"
+            }`}
+          >
+            <History className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">{en ? "History" : "السجل"}</span>
+            {historyRecords.length > 0 && (
               <span className="w-4 h-4 rounded-full bg-primary-foreground text-primary text-[10px] font-bold flex items-center justify-center">
                 {historyRecords.length}
               </span>
             )}
           </button>
 
+          {/* Close Panel Button */}
           <button
             onClick={() => {
               playSfx("click");
@@ -735,7 +1062,7 @@ export const AIToolsPanel = ({
               }
               onClose();
             }}
-            className="w-8 h-8 rounded-full bg-secondary/80 hover:bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground transition-all"
+            className="w-7 h-7 rounded-full bg-secondary/80 hover:bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground transition-all"
             title={en ? "Close panel" : "إغلاق الواجهة"}
           >
             <X className="w-4 h-4" />
@@ -745,36 +1072,36 @@ export const AIToolsPanel = ({
 
       {/* Execution Progress Bar Overlay */}
       {isExecuting && (
-        <div className="px-5 py-3.5 bg-primary/10 border-b border-primary/20 backdrop-blur-md">
-          <div className="flex items-center justify-between text-xs font-bold text-primary mb-2">
-            <span className="flex items-center gap-2 max-w-[70%] truncate">
-              <Loader2 className="w-4 h-4 animate-spin text-primary shrink-0" />
+        <div className="px-4 py-2.5 bg-primary/10 border-b border-primary/20 backdrop-blur-md">
+          <div className="flex items-center justify-between text-xs font-bold text-primary mb-1.5">
+            <span className="flex items-center gap-2 max-w-[65%] truncate">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-primary shrink-0" />
               <span className="truncate">{statusText || (en ? "Processing..." : "جاري المعالجة...")}</span>
             </span>
             <div className="flex items-center gap-2">
-              <span className="font-mono text-sm font-black">{executingProgress}%</span>
+              <span className="font-mono text-xs font-black">{executingProgress}%</span>
               
-              {/* Exit and Wait Button (Replaces red destructive delete button) */}
+              {/* Exit and Wait Button */}
               <button
                 onClick={handleExitAndBackground}
-                className="px-3 py-1.5 text-xs rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 font-bold transition-all flex items-center gap-1.5 shadow-md active:scale-95"
+                className="px-2.5 py-1 text-[11px] rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 font-bold transition-all flex items-center gap-1 shadow-sm active:scale-95"
                 title={en ? "Exit and continue working while AI processes in background" : "خروج والانتظار - المتابعة بالخلفية أثناء العمل في المحرر"}
               >
-                <ArrowUpRight className="w-3.5 h-3.5" />
-                <span>{en ? "Exit & Wait (Background)" : "خروج والانتظار"}</span>
+                <ArrowUpRight className="w-3 h-3" />
+                <span>{en ? "Exit & Wait" : "خروج والانتظار"}</span>
               </button>
 
               {/* Optional Subtle Cancel if user wants to abort */}
               <button
                 onClick={handleCancelExecution}
-                className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/15 transition-all flex items-center justify-center"
+                className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/15 transition-all flex items-center justify-center"
                 title={en ? "Cancel processing" : "إلغاء المعالجة"}
               >
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
-          <div className="w-full bg-secondary/80 rounded-full h-2 overflow-hidden">
+          <div className="w-full bg-secondary/80 rounded-full h-1.5 overflow-hidden">
             <div
               className="bg-primary h-full transition-all duration-300 rounded-full"
               style={{ width: `${executingProgress}%` }}
@@ -783,9 +1110,78 @@ export const AIToolsPanel = ({
         </div>
       )}
 
+      {/* Category Tabs Bar */}
+      {!showHistory && (
+        <div className="flex items-center gap-1.5 px-4 py-2 border-b border-border/30 overflow-x-auto no-scrollbar bg-secondary/15 shrink-0">
+          <button
+            type="button"
+            onClick={() => {
+              playSfx("click");
+              setSelectedCategory("all");
+            }}
+            className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+              selectedCategory === "all"
+                ? "bg-primary text-primary-foreground shadow-sm scale-[1.02]"
+                : "bg-secondary/60 hover:bg-secondary text-muted-foreground"
+            }`}
+          >
+            <Layers className="w-3 h-3" />
+            <span>{en ? "All" : "الكل"}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              playSfx("click");
+              setSelectedCategory("video");
+            }}
+            className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+              selectedCategory === "video"
+                ? "bg-primary text-primary-foreground shadow-sm scale-[1.02]"
+                : "bg-secondary/60 hover:bg-secondary text-muted-foreground"
+            }`}
+          >
+            <Video className="w-3 h-3" />
+            <span>{en ? "Video AI" : "فيديو ذكي"}</span>
+            <span className="text-[10px] opacity-75">4</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              playSfx("click");
+              setSelectedCategory("audio");
+            }}
+            className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+              selectedCategory === "audio"
+                ? "bg-primary text-primary-foreground shadow-sm scale-[1.02]"
+                : "bg-secondary/60 hover:bg-secondary text-muted-foreground"
+            }`}
+          >
+            <Music2 className="w-3 h-3" />
+            <span>{en ? "Audio & Music" : "صوتيات وموسيقى"}</span>
+            <span className="text-[10px] opacity-75">4</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              playSfx("click");
+              setSelectedCategory("image");
+            }}
+            className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+              selectedCategory === "image"
+                ? "bg-primary text-primary-foreground shadow-sm scale-[1.02]"
+                : "bg-secondary/60 hover:bg-secondary text-muted-foreground"
+            }`}
+          >
+            <ImageIcon className="w-3 h-3" />
+            <span>{en ? "Images" : "صور وفوتو"}</span>
+            <span className="text-[10px] opacity-75">5</span>
+          </button>
+        </div>
+      )}
+
       {/* Last Error Notice */}
       {lastError && !isExecuting && (
-        <div className="px-5 py-2.5 bg-destructive/10 border-b border-destructive/20 text-destructive text-xs flex items-center justify-between">
+        <div className="px-4 py-2 bg-destructive/10 border-b border-destructive/20 text-destructive text-xs flex items-center justify-between">
           <span className="truncate max-w-[85%]">{lastError}</span>
           <button
             onClick={() => setLastError(null)}
@@ -797,14 +1193,14 @@ export const AIToolsPanel = ({
       )}
 
       {/* Main Content Area */}
-      <div className="p-4 overflow-y-auto max-h-[60vh] space-y-3">
+      <div className="p-3.5 overflow-y-auto max-h-[55vh] space-y-2.5">
         {showHistory ? (
           /* History View */
           <div className="space-y-2">
             <div className="flex items-center justify-between mb-2 px-1">
               <span className="text-xs font-bold text-muted-foreground flex items-center gap-1.5">
                 <HardDrive className="w-3.5 h-3.5 text-primary" />
-                {en ? "Recorded Operations (AIHistoryManager)" : "سجل العمليات المحفوظة"}
+                {en ? "Recorded Operations (AI History)" : "سجل العمليات المحفوظة"}
               </span>
             </div>
 
@@ -873,16 +1269,16 @@ export const AIToolsPanel = ({
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2 mb-2">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
-                        <IconComp className="w-5 h-5" />
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0 shadow-inner">
+                        <IconComp className="w-4.5 h-4.5" />
                       </div>
-                      <div>
-                        <h4 className="text-xs font-extrabold text-foreground leading-tight">
+                      <div className="min-w-0 flex-1">
+                        <h4 className="text-xs font-extrabold text-foreground leading-snug truncate">
                           {en ? tool.titleEn : tool.titleAr}
                         </h4>
                         <span
-                          className={`mt-0.5 inline-block text-[9px] font-bold px-1.5 py-0.2 rounded border ${
+                          className={`mt-1 inline-block text-[9px] font-bold px-1.5 py-0.5 rounded border ${
                             tool.badgeType === "ready-dsp"
                               ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
                               : tool.badgeType === "ready-ml"
@@ -890,7 +1286,7 @@ export const AIToolsPanel = ({
                               : "bg-primary/10 text-primary border-primary/20"
                           }`}
                         >
-                          {tool.badge}
+                          <bdi dir="ltr">{tool.badge}</bdi>
                         </span>
                       </div>
                     </div>
@@ -901,28 +1297,34 @@ export const AIToolsPanel = ({
                   </p>
 
                   {tool.id === "separate-vocals" && (
-                    <div className="mb-3 p-1.5 rounded-xl bg-background/60 border border-border/50 flex items-center gap-1">
+                    <div className="mb-3 p-1 rounded-xl bg-background/70 border border-border/50 flex items-center gap-1">
                       <button
                         type="button"
-                        onClick={() => setIsolationMode("extract-vocals")}
-                        className={`flex-1 py-1 px-2 rounded-lg text-[10px] font-bold transition-all ${
+                        onClick={() => {
+                          playSfx("click");
+                          setIsolationMode("extract-vocals");
+                        }}
+                        className={`flex-1 py-1.5 px-2 rounded-lg text-[10px] font-bold transition-all truncate text-center ${
                           isolationMode === "extract-vocals"
-                            ? "bg-primary text-primary-foreground shadow"
+                            ? "bg-primary text-primary-foreground shadow-xs"
                             : "hover:bg-secondary text-muted-foreground"
                         }`}
                       >
-                        {en ? "Vocals Only (No Music)" : "صوت فقط بدون موسيقى"}
+                        {en ? "Vocals Only" : "صوت بشري فقط"}
                       </button>
                       <button
                         type="button"
-                        onClick={() => setIsolationMode("extract-music")}
-                        className={`flex-1 py-1 px-2 rounded-lg text-[10px] font-bold transition-all ${
+                        onClick={() => {
+                          playSfx("click");
+                          setIsolationMode("extract-music");
+                        }}
+                        className={`flex-1 py-1.5 px-2 rounded-lg text-[10px] font-bold transition-all truncate text-center ${
                           isolationMode === "extract-music"
-                            ? "bg-primary text-primary-foreground shadow"
+                            ? "bg-primary text-primary-foreground shadow-xs"
                             : "hover:bg-secondary text-muted-foreground"
                         }`}
                       >
-                        {en ? "Music Only (No Voice)" : "موسيقى بدون صوت ولا كلام"}
+                        {en ? "Music Only" : "موسيقى فقط"}
                       </button>
                     </div>
                   )}
@@ -974,12 +1376,12 @@ export const AIToolsPanel = ({
       </div>
 
       {/* Footer Info */}
-      <div className="px-5 py-2 border-t border-border/40 bg-secondary/20 flex items-center justify-between text-[10px] text-muted-foreground">
+      <div className="px-4 py-2 border-t border-border/40 bg-secondary/20 flex items-center justify-between text-[10px] text-muted-foreground">
         <span className="flex items-center gap-1.5 text-primary font-medium">
           <Sparkles className="w-3 h-3" />
-          {en ? "Background AI Processing Active" : "المعالجة الذكية بالخلفية مفعّلة"}
+          {en ? "Background AI Processing Ready" : "المعالجة الذكية بالخلفية جاهزة ومفعلة"}
         </span>
-        <span className="font-mono text-primary font-bold">{mediaType.toUpperCase()} MODE</span>
+        <span className="font-mono text-primary font-bold">{selectedCategory.toUpperCase()} MODE</span>
       </div>
     </div>
   );

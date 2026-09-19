@@ -220,44 +220,64 @@ const OverlayPanel = ({ open, onClose, currentTime }: Props) => {
   }
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-50 animate-in slide-in-from-bottom-4 duration-200" dir="rtl">
-      <div className="bg-card border-t border-border rounded-t-3xl p-4 shadow-2xl max-h-[70vh] overflow-y-auto no-scrollbar pb-6 flex flex-col">
+    <div 
+      id="overlay-panel-root"
+      className="fixed inset-x-0 bottom-0 z-50 animate-in slide-in-from-bottom-3 duration-250" 
+      dir="rtl"
+    >
+      <div className="bg-card/95 backdrop-blur-2xl border-t border-border/80 rounded-t-3xl shadow-2xl max-h-[60vh] sm:max-h-[64vh] flex flex-col overflow-hidden pb-4">
         
+        {/* Subtle top drag handle */}
+        <div className="w-9 h-1 rounded-full bg-border/80 mx-auto mt-2 shrink-0" />
+
         {/* Panel Header */}
-        <div className="flex items-center justify-between mb-3 border-b border-border/40 pb-3">
-          <h3 className="font-heading font-bold text-sm text-foreground flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg gradient-primary flex items-center justify-center">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-7 h-7 rounded-xl gradient-primary flex items-center justify-center shadow-xs shrink-0">
               <Layers className="w-4 h-4 text-primary-foreground" />
             </div>
-            <span>{en ? "PIP Overlay & Sticker" : "التراكب وملصقات الفيديو والصور"}</span>
-            <span className="bg-primary/10 text-primary text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">
-              {overlays.length}
-            </span>
-          </h3>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="font-heading font-black text-xs sm:text-sm text-foreground truncate block">
+                  {en ? "PIP Overlay & Sticker" : "التراكب وملصقات الفيديو والصور"}
+                </span>
+                <span className="bg-primary/10 text-primary text-[10px] font-black px-1.5 py-0.2 rounded-md font-mono shrink-0">
+                  {overlays.length}
+                </span>
+              </div>
+              <span className="text-[10px] text-muted-foreground truncate block font-medium">
+                {en ? "Picture-in-picture layers" : "طبقات صورة داخل صورة والملصقات"}
+              </span>
+            </div>
+          </div>
           
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 shrink-0">
             {/* Collapse to see work button */}
             <button 
+              id="overlay-minimize-btn"
               onClick={() => { playSfx("click"); setIsCollapsed(true); }}
-              className="px-3 py-1.5 rounded-xl bg-secondary hover:bg-secondary/80 flex items-center gap-1 text-xs font-bold text-foreground transition-all active:scale-90 shadow-sm border border-border/40"
-              title={en ? "Minimize library to preview work" : "إخفاء لرؤية العمل"}
+              className="h-7 px-2 rounded-lg bg-secondary/80 hover:bg-secondary flex items-center gap-1 text-[10px] font-bold text-foreground transition-all active:scale-90 border border-border/60"
+              title={en ? "Minimize library to preview work" : "إخفاء مؤقت لرؤية العمل"}
             >
               <EyeOff className="w-3.5 h-3.5 text-muted-foreground" />
-              <span>{en ? "See Work" : "رؤية العمل"}</span>
+              <span className="hidden xs:inline">{en ? "See Work" : "رؤية العمل"}</span>
             </button>
 
             <button 
+              id="overlay-confirm-btn"
               onClick={() => { playSfx("success"); onClose(); }} 
-              className="w-8 h-8 rounded-xl gradient-primary flex items-center justify-center text-white shadow-md transition-all active:scale-90"
+              className="h-7 px-2.5 rounded-lg gradient-primary flex items-center gap-1 text-white text-[11px] font-bold shadow-sm transition-all active:scale-90"
               title={en ? "Confirm" : "تأكيد"}
             >
-              <Check className="w-4 h-4 text-white stroke-[3px]" />
+              <Check className="w-3.5 h-3.5 text-white stroke-[3px]" />
+              <span>{en ? "Done" : "تم"}</span>
             </button>
             <button 
+              id="overlay-close-btn"
               onClick={() => { playSfx("click"); onClose(); }} 
-              className="w-8 h-8 rounded-xl bg-secondary hover:bg-secondary/80 flex items-center justify-center border border-border/40 transition-all active:scale-90"
+              className="w-7 h-7 rounded-lg bg-secondary flex items-center justify-center hover:bg-secondary/80 transition-all active:scale-90 text-foreground"
             >
-              <X className="w-4.5 h-4.5 text-foreground" />
+              <X className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
@@ -266,66 +286,68 @@ const OverlayPanel = ({ open, onClose, currentTime }: Props) => {
         <input ref={inputRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={handleFile} />
 
         {/* Tabs Bar */}
-        <div className="grid grid-cols-3 gap-1 bg-secondary/50 p-1 rounded-2xl mb-4 border border-border/20">
-          <button
-            onClick={() => { playSfx("click"); setActiveTab("layers"); }}
-            className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold transition-all ${
-              activeTab === "layers" 
-                ? "bg-card text-foreground shadow-sm border border-border/20" 
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Layers className="w-3.5 h-3.5" />
-            <span>{en ? "Layers" : "الطبقات والترتيب"}</span>
-          </button>
-          
-          <button
-            onClick={() => { 
-              if (overlays.length === 0) {
-                toast.error(en ? "Please add an overlay first" : "يرجى إضافة تراكب أولاً");
-                return;
-              }
-              playSfx("click"); 
-              setActiveTab("adjust"); 
-            }}
-            disabled={overlays.length === 0}
-            className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold transition-all ${
-              overlays.length === 0 ? "opacity-40 cursor-not-allowed" : ""
-            } ${
-              activeTab === "adjust" 
-                ? "bg-card text-foreground shadow-sm border border-border/20" 
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Sliders className="w-3.5 h-3.5" />
-            <span>{en ? "Tune Properties" : "الضبط والخصائص"}</span>
-          </button>
+        <div className="px-3.5 pt-2 pb-1.5 border-b border-border/40 shrink-0 bg-background/40">
+          <div className="grid grid-cols-3 gap-1 bg-secondary/40 p-1 rounded-xl border border-border/30">
+            <button
+              onClick={() => { playSfx("click"); setActiveTab("layers"); }}
+              className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-bold transition-all ${
+                activeTab === "layers" 
+                  ? "bg-primary text-primary-foreground shadow-xs" 
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Layers className="w-3 h-3" />
+              <span>{en ? "Layers" : "الطبقات"}</span>
+            </button>
+            
+            <button
+              onClick={() => { 
+                if (overlays.length === 0) {
+                  toast.error(en ? "Please add an overlay first" : "يرجى إضافة تراكب أولاً");
+                  return;
+                }
+                playSfx("click"); 
+                setActiveTab("adjust"); 
+              }}
+              disabled={overlays.length === 0}
+              className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-bold transition-all ${
+                overlays.length === 0 ? "opacity-40 cursor-not-allowed" : ""
+              } ${
+                activeTab === "adjust" 
+                  ? "bg-primary text-primary-foreground shadow-xs" 
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Sliders className="w-3 h-3" />
+              <span>{en ? "Properties" : "الخصائص"}</span>
+            </button>
 
-          <button
-            onClick={() => { 
-              if (overlays.length === 0) {
-                toast.error(en ? "Please add an overlay first" : "يرجى إضافة تراكب أولاً");
-                return;
-              }
-              playSfx("click"); 
-              setActiveTab("trim"); 
-            }}
-            disabled={overlays.length === 0}
-            className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold transition-all ${
-              overlays.length === 0 ? "opacity-40 cursor-not-allowed" : ""
-            } ${
-              activeTab === "trim" 
-                ? "bg-card text-foreground shadow-sm border border-border/20" 
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Scissors className="w-3.5 h-3.5" />
-            <span>{en ? "Trim & Timing" : "القص والتوقيت"}</span>
-          </button>
+            <button
+              onClick={() => { 
+                if (overlays.length === 0) {
+                  toast.error(en ? "Please add an overlay first" : "يرجى إضافة تراكب أولاً");
+                  return;
+                }
+                playSfx("click"); 
+                setActiveTab("trim"); 
+              }}
+              disabled={overlays.length === 0}
+              className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-bold transition-all ${
+                overlays.length === 0 ? "opacity-40 cursor-not-allowed" : ""
+              } ${
+                activeTab === "trim" 
+                  ? "bg-primary text-primary-foreground shadow-xs" 
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Scissors className="w-3 h-3" />
+              <span>{en ? "Trim" : "القص"}</span>
+            </button>
+          </div>
         </div>
 
         {/* Tab Contents */}
-        <div className="flex-1 overflow-y-auto max-h-[44vh] no-scrollbar">
+        <div className="flex-1 overflow-y-auto no-scrollbar p-3.5 space-y-3">
           
           {/* TAB 1: LAYERS & OVERLAYS LIST */}
           {activeTab === "layers" && (

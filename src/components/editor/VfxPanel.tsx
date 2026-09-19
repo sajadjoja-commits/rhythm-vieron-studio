@@ -974,78 +974,89 @@ const VfxPanel = ({ open, onClose, currentTime }: Props) => {
   }
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-50 animate-in slide-in-from-bottom-4 duration-200" dir={en ? "ltr" : "rtl"}>
-      <div className="bg-card border-t border-border rounded-t-3xl shadow-2xl max-h-[75vh] flex flex-col">
+    <div 
+      id="vfx-panel-root"
+      className="fixed inset-x-0 bottom-0 z-50 animate-in slide-in-from-bottom-3 duration-250" 
+      dir={en ? "ltr" : "rtl"}
+    >
+      <div className="bg-card/95 backdrop-blur-2xl border-t border-border/80 rounded-t-3xl shadow-2xl max-h-[60vh] sm:max-h-[64vh] flex flex-col overflow-hidden pb-4">
         
+        {/* Subtle top drag handle */}
+        <div className="w-9 h-1 rounded-full bg-border/80 mx-auto mt-2 shrink-0" />
+
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border/40 shrink-0 bg-card/95 backdrop-blur-sm z-10 rounded-t-3xl">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-xl gradient-primary flex items-center justify-center shadow-md">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-7 h-7 rounded-xl gradient-primary flex items-center justify-center shadow-xs shrink-0">
               <Sparkles className="w-4 h-4 text-primary-foreground animate-pulse" />
             </div>
-            <div>
-              <span className="text-sm font-bold text-foreground">
-                {en ? "Visual Effects Library" : "مكتبة المؤثرات البصرية (VFX)"}
+            <div className="min-w-0">
+              <span className="font-heading font-black text-xs sm:text-sm text-foreground truncate block">
+                {en ? "Visual Effects (VFX)" : "مكتبة المؤثرات البصرية"}
               </span>
-              <span className="text-[10px] text-muted-foreground block -mt-0.5">
+              <span className="text-[10px] text-muted-foreground truncate block font-medium">
                 {en ? "Cinema Openers, Weather, Dance & Action" : "افتتاحيات سينمائية، طقس، رقص وأكشن"}
               </span>
             </div>
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 shrink-0">
             {/* Collapse button */}
             <button
+              id="vfx-minimize-btn"
               onClick={() => {
                 playSfx("click");
                 setIsCollapsed(true);
               }}
-              className="px-3 py-1.5 rounded-full bg-secondary hover:bg-secondary/80 flex items-center gap-1.5 text-xs font-bold text-foreground transition-all active:scale-90"
-              title={en ? "Minimize to preview video" : "إخفاء لرؤية الفيديو"}
+              className="h-7 px-2 rounded-lg bg-secondary/80 hover:bg-secondary flex items-center gap-1 text-[10px] font-bold text-foreground transition-all active:scale-90 border border-border/60"
+              title={en ? "Minimize to preview video" : "إخفاء مؤقت لرؤية الفيديو"}
             >
               <EyeOff className="w-3.5 h-3.5 text-muted-foreground" />
-              <span>{en ? "See Work" : "رؤية العمل"}</span>
+              <span className="hidden xs:inline">{en ? "See Work" : "رؤية العمل"}</span>
             </button>
 
             <button
+              id="vfx-confirm-btn"
               onClick={() => {
                 playSfx("success");
                 onClose();
               }}
-              className="w-7 h-7 rounded-full gradient-primary flex items-center justify-center text-white shadow-md transition-all active:scale-90"
+              className="h-7 px-2.5 rounded-lg gradient-primary flex items-center gap-1 text-white text-[11px] font-bold shadow-sm transition-all active:scale-90"
               title={en ? "Done" : "تم"}
             >
               <Check className="w-3.5 h-3.5 text-white stroke-[3px]" />
+              <span>{en ? "Done" : "تم"}</span>
             </button>
             <button
+              id="vfx-close-btn"
               onClick={() => {
                 playSfx("click");
                 onClose();
               }}
-              className="w-7 h-7 rounded-full bg-secondary hover:bg-secondary/80 flex items-center justify-center transition-all active:scale-90"
+              className="w-7 h-7 rounded-lg bg-secondary flex items-center justify-center hover:bg-secondary/80 transition-all active:scale-90 text-foreground"
             >
-              <X className="w-4 h-4" />
+              <X className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
 
         {/* Categories Tabs & Search */}
-        <div className="px-4 pt-3 pb-2 space-y-2.5 border-b border-border/40 shrink-0 bg-background/50">
+        <div className="px-3.5 pt-2 pb-1.5 space-y-1.5 border-b border-border/40 shrink-0 bg-background/40">
           
           {/* Search bar */}
           <div className="relative">
-            <Search className={`w-3.5 h-3.5 absolute ${en ? "left-3" : "right-3"} top-1/2 -translate-y-1/2 text-muted-foreground`} />
+            <Search className={`w-3.5 h-3.5 absolute ${en ? "left-2.5" : "right-2.5"} top-1/2 -translate-y-1/2 text-muted-foreground`} />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={en ? "Search effects (rain, snow, opener, dance, disco...)" : "بحث في المؤثرات (مطر، ثلج، افتتاحية، رقص، ديسكو...)"}
-              className={`w-full ${en ? "pl-9 pr-3" : "pr-9 pl-3"} py-1.5 text-xs rounded-xl bg-card border border-border/80 focus:border-primary focus:outline-none text-foreground placeholder:text-muted-foreground`}
+              className={`w-full ${en ? "pl-8 pr-7" : "pr-8 pl-7"} py-1.5 text-xs rounded-xl bg-card border border-border/70 focus:border-primary focus:outline-none text-foreground placeholder:text-muted-foreground transition-all`}
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery("")}
-                className={`absolute ${en ? "right-2.5" : "left-2.5"} top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs`}
+                className={`absolute ${en ? "right-2" : "left-2"} top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-[10px]`}
               >
                 ✕
               </button>
@@ -1053,7 +1064,7 @@ const VfxPanel = ({ open, onClose, currentTime }: Props) => {
           </div>
 
           {/* Categories Pill Scroller */}
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+          <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5">
             {VFX_CATEGORIES.map((cat) => {
               const isActive = activeCategory === cat.id;
               return (
@@ -1063,10 +1074,10 @@ const VfxPanel = ({ open, onClose, currentTime }: Props) => {
                     playSfx("click");
                     setActiveCategory(cat.id);
                   }}
-                  className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 shrink-0 ${
+                  className={`px-2.5 py-1 rounded-full text-[10px] font-bold whitespace-nowrap transition-all flex items-center gap-1 shrink-0 ${
                     isActive
-                      ? "gradient-primary text-white shadow-sm scale-[1.02]"
-                      : "bg-card border border-border/60 text-muted-foreground hover:text-foreground hover:bg-secondary/70"
+                      ? "gradient-primary text-white shadow-xs scale-[1.02]"
+                      : "bg-secondary/70 border border-border/50 text-muted-foreground hover:text-foreground hover:bg-secondary"
                   }`}
                 >
                   <span className="text-xs">{cat.icon}</span>

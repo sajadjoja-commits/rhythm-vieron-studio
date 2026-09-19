@@ -2133,8 +2133,8 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
               <CaptionOverlay currentTime={currentTime} />
             </div>
 
-            {/* Extended CapCut-style Transform Bounding Box (Visible outside canvas when video clip is selected or zoomed) */}
-            {(focusedTrack === "video" || showFrame) && !isPlaying && Boolean(resolved?.clip) && (
+            {/* Extended CapCut-style Transform Bounding Box (Visible on timeline when video track is focused, but hidden when tool panels are open) */}
+            {((focusedTrack === "video" && !tool) || showFrame || isPanningPreview) && !isPlaying && Boolean(resolved?.clip) && (
               <div
                 className="absolute inset-0 pointer-events-none z-30 transition-all duration-150"
                 style={{

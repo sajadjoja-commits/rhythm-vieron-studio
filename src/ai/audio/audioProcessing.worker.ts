@@ -373,6 +373,17 @@ function processStemSeparation(
   const realR = new Float32Array(fftSize);
   const imagR = new Float32Array(fftSize);
 
+  // Pre-allocated reusable buffers for IFFT to eliminate memory thrashing in hop loop
+  const vocRealL = new Float32Array(fftSize);
+  const vocImagL = new Float32Array(fftSize);
+  const vocRealR = new Float32Array(fftSize);
+  const vocImagR = new Float32Array(fftSize);
+
+  const instRealL = new Float32Array(fftSize);
+  const instImagL = new Float32Array(fftSize);
+  const instRealR = new Float32Array(fftSize);
+  const instImagR = new Float32Array(fftSize);
+
   const nyquist = sampleRate / 2;
   const binHz = nyquist / (fftSize / 2);
 
@@ -394,16 +405,15 @@ function processStemSeparation(
     transformFFT(realL, imagL);
     transformFFT(realR, imagR);
 
-    // Buffers for IFFT
-    const vocRealL = new Float32Array(fftSize);
-    const vocImagL = new Float32Array(fftSize);
-    const vocRealR = new Float32Array(fftSize);
-    const vocImagR = new Float32Array(fftSize);
-
-    const instRealL = new Float32Array(fftSize);
-    const instImagL = new Float32Array(fftSize);
-    const instRealR = new Float32Array(fftSize);
-    const instImagR = new Float32Array(fftSize);
+    // Buffers for IFFT are reused without re-allocation
+    vocRealL.fill(0);
+    vocImagL.fill(0);
+    vocRealR.fill(0);
+    vocImagR.fill(0);
+    instRealL.fill(0);
+    instImagL.fill(0);
+    instRealR.fill(0);
+    instImagR.fill(0);
 
     for (let k = 0; k < fftSize / 2; k++) {
       const magL = Math.sqrt(realL[k] * realL[k] + imagL[k] * imagL[k]);

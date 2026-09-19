@@ -117,7 +117,10 @@ export class ImageInferenceEngine {
         throw new Error("[ImageInferenceEngine] Neural segmentation model failed to produce confidence mask");
       }
 
-      const mask = segmentResult.confidenceMasks[0];
+      // In MediaPipe Selfie Segmenter, index 1 is the foreground Person mask, while index 0 is Background.
+      const mask = segmentResult.confidenceMasks.length > 1
+        ? segmentResult.confidenceMasks[1]
+        : segmentResult.confidenceMasks[0];
       const maskData = mask.getAsFloat32Array();
       const maskWidth = mask.width;
       const maskHeight = mask.height;

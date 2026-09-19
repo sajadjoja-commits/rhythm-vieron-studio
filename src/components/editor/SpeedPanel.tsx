@@ -355,74 +355,105 @@ const SpeedPanel = ({ open, onClose, currentTime }: Props) => {
   }
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-50 animate-in slide-in-from-bottom-4 duration-200" dir={en ? "ltr" : "rtl"}>
-      <div className="bg-card border-t border-border rounded-t-3xl p-4 shadow-2xl pb-6">
+    <div 
+      id="speed-panel-root"
+      className="fixed inset-x-0 bottom-0 z-50 animate-in slide-in-from-bottom-3 duration-250" 
+      dir={en ? "ltr" : "rtl"}
+    >
+      <div className="bg-card/95 backdrop-blur-2xl border-t border-border/80 rounded-t-3xl shadow-2xl max-h-[60vh] sm:max-h-[64vh] flex flex-col overflow-hidden pb-4">
         
+        {/* Subtle top drag handle */}
+        <div className="w-9 h-1 rounded-full bg-border/80 mx-auto mt-2 shrink-0" />
+
         {/* Header Title */}
-        <div className="flex items-center justify-between mb-4 border-b border-border/40 pb-3">
-          <h3 className="font-heading font-bold text-sm text-foreground flex items-center gap-1.5">
-            <div className="w-6 h-6 rounded-lg gradient-primary flex items-center justify-center">
-              <Gauge className="w-3.5 h-3.5 text-primary-foreground animate-pulse" />
+        <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-7 h-7 rounded-xl gradient-primary flex items-center justify-center shadow-xs shrink-0">
+              <Gauge className="w-4 h-4 text-primary-foreground animate-pulse" />
             </div>
-            <span>{en ? "Velocity Speed Controller" : "متحكم سرعة الفيديو المتطور"}</span>
-          </h3>
-          <div className="flex items-center gap-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="font-heading font-black text-xs sm:text-sm text-foreground truncate block">
+                  {en ? "Velocity Speed Controller" : "متحكم سرعة الفيديو"}
+                </span>
+                <span className="text-[10px] text-primary font-black px-1.5 py-0.2 rounded-md bg-primary/10 border border-primary/20 shrink-0 font-mono">
+                  {activeSpeed}×
+                </span>
+              </div>
+              <span className="text-[10px] text-muted-foreground truncate block font-medium">
+                {en ? "Constant & ramp curves" : "السرعة الثابتة ومنحنيات التسارع"}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
             {/* Collapse button */}
             <button 
+              id="speed-minimize-btn"
               onClick={() => { playSfx("click"); setIsCollapsed(true); }}
-              className="px-3 py-1.5 rounded-full bg-secondary hover:bg-secondary/80 flex items-center gap-1 text-xs font-bold text-foreground transition-all active:scale-90"
-              title={en ? "Minimize to preview work" : "إخفاء لرؤية العمل"}
+              className="h-7 px-2 rounded-lg bg-secondary/80 hover:bg-secondary flex items-center gap-1 text-[10px] font-bold text-foreground transition-all active:scale-90 border border-border/60"
+              title={en ? "Minimize to preview work" : "إخفاء مؤقت لرؤية العمل"}
             >
               <EyeOff className="w-3.5 h-3.5 text-muted-foreground" />
-              <span>{en ? "See Work" : "رؤية العمل"}</span>
+              <span className="hidden xs:inline">{en ? "See Work" : "رؤية العمل"}</span>
             </button>
 
             {resolved && (
               <button 
+                id="speed-confirm-btn"
                 onClick={() => { playSfx("success"); onClose(); }} 
-                className="w-7 h-7 rounded-full gradient-primary flex items-center justify-center text-white shadow-md transition-all active:scale-90"
+                className="h-7 px-2.5 rounded-lg gradient-primary flex items-center gap-1 text-white text-[11px] font-bold shadow-sm transition-all active:scale-90"
                 title={en ? "Confirm Selection" : "تأكيد الاختيار"}
               >
                 <Check className="w-3.5 h-3.5 text-white stroke-[3px]" />
+                <span>{en ? "Done" : "تم"}</span>
               </button>
             )}
-            <button onClick={() => { playSfx("click"); onClose(); }} className="w-7 h-7 rounded-full bg-secondary hover:bg-secondary/80 flex items-center justify-center">
-              <X className="w-4 h-4 text-foreground" />
+            <button 
+              id="speed-close-btn"
+              onClick={() => { playSfx("click"); onClose(); }} 
+              className="w-7 h-7 rounded-lg bg-secondary flex items-center justify-center hover:bg-secondary/80 transition-all active:scale-90 text-foreground"
+            >
+              <X className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
 
         {/* Tab Selection */}
-        <div className="flex gap-2 p-1 bg-secondary/50 rounded-2xl border border-border/40 mb-4">
-          <button
-            onClick={() => { playSfx("click"); setActiveTab("constant"); }}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-bold transition-all duration-200 ${
-              activeTab === "constant" ? "gradient-primary text-primary-foreground shadow-md" : "hover:bg-secondary text-muted-foreground bg-transparent"
-            }`}
-          >
-            <Gauge className="w-4 h-4" />
-            <span>{en ? "Constant Speed" : "سرعة ثابتة"}</span>
-          </button>
-          <button
-            onClick={() => { playSfx("click"); setActiveTab("curve"); }}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-bold transition-all duration-200 ${
-              activeTab === "curve" ? "gradient-primary text-primary-foreground shadow-md" : "hover:bg-secondary text-muted-foreground bg-transparent"
-            }`}
-          >
-            <Activity className="w-4 h-4" />
-            <span>{en ? "Speed Curve (Ramp)" : "منحنى تسريع الفيديو"}</span>
-          </button>
+        <div className="px-3.5 pt-2 pb-1.5 border-b border-border/40 shrink-0 bg-background/40">
+          <div className="flex gap-1.5 p-1 bg-secondary/40 rounded-xl border border-border/40">
+            <button
+              onClick={() => { playSfx("click"); setActiveTab("constant"); }}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-[10px] font-bold transition-all duration-150 ${
+                activeTab === "constant" ? "bg-primary text-primary-foreground shadow-xs" : "hover:bg-secondary text-muted-foreground bg-transparent"
+              }`}
+            >
+              <Gauge className="w-3 h-3" />
+              <span>{en ? "Constant Speed" : "سرعة ثابتة"}</span>
+            </button>
+            <button
+              onClick={() => { playSfx("click"); setActiveTab("curve"); }}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-[10px] font-bold transition-all duration-150 ${
+                activeTab === "curve" ? "bg-primary text-primary-foreground shadow-xs" : "hover:bg-secondary text-muted-foreground bg-transparent"
+              }`}
+            >
+              <Activity className="w-3 h-3" />
+              <span>{en ? "Speed Curve (Ramp)" : "منحنى تسريع الفيديو"}</span>
+            </button>
+          </div>
         </div>
 
-        {!resolved ? (
-          <div className="text-center py-8 bg-secondary/10 rounded-2xl border border-dashed border-border">
-            <HelpCircle className="w-8 h-8 text-muted-foreground mx-auto mb-2 animate-bounce" />
-            <p className="text-xs text-foreground font-bold">
-              {en ? "Please position the playhead indicator on a video segment track first." : "يرجى تحريك مؤشر التشغيل ووضعه فوق مقطع فيديو أولاً للتعديل."}
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-4">
+        {/* Scrollable Content Body */}
+        <div className="flex-1 overflow-y-auto no-scrollbar p-3.5 space-y-3">
+          {!resolved ? (
+            <div className="text-center py-8 bg-secondary/10 rounded-2xl border border-dashed border-border">
+              <HelpCircle className="w-8 h-8 text-muted-foreground mx-auto mb-2 animate-bounce" />
+              <p className="text-xs text-foreground font-bold">
+                {en ? "Please position the playhead indicator on a video segment track first." : "يرجى تحريك مؤشر التشغيل ووضعه فوق مقطع فيديو أولاً للتعديل."}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
             
             {/* CONSTANT VIEW */}
             {activeTab === "constant" && (
@@ -605,6 +636,7 @@ const SpeedPanel = ({ open, onClose, currentTime }: Props) => {
         {/* Bottom space padding */}
         <div className="mt-2"></div>
 
+        </div>
       </div>
     </div>
   );

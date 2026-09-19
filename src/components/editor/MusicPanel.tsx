@@ -672,67 +672,105 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
 
 
   return (
-    <div className="fixed inset-x-0 bottom-0 mx-2 rounded-t-3xl bg-popover border border-border border-b-0 shadow-2xl glass z-50 animate-scale-in" dir={en ? "ltr" : "rtl"}>
-      <input ref={fileRef} type="file" accept="audio/*" hidden onChange={onUpload} />
-      <div className="flex items-center justify-between px-3 py-2.5 border-b border-border/60">
-        <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
-          <Music2 className="w-4 h-4 text-primary animate-pulse" />
-          <span>{en ? "Audio & Music Library" : "مكتبة الصوت والموسيقى"}</span>
-        </span>
-        <div className="flex items-center gap-2">
-          {/* Collapse to see work button */}
-          <button 
-            onClick={() => { playSfx("click"); setIsCollapsed(true); }}
-            className="px-3 py-1.5 rounded-full bg-secondary hover:bg-secondary/80 flex items-center gap-1 text-[10px] font-bold text-foreground transition-all active:scale-90"
-            title={en ? "Minimize library to preview work" : "إخفاء لرؤية العمل"}
-          >
-            <EyeOff className="w-3.5 h-3.5 text-muted-foreground" />
-            <span>{en ? "See Work" : "رؤية العمل"}</span>
-          </button>
+    <div 
+      id="music-panel-root"
+      className="fixed inset-x-0 bottom-0 z-50 animate-in slide-in-from-bottom-3 duration-250" 
+      dir={en ? "ltr" : "rtl"}
+    >
+      <div className="bg-card/95 backdrop-blur-2xl border-t border-border/80 rounded-t-3xl shadow-2xl max-h-[75vh] sm:max-h-[78vh] flex flex-col overflow-hidden pb-3">
+        
+        {/* Subtle top drag handle */}
+        <div className="w-9 h-1 rounded-full bg-border/80 mx-auto mt-2 shrink-0" />
 
-          <button 
-            onClick={() => { playSfx("success"); onClose(); }} 
-            className="w-6 h-6 rounded-md gradient-primary flex items-center justify-center text-white shadow-md transition-all active:scale-90"
-            title={en ? "Confirm Selection" : "تأكيد الاختيار"}
-          >
-            <Check className="w-3.5 h-3.5 text-white stroke-[3px]" />
-          </button>
-          <button onClick={() => { playSfx("click"); onClose(); }} className="w-6 h-6 rounded-md bg-secondary flex items-center justify-center">
-            <X className="w-3.5 h-3.5" />
-          </button>
+        <input ref={fileRef} type="file" accept="audio/*" hidden onChange={onUpload} />
+        
+        {/* Header Console */}
+        <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-7 h-7 rounded-xl gradient-primary flex items-center justify-center shadow-xs shrink-0">
+              <Music2 className="w-4 h-4 text-primary-foreground animate-pulse" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="font-heading font-black text-xs sm:text-sm text-foreground truncate block">
+                  {en ? "Audio & Music Studio" : "مكتبة الصوت والموسيقى"}
+                </span>
+                {activeAudioTrack && (
+                  <span className="text-[10px] text-primary font-black px-1.5 py-0.2 rounded-md bg-primary/10 border border-primary/20 shrink-0 font-mono">
+                    {activeAudioTrack.title?.slice(0, 10)}...
+                  </span>
+                )}
+              </div>
+              <span className="text-[10px] text-muted-foreground truncate block font-medium">
+                {en ? "Soundtracks, SFX, & voice" : "مسارات موسيقية، مؤثرات، وتغيير أصوات"}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Collapse to see work button */}
+            <button 
+              id="music-minimize-btn"
+              onClick={() => { playSfx("click"); setIsCollapsed(true); }}
+              className="h-7 px-2 rounded-lg bg-secondary/80 hover:bg-secondary flex items-center gap-1 text-[10px] font-bold text-foreground transition-all active:scale-90 border border-border/60"
+              title={en ? "Minimize library to preview work" : "إخفاء مؤقت لرؤية العمل"}
+            >
+              <EyeOff className="w-3.5 h-3.5 text-muted-foreground" />
+              <span className="hidden xs:inline">{en ? "See Work" : "رؤية العمل"}</span>
+            </button>
+
+            <button 
+              id="music-confirm-btn"
+              onClick={() => { playSfx("success"); onClose(); }} 
+              className="h-7 px-2.5 rounded-lg gradient-primary flex items-center gap-1 text-white text-[11px] font-bold shadow-sm transition-all active:scale-90"
+              title={en ? "Confirm Selection" : "تأكيد الاختيار"}
+            >
+              <Check className="w-3.5 h-3.5 text-white stroke-[3px]" />
+              <span>{en ? "Done" : "تم"}</span>
+            </button>
+            <button 
+              id="music-close-btn"
+              onClick={() => { playSfx("click"); onClose(); }} 
+              className="w-7 h-7 rounded-lg bg-secondary flex items-center justify-center hover:bg-secondary/80 transition-all active:scale-90 text-foreground"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
-      </div>
 
-      {/* tabs */}
-      <div className="flex gap-1 p-2 border-b border-border overflow-x-auto no-scrollbar">
-        {[
-          { id: "ai", label: en ? "AI Audio" : "أدوات AI", Icon: Sparkles },
-          { id: "record", label: en ? "Voice Record" : "تسجيل صوتي", Icon: Mic },
-          { id: "music", label: en ? "Music" : "موسيقى", Icon: Music2 },
-          { id: "sfx", label: en ? "SFX" : "مؤثرات", Icon: Sparkles },
-          { id: "fx", label: en ? "Voice Changer" : "تغيير الصوت", Icon: Wand2 },
-          { id: "beat", label: en ? "Beat" : "إيقاع", Icon: Activity },
-        ].map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id as any)}
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap ${
-              tab === t.id ? "gradient-primary text-primary-foreground" : "bg-secondary text-muted-foreground"
-            }`}
-          >
-            <t.Icon className="w-3.5 h-3.5" />
-            {t.label}
-          </button>
-        ))}
-      </div>
+        {/* tabs */}
+        <div className="px-3.5 pt-2 pb-1.5 border-b border-border/40 shrink-0 bg-background/40">
+          <div className="flex gap-1.5 p-1 bg-secondary/40 rounded-xl border border-border/30 overflow-x-auto no-scrollbar">
+            {[
+              { id: "music", label: en ? "Music" : "موسيقى", Icon: Music2 },
+              { id: "ai", label: en ? "AI Audio" : "أدوات AI", Icon: Sparkles },
+              { id: "record", label: en ? "Voice Record" : "تسجيل صوتي", Icon: Mic },
+              { id: "sfx", label: en ? "SFX" : "مؤثرات", Icon: Sparkles },
+              { id: "fx", label: en ? "Voice Changer" : "تغيير الصوت", Icon: Wand2 },
+              { id: "beat", label: en ? "Beat" : "إيقاع", Icon: Activity },
+            ].map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id as any)}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-bold whitespace-nowrap transition-all duration-150 ${
+                  tab === t.id ? "bg-primary text-primary-foreground shadow-xs" : "hover:bg-secondary text-muted-foreground bg-transparent"
+                }`}
+              >
+                <t.Icon className="w-3 h-3" />
+                <span>{t.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
 
-      <div className="p-3 max-h-[40vh] overflow-y-auto">
+        <div className="flex-1 overflow-y-auto no-scrollbar p-3.5 space-y-3">
         {tab === "record" && (
           <VoiceRecorderTab currentTime={currentTime} addAudioTrack={addAudioTrack} />
         )}
         {tab === "ai" && (
           <AIToolsPanel
             open={tab === "ai"}
+            embedded={true}
             onClose={() => setTab("music")}
             mediaType="audio"
             currentMediaUrlOrBase64={
@@ -1631,6 +1669,7 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
 
         {/* Bottom margin padding */}
         <div className="pt-2"></div>
+        </div>
       </div>
     </div>
   );

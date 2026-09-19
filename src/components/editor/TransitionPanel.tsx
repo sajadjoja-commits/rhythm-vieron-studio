@@ -932,43 +932,54 @@ export const TransitionPanel = ({ open, clipId, onClose }: Props) => {
   }
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-50 animate-in slide-in-from-bottom-4 duration-300" dir={en ? "ltr" : "rtl"}>
-      <div className="bg-card/95 backdrop-blur-2xl border-t border-border rounded-t-3xl p-4 shadow-2xl max-h-[82vh] overflow-y-auto no-scrollbar pb-8 flex flex-col">
+    <div 
+      id="transition-panel-root"
+      className="fixed inset-x-0 bottom-0 z-50 animate-in slide-in-from-bottom-3 duration-250" 
+      dir={en ? "ltr" : "rtl"}
+    >
+      <div className="bg-card/95 backdrop-blur-2xl border-t border-border/80 rounded-t-3xl shadow-2xl max-h-[60vh] sm:max-h-[64vh] flex flex-col overflow-hidden pb-4">
         
+        {/* Subtle top drag handle */}
+        <div className="w-9 h-1 rounded-full bg-border/80 mx-auto mt-2 shrink-0" />
+
         {/* Modal Header */}
-        <div className="flex items-center justify-between mb-3 border-b border-border/50 pb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl gradient-primary flex items-center justify-center shadow-md">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-7 h-7 rounded-xl gradient-primary flex items-center justify-center shadow-xs shrink-0">
               <Wand2 className="w-4 h-4 text-primary-foreground animate-pulse" />
             </div>
-            <div>
-              <h3 className="font-heading font-extrabold text-sm text-foreground flex items-center gap-1.5">
-                <span>{t("transition.library")}</span>
-                <span className="text-[10px] text-primary px-2 py-0.5 rounded-full bg-primary/10 font-mono font-bold">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <h3 className="font-heading font-black text-xs sm:text-sm text-foreground truncate">
+                  {t("transition.library")}
+                </h3>
+                <span className="text-[10px] text-primary px-1.5 py-0.2 rounded-md bg-primary/10 font-mono font-bold shrink-0">
                   {TRANSITIONS_DATA.length} {en ? "fx" : "انتقال"}
                 </span>
-              </h3>
-              <p className="text-[11px] text-muted-foreground leading-tight">
-                {en ? "Cinematic advertising transition library categorized for all video styles" : "مكتبة انتقالات سينمائية مصنفة لجميع أنواع الفيديوهات والإعلانات"}
+              </div>
+              <p className="text-[10px] text-muted-foreground truncate font-medium">
+                {en ? "Cinematic video transitions" : "انتقالات سينمائية احترافية بين المشاهد"}
               </p>
             </div>
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 shrink-0">
             {/* Collapse button to preview workspace */}
             <button 
+              id="transition-minimize-btn"
               onClick={() => { playSfx("click"); setIsCollapsed(true); }}
-              className="px-3 py-1.5 rounded-full bg-secondary hover:bg-secondary/80 flex items-center gap-1 text-xs font-bold text-foreground transition-all active:scale-90"
-              title={en ? "Minimize library to preview work" : "إخفاء لرؤية العمل"}
+              className="h-7 px-2 rounded-lg bg-secondary/80 hover:bg-secondary flex items-center gap-1 text-[10px] font-bold text-foreground transition-all active:scale-90 border border-border/60"
+              title={en ? "Minimize library to preview work" : "إخفاء مؤقت لرؤية العمل"}
             >
               <EyeOff className="w-3.5 h-3.5 text-muted-foreground" />
-              <span className="hidden sm:inline">{en ? "See Work" : "رؤية العمل"}</span>
+              <span className="hidden xs:inline">{en ? "See Work" : "رؤية العمل"}</span>
             </button>
 
             {/* Confirm button */}
             <button 
+              id="transition-confirm-btn"
               onClick={() => { playSfx("success"); onClose(); }} 
-              className="px-3.5 py-1.5 rounded-full gradient-primary flex items-center gap-1.5 text-white text-xs font-bold shadow-md transition-all active:scale-90"
+              className="h-7 px-2.5 rounded-lg gradient-primary flex items-center gap-1 text-white text-[11px] font-bold shadow-sm transition-all active:scale-90"
               title={en ? "Confirm Selection" : "تأكيد الاختيار"}
             >
               <Check className="w-3.5 h-3.5 text-white stroke-[3px]" />
@@ -976,107 +987,110 @@ export const TransitionPanel = ({ open, clipId, onClose }: Props) => {
             </button>
 
             <button 
+              id="transition-close-btn"
               onClick={() => { playSfx("click"); onClose(); }} 
-              className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center hover:bg-secondary/80 transition-all active:scale-90"
+              className="w-7 h-7 rounded-lg bg-secondary flex items-center justify-center hover:bg-secondary/80 transition-all active:scale-90 text-foreground"
             >
-              <X className="w-4 h-4 text-foreground" />
+              <X className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
 
-        {/* Search Bar */}
-        <div className="relative mb-3">
-          <Search className={`absolute ${en ? "left-3" : "right-3"} top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground`} />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={t("transition.search")}
-            className={`w-full ${en ? "pl-9 pr-8" : "pr-9 pl-8"} py-2 rounded-xl bg-secondary/50 border border-border/70 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-all`}
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery("")}
-              className={`absolute ${en ? "right-2.5" : "left-2.5"} top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground`}
-            >
-              <X className="w-3 h-3" />
-            </button>
-          )}
-        </div>
-
-        {/* Categories Tab Bar */}
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-2 mb-3">
-          <button
-            onClick={() => { playSfx("click"); setSelectedCategory("all"); }}
-            className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap flex items-center gap-1.5 transition-all shrink-0 ${
-              selectedCategory === "all"
-                ? "bg-foreground text-background shadow-md"
-                : "bg-secondary/70 text-muted-foreground hover:text-foreground border border-border/50"
-            }`}
-          >
-            <Compass className="w-3.5 h-3.5" />
-            <span>{en ? "All" : "الكل"} ({TRANSITIONS_DATA.length})</span>
-          </button>
-
-          {TRANSITION_CATEGORIES.map((cat) => {
-            const isCatActive = selectedCategory === cat.id;
-            const count = cat.id === "trending" 
-              ? TRANSITIONS_DATA.filter((tr) => tr.isTrending || tr.category === "trending").length 
-              : TRANSITIONS_DATA.filter((tr) => tr.category === cat.id).length;
-
-            return (
+        {/* Search & Categories Bar */}
+        <div className="px-3.5 pt-2 pb-1.5 space-y-1.5 border-b border-border/40 shrink-0 bg-background/40">
+          {/* Search Bar */}
+          <div className="relative">
+            <Search className={`absolute ${en ? "left-2.5" : "right-2.5"} top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground`} />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={t("transition.search")}
+              className={`w-full ${en ? "pl-8 pr-7" : "pr-8 pl-7"} py-1.5 rounded-xl bg-card border border-border/70 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-all`}
+            />
+            {searchQuery && (
               <button
-                key={cat.id}
-                onClick={() => { playSfx("click"); setSelectedCategory(cat.id); }}
-                className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap flex items-center gap-1.5 transition-all shrink-0 ${
-                  isCatActive
-                    ? "text-white shadow-md scale-[1.02]"
-                    : "bg-secondary/70 text-muted-foreground hover:text-foreground border border-border/50"
-                }`}
-                style={isCatActive ? { backgroundColor: cat.color } : {}}
+                onClick={() => setSearchQuery("")}
+                className={`absolute ${en ? "right-2" : "left-2"} top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground text-[10px]`}
               >
-                <span>{cat.icon}</span>
-                <span>{en ? cat.labelEn : cat.labelAr}</span>
-                <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${isCatActive ? "bg-black/25 text-white" : "bg-background/80 text-muted-foreground"}`}>
-                  {count}
-                </span>
+                ✕
               </button>
-            );
-          })}
+            )}
+          </div>
+
+          {/* Categories Tab Bar */}
+          <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5">
+            <button
+              onClick={() => { playSfx("click"); setSelectedCategory("all"); }}
+              className={`px-2.5 py-1 rounded-full text-[10px] font-bold whitespace-nowrap flex items-center gap-1 transition-all shrink-0 ${
+                selectedCategory === "all"
+                  ? "bg-foreground text-background shadow-xs"
+                  : "bg-secondary/70 text-muted-foreground hover:text-foreground border border-border/50"
+              }`}
+            >
+              <Compass className="w-3 h-3" />
+              <span>{en ? "All" : "الكل"} ({TRANSITIONS_DATA.length})</span>
+            </button>
+
+            {TRANSITION_CATEGORIES.map((cat) => {
+              const isCatActive = selectedCategory === cat.id;
+              const count = cat.id === "trending" 
+                ? TRANSITIONS_DATA.filter((tr) => tr.isTrending || tr.category === "trending").length 
+                : TRANSITIONS_DATA.filter((tr) => tr.category === cat.id).length;
+
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => { playSfx("click"); setSelectedCategory(cat.id); }}
+                  className={`px-2.5 py-1 rounded-full text-[10px] font-bold whitespace-nowrap flex items-center gap-1 transition-all shrink-0 ${
+                    isCatActive
+                      ? "text-white shadow-xs"
+                      : "bg-secondary/70 text-muted-foreground hover:text-foreground border border-border/50"
+                  }`}
+                  style={isCatActive ? { backgroundColor: cat.color } : {}}
+                >
+                  <span>{cat.icon}</span>
+                  <span>{en ? cat.labelEn : cat.labelAr}</span>
+                  <span className={`text-[9px] px-1 py-0.2 rounded-full ${isCatActive ? "bg-black/25 text-white" : "bg-background/80 text-muted-foreground"}`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-        {/* Transition Duration Control Bar (شريط التحكم بمدة ظهور الانتقال بين المقاطع) */}
-        <div className="bg-secondary/40 border border-border/80 rounded-2xl p-3 mb-3.5 backdrop-blur-md shadow-inner flex flex-col gap-2.5">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
-                <Clock className="w-4 h-4 text-primary" />
-              </div>
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-xs font-bold text-foreground">
-                  {en ? "Transition Duration:" : "مدة ظهور الانتقال:"}
+        {/* Scrollable Content Body */}
+        <div className="flex-1 overflow-y-auto no-scrollbar px-3.5 py-2.5 space-y-2.5">
+
+          {/* Transition Duration Control Bar (Sleek Compact Design) */}
+          <div className="bg-secondary/40 border border-border/60 rounded-xl p-2.5 flex flex-col gap-2">
+            <div className="flex items-center justify-between flex-wrap gap-1.5">
+              <div className="flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-primary" />
+                <span className="text-[11px] font-bold text-foreground">
+                  {en ? "Duration:" : "مدة الانتقال:"}
                 </span>
-                <span className="text-xs font-black text-primary px-2 py-0.5 rounded-md bg-primary/15 border border-primary/25 font-mono">
-                  {duration.toFixed(1)} {en ? "s" : "ثانية"}
+                <span className="text-[10px] font-black text-primary px-1.5 py-0.2 rounded bg-primary/15 border border-primary/25 font-mono">
+                  {duration.toFixed(1)}{en ? "s" : "ث"}
                 </span>
               </div>
+
+              {/* Apply to All Clips Button */}
+              <button
+                id="transition-apply-all-btn"
+                onClick={applyToAllClips}
+                className="px-2 py-0.5 rounded-lg bg-background/80 hover:bg-background border border-border hover:border-primary/50 text-foreground text-[10px] font-semibold flex items-center gap-1 transition-all active:scale-95 shadow-2xs"
+                title={en ? "Apply this transition & duration to all clips" : "تطبيق هذا الانتقال والمدة على جميع المقاطع في المشروع"}
+              >
+                <CheckCheck className="w-3 h-3 text-primary" />
+                <span>{en ? "Apply to All" : "تطبيق على الكل"}</span>
+              </button>
             </div>
 
-            {/* Apply to All Clips Button */}
-            <button
-              onClick={applyToAllClips}
-              className="px-3 py-1 rounded-xl bg-background/80 hover:bg-background border border-border hover:border-primary/50 text-foreground text-[11px] font-semibold flex items-center gap-1.5 transition-all active:scale-95 shadow-xs"
-              title={en ? "Apply this transition & duration to all clips" : "تطبيق هذا الانتقال والمدة على جميع المقاطع في المشروع"}
-            >
-              <CheckCheck className="w-3.5 h-3.5 text-primary" />
-              <span>{en ? "Apply to All Clips" : "تطبيق على جميع المقاطع"}</span>
-            </button>
-          </div>
-
-          {/* Slider Bar */}
-          <div className="flex items-center gap-3">
-            <span className="text-[10px] font-mono text-muted-foreground shrink-0 font-medium">0.1s</span>
-            <div className="relative flex-1 flex items-center">
+            {/* Slider Bar & Presets inline */}
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] font-mono text-muted-foreground shrink-0">0.1s</span>
               <input
                 type="range"
                 min="0.1"
@@ -1084,44 +1098,43 @@ export const TransitionPanel = ({ open, clipId, onClose }: Props) => {
                 step="0.1"
                 value={duration}
                 onChange={(e) => handleDurationChange(parseFloat(e.target.value))}
-                className="w-full h-2 rounded-lg bg-background/90 accent-primary cursor-pointer transition-all hover:brightness-110"
+                className="w-full h-1.5 rounded-lg bg-background/90 accent-primary cursor-pointer transition-all"
               />
+              <span className="text-[9px] font-mono text-muted-foreground shrink-0">
+                {Math.min(3.0, Math.max(1.5, Math.round((clip?.duration || 4.0) * 10) / 10))}s
+              </span>
             </div>
-            <span className="text-[10px] font-mono text-muted-foreground shrink-0 font-medium">
-              {Math.min(3.0, Math.max(1.5, Math.round((clip?.duration || 4.0) * 10) / 10))}s
-            </span>
-          </div>
 
-          {/* Quick Duration Preset Chips */}
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-0.5">
-            <span className="text-[10px] text-muted-foreground font-medium shrink-0 flex items-center gap-1">
-              <Sliders className="w-3 h-3" />
-              {en ? "Presets:" : "سرعات جاهزة:"}
-            </span>
-            {[
-              { val: 0.2, labelAr: "0.2ث خاطف", labelEn: "0.2s Fast" },
-              { val: 0.5, labelAr: "0.5ث متوازن", labelEn: "0.5s Default" },
-              { val: 0.8, labelAr: "0.8ث انسيابي", labelEn: "0.8s Smooth" },
-              { val: 1.2, labelAr: "1.2ث سينمائي", labelEn: "1.2s Cinema" },
-              { val: 1.8, labelAr: "1.8ث بطيء", labelEn: "1.8s Slow" },
-            ].map((preset) => {
-              const isSelected = Math.abs(duration - preset.val) < 0.05;
-              return (
-                <button
-                  key={preset.val}
-                  onClick={() => { playSfx("click"); handleDurationChange(preset.val); }}
-                  className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold whitespace-nowrap transition-all active:scale-95 ${
-                    isSelected
-                      ? "bg-primary text-primary-foreground font-bold shadow-xs"
-                      : "bg-background/60 hover:bg-background text-muted-foreground hover:text-foreground border border-border/60"
-                  }`}
-                >
-                  {en ? preset.labelEn : preset.labelAr}
-                </button>
-              );
-            })}
+            {/* Quick Duration Preset Chips */}
+            <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
+              <span className="text-[9px] text-muted-foreground font-medium shrink-0 flex items-center gap-0.5">
+                <Sliders className="w-2.5 h-2.5" />
+                {en ? "Presets:" : "جاهز:"}
+              </span>
+              {[
+                { val: 0.2, labelAr: "0.2ث خاطف", labelEn: "0.2s" },
+                { val: 0.5, labelAr: "0.5ث متوازن", labelEn: "0.5s" },
+                { val: 0.8, labelAr: "0.8ث انسيابي", labelEn: "0.8s" },
+                { val: 1.2, labelAr: "1.2ث سينمائي", labelEn: "1.2s" },
+                { val: 1.8, labelAr: "1.8ث بطيء", labelEn: "1.8s" },
+              ].map((preset) => {
+                const isSelected = Math.abs(duration - preset.val) < 0.05;
+                return (
+                  <button
+                    key={preset.val}
+                    onClick={() => { playSfx("click"); handleDurationChange(preset.val); }}
+                    className={`px-1.5 py-0.5 rounded-md text-[9px] font-semibold whitespace-nowrap transition-all active:scale-95 ${
+                      isSelected
+                        ? "bg-primary text-primary-foreground font-bold shadow-2xs"
+                        : "bg-background/60 hover:bg-background text-muted-foreground hover:text-foreground border border-border/50"
+                    }`}
+                  >
+                    {en ? preset.labelEn : preset.labelAr}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
 
         {/* Transitions Grid */}
         {filteredTransitions.length === 0 ? (
@@ -1183,6 +1196,7 @@ export const TransitionPanel = ({ open, clipId, onClose }: Props) => {
           </div>
         )}
 
+        </div>
       </div>
     </div>
   );
