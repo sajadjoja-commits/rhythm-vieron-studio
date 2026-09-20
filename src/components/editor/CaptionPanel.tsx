@@ -11,6 +11,16 @@ import { parseSRT } from "@/lib/srtParser";
 import { getLang } from "@/lib/i18n";
 import { playSfx } from "@/lib/soundFx";
 import { animClass } from "./CaptionOverlay";
+import {
+  TextTemplate,
+  TextTemplateCategory,
+  TEXT_TEMPLATES,
+  applyTemplateToCaption,
+  generateKeyframesForTemplate,
+  loadCustomTemplates,
+  saveCustomTemplate,
+  deleteCustomTemplate,
+} from "@/lib/textTemplatesLibrary";
 
 
 interface Props {
@@ -261,11 +271,17 @@ const MOTION_PRESET_TEMPLATES = [
 
 const TEMPLATE_CATEGORIES = [
   { id: "all", labelAr: "الكل 🌟", labelEn: "All 🌟" },
+  { id: "viral", labelAr: "رائج وفيرال 🔥", labelEn: "Viral 🔥" },
+  { id: "reels", labelAr: "ريلز وشورتس 📱", labelEn: "Reels & Shorts 📱" },
+  { id: "minimal", labelAr: "مينيمال وترجمة ✨", labelEn: "Minimal & Subs ✨" },
+  { id: "cinematic", labelAr: "سينمائي 🎬", labelEn: "Cinematic 🎬" },
+  { id: "music", labelAr: "موسيقى وإيقاع 🎵", labelEn: "Music & Rhythm 🎵" },
+  { id: "gaming", labelAr: "ألعاب وميمز 🎮", labelEn: "Gaming & Meme 🎮" },
+  { id: "podcast", labelAr: "بودكاست 🎙️", labelEn: "Podcast 🎙️" },
+  { id: "news", labelAr: "أخبار ورياضة 🔴", labelEn: "News & Sports 🔴" },
+  { id: "neon", labelAr: "نيون و 3D ⚡", labelEn: "Neon & 3D ⚡" },
   { id: "social", labelAr: "شبكات تواصل 📱", labelEn: "Social 📱" },
-  { id: "titles", labelAr: "عناوين وشعارات 🎬", labelEn: "Titles 🎬" },
-  { id: "callouts", labelAr: "توضيحات 💬", labelEn: "Callouts 💬" },
-  { id: "neon", labelAr: "نيون وسايبر ⚡", labelEn: "Neon ⚡" },
-  { id: "aesthetic", labelAr: "أنيق 💎", labelEn: "Aesthetic 💎" },
+  { id: "custom", labelAr: "قوالبي المخصصة ⭐", labelEn: "My Presets ⭐" },
 ];
 
 const TEMPLATES: CaptionTemplate[] = [
@@ -668,6 +684,9 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [stickerSearch, setStickerSearch] = useState("");
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [customTemplates, setCustomTemplates] = useState<TextTemplate[]>(() => loadCustomTemplates());
+  const [showSaveCustom, setShowSaveCustom] = useState(false);
+  const [customNameInput, setCustomNameInput] = useState("");
   const firstInputRef = useRef<HTMLInputElement | null>(null);
   const srtFileInputRef = useRef<HTMLInputElement | null>(null);
   const en = getLang() === "en";
@@ -1138,6 +1157,134 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
     }
   };
 
+  const applyNewTextTemplate = (tpl: TextTemplate, addAsNew: boolean = false) => {
+    if (addAsNew) {
+      const textToAdd = en ? (tpl.sampleTextEn || tpl.nameEn || tpl.name) : (tpl.sampleTextAr || tpl.name);
+      const start = currentTime;
+      const end = Math.min(totalDuration || 10, currentTime + (tpl.timing?.defaultDuration || 3.0));
+      const duration = end - start;
+
+      const baseCap: Partial<Caption> = {
+        id: uid(),
+        start,
+        end,
+        text: textToAdd,
+      };
+
+      const styledCap = applyTemplateToCaption(tpl, baseCap, duration);
+      setCaptions((prev) => [...prev, styledCap as Caption].sort((a, b) => a.start - b.start));
+      playSfx("success");
+      toast.success(en ? `Added "${tpl.nameEn || tpl.name}" clip` : `تمت إضافة كليب "${tpl.name}"`);
+    } else {
+      // Update global captionStyle
+      setCaptionStyle((prev) => ({
+        ...prev,
+        font: tpl.typography.fontFamily,
+        size: tpl.typography.fontSize,
+        color: tpl.fill.color,
+        bg: tpl.background?.enabled ? tpl.background.color : "transparent",
+        bgRadius: tpl.background?.radius,
+        bgPadding: tpl.background?.padding,
+        strokeColor: tpl.stroke?.enabled ? tpl.stroke.color : undefined,
+        strokeWidth: tpl.stroke?.enabled ? tpl.stroke.width : 0,
+        shadowColor: tpl.shadow?.enabled ? tpl.shadow.color : undefined,
+        shadowBlur: tpl.shadow?.enabled ? tpl.shadow.blur : 0,
+        letterSpacing: tpl.typography.letterSpacing,
+        lineHeight: tpl.typography.lineHeight,
+        textTransform: tpl.typography.textTransform,
+        animation: tpl.entrance?.animation || "fade",
+        badgeIcon: tpl.badgeIcon,
+      }));
+
+      // Apply to all existing captions with keyframes and animations
+      setCaptions((prev) =>
+        prev.map((c) => {
+          const dur = Math.max(0.1, c.end - c.start);
+          return applyTemplateToCaption(tpl, c, dur) as Caption;
+        })
+      );
+      playSfx("click");
+      toast.success(en ? `Applied template "${tpl.nameEn || tpl.name}" to all captions` : `تم تطبيق قالب "${tpl.name}" على جميع الكابشنات`);
+    }
+  };
+
+  const handleSaveCustomTemplate = () => {
+    const name = customNameInput.trim() || (en ? `Custom Style ${customTemplates.length + 1}` : `قالب مخصص ${customTemplates.length + 1}`);
+    const newTpl: TextTemplate = {
+      id: `custom_${Date.now()}`,
+      name,
+      nameEn: name,
+      category: "custom",
+      version: 1,
+      typography: {
+        fontFamily: captionStyle.font || "Cairo",
+        fontSize: captionStyle.size || 22,
+        letterSpacing: captionStyle.letterSpacing || 0,
+        lineHeight: captionStyle.lineHeight || 1.3,
+        textTransform: captionStyle.textTransform || "none",
+      },
+      fill: {
+        color: captionStyle.color || "#ffffff",
+      },
+      stroke: {
+        enabled: Boolean(captionStyle.strokeWidth && captionStyle.strokeWidth > 0),
+        color: captionStyle.strokeColor || "#000000",
+        width: captionStyle.strokeWidth || 0,
+      },
+      shadow: {
+        enabled: Boolean(captionStyle.shadowColor),
+        color: captionStyle.shadowColor || "rgba(0,0,0,0.8)",
+        blur: captionStyle.shadowBlur || 4,
+        offsetX: 0,
+        offsetY: 2,
+      },
+      background: {
+        enabled: Boolean(captionStyle.bg && captionStyle.bg !== "transparent" && captionStyle.bg !== "rgba(0,0,0,0)"),
+        color: captionStyle.bg || "rgba(0,0,0,0.8)",
+        radius: captionStyle.bgRadius || 8,
+        padding: captionStyle.bgPadding || 6,
+      },
+      layout: {
+        position: captionStyle.position || "bottom",
+      },
+      entrance: {
+        animation: captionStyle.animation || "fade",
+        duration: 0.35,
+      },
+      sampleTextAr: "نص مخصص جميل ⭐",
+      sampleTextEn: "Custom Styled Text ⭐",
+      isCustom: true,
+    };
+
+    saveCustomTemplate(newTpl);
+    setCustomTemplates(loadCustomTemplates());
+    setSelectedCategory("custom");
+    setShowSaveCustom(false);
+    setCustomNameInput("");
+    toast.success(en ? `Saved "${name}" to My Presets!` : `تم حفظ "${name}" في قوالبي المخصصة!`);
+  };
+
+  const handleDeleteCustomTemplate = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    deleteCustomTemplate(id);
+    setCustomTemplates(loadCustomTemplates());
+    toast.success(en ? "Preset deleted" : "تم حذف القالب المخصص");
+  };
+
+  const allLibraryTemplates: TextTemplate[] = [...customTemplates, ...TEXT_TEMPLATES];
+
+  const filteredNewTemplates = allLibraryTemplates.filter((t) => {
+    const matchesCategory = selectedCategory === "all" || t.category === selectedCategory;
+    const query = searchQuery.trim().toLowerCase();
+    const matchesSearch = !query ||
+      t.name.toLowerCase().includes(query) ||
+      (t.nameEn && t.nameEn.toLowerCase().includes(query)) ||
+      (t.sampleTextAr && t.sampleTextAr.toLowerCase().includes(query)) ||
+      (t.sampleTextEn && t.sampleTextEn.toLowerCase().includes(query)) ||
+      t.typography.fontFamily.toLowerCase().includes(query);
+    return matchesCategory && matchesSearch;
+  });
+
   const filteredTemplates = TEMPLATES.filter((t) => {
     const matchesCategory = selectedCategory === "all" || t.category === selectedCategory;
     const query = searchQuery.trim().toLowerCase();
@@ -1309,67 +1456,130 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
 
         {tab === "templates" && (
           <div className="space-y-3">
-            {/* Search bar */}
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 absolute right-3 top-2.5 text-muted-foreground pointer-events-none" />
-              <input
-                type="text"
-                placeholder={en ? "Search text presets (e.g. YouTube, News, Neon)..." : "بحث في القوالب والنصوص (يوتيوب، عاجل، نيون)..."}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-secondary/60 border border-border/80 rounded-xl pr-9 pl-3 py-1.5 text-xs focus:outline-none focus:border-primary text-foreground placeholder:text-muted-foreground/60"
-              />
+            {/* Top Bar: Search + Save Current Style Button */}
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="w-3.5 h-3.5 absolute right-3 top-2.5 text-muted-foreground pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder={en ? "Search templates (Viral, Reels, Neon, Cinematic)..." : "بحث في القوالب (فيرال، ريلز، سينمائي، نيون)..."}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-secondary/60 border border-border/80 rounded-xl pr-9 pl-3 py-1.5 text-xs focus:outline-none focus:border-primary text-foreground placeholder:text-muted-foreground/60"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSaveCustom((s) => !s)}
+                className="flex-shrink-0 px-2.5 py-1.5 rounded-xl bg-primary/15 hover:bg-primary/25 text-primary text-[11px] font-bold border border-primary/30 flex items-center gap-1 transition-all"
+                title={en ? "Save current font & style as custom preset" : "حفظ النمط الحالي كقالب مخصص جديد"}
+              >
+                <Star className="w-3 h-3 fill-primary/40" />
+                <span>{en ? "Save Preset" : "حفظ كقالب"}</span>
+              </button>
             </div>
+
+            {/* Inline Save Preset Dialog */}
+            {showSaveCustom && (
+              <div className="p-3 bg-secondary/70 border border-primary/40 rounded-xl space-y-2 animate-in fade-in zoom-in-95 duration-150">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                    <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                    {en ? "Save Current Style as Reusable Template" : "حفظ النمط والخط الحالي كقالب مخصص"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowSaveCustom(false)}
+                    className="w-5 h-5 rounded-md hover:bg-secondary flex items-center justify-center text-muted-foreground"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder={en ? "Enter preset name (e.g. My Glow Viral)..." : "اسم القالب (مثال: نيون احترافي)..."}
+                    value={customNameInput}
+                    onChange={(e) => setCustomNameInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleSaveCustomTemplate();
+                    }}
+                    className="flex-1 bg-background border border-border rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:border-primary text-foreground"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSaveCustomTemplate}
+                    className="px-3 py-1 rounded-lg bg-primary text-primary-foreground font-bold text-xs hover:bg-primary/90 transition-all shadow-xs"
+                  >
+                    {en ? "Save" : "حفظ"}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Category pills */}
             <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-1">
               {TEMPLATE_CATEGORIES.map((cat) => {
                 const isSelected = selectedCategory === cat.id;
+                const count = cat.id === "all"
+                  ? allLibraryTemplates.length
+                  : allLibraryTemplates.filter((t) => t.category === cat.id).length;
                 return (
                   <button
                     key={cat.id}
                     onClick={() => setSelectedCategory(cat.id)}
-                    className={`flex-shrink-0 px-3 py-1 rounded-full text-[11px] font-bold transition-all ${
+                    className={`flex-shrink-0 px-3 py-1 rounded-full text-[11px] font-bold transition-all flex items-center gap-1.5 ${
                       isSelected
                         ? "gradient-primary text-primary-foreground shadow-sm scale-105"
                         : "bg-secondary/80 text-muted-foreground hover:text-foreground hover:bg-secondary"
                     }`}
                   >
-                    {en ? cat.labelEn : cat.labelAr}
+                    <span>{en ? cat.labelEn : cat.labelAr}</span>
+                    {count > 0 && (
+                      <span className={`text-[9px] px-1.5 py-0.2 rounded-full ${isSelected ? "bg-white/25 text-white" : "bg-black/20 text-muted-foreground"}`}>
+                        {count}
+                      </span>
+                    )}
                   </button>
                 );
               })}
             </div>
 
-            {/* Preset Cards Grid */}
-            <div className="grid grid-cols-1 gap-2.5 max-h-[360px] overflow-y-auto pr-0.5 no-scrollbar">
-              {filteredTemplates.length === 0 ? (
-                <div className="p-6 text-center text-muted-foreground text-xs">
-                  {en ? "No templates match your search." : "لم يتم العثور على قوالب تطابق بحثك."}
+            {/* CapCut-inspired Preset Cards Grid */}
+            <div className="grid grid-cols-1 gap-2.5 max-h-[380px] overflow-y-auto pr-0.5 no-scrollbar">
+              {filteredNewTemplates.length === 0 ? (
+                <div className="p-8 text-center text-muted-foreground text-xs bg-secondary/20 rounded-xl border border-border/40">
+                  {selectedCategory === "custom"
+                    ? (en ? "No custom presets saved yet. Click 'Save Preset' to save your active text styling!" : "لا توجد قوالب مخصصة محفوظة بعد. انقر على 'حفظ كقالب' لحفظ نمطك الحالي!")
+                    : (en ? "No templates match your search." : "لم يتم العثور على قوالب تطابق بحثك.")}
                 </div>
               ) : (
-                filteredTemplates.map((t) => (
+                filteredNewTemplates.map((t) => (
                   <div
                     key={t.id}
-                    className="rounded-xl border border-border/70 bg-black/40 p-3 hover:border-primary/60 transition-all flex flex-col gap-2 group relative"
+                    className="rounded-xl border border-border/70 bg-black/40 p-3 hover:border-primary/60 transition-all flex flex-col gap-2 group relative shadow-sm"
                   >
-                    {/* Live preview banner */}
+                    {/* Live styled preview banner */}
                     <div
-                      onClick={() => applyTemplate(t, false)}
-                      className="w-full h-14 rounded-lg bg-slate-950/80 flex items-center justify-center p-2 relative overflow-hidden border border-white/5 cursor-pointer hover:border-primary/50 transition-all"
+                      onClick={() => applyNewTextTemplate(t, false)}
+                      className="w-full h-15 rounded-lg bg-slate-950/85 flex items-center justify-center p-2 relative overflow-hidden border border-white/5 cursor-pointer hover:border-primary/50 transition-all"
                       title={en ? "Click to apply style to all captions" : "انقر لتطبيق القالب على جميع الكابشنات"}
                     >
                       <span
                         style={{
-                          fontFamily: t.font,
-                          color: t.color,
-                          background: t.bg,
-                          fontSize: Math.min(18, t.size),
-                          padding: t.bgPadding ? `${t.bgPadding}px ${t.bgPadding * 2}px` : "4px 10px",
-                          borderRadius: t.bgRadius !== undefined ? t.bgRadius : 8,
-                          letterSpacing: t.letterSpacing ? `${t.letterSpacing}px` : undefined,
-                          textShadow: t.shadowColor ? `0 2px ${t.shadowBlur || 4}px ${t.shadowColor}` : "0 2px 4px rgba(0,0,0,0.8)",
-                          WebkitTextStroke: t.strokeWidth ? `${t.strokeWidth}px ${t.strokeColor || "#000"}` : undefined,
+                          fontFamily: t.typography.fontFamily,
+                          color: t.fill.color,
+                          background: t.background?.enabled ? t.background.color : "transparent",
+                          fontSize: Math.min(18, t.typography.fontSize),
+                          padding: t.background?.enabled ? `${t.background.padding}px ${t.background.padding * 2}px` : "4px 8px",
+                          borderRadius: t.background?.radius !== undefined ? t.background.radius : 6,
+                          letterSpacing: t.typography.letterSpacing ? `${t.typography.letterSpacing}px` : undefined,
+                          textShadow: t.shadow?.enabled
+                            ? `${t.shadow.offsetX ?? 0}px ${t.shadow.offsetY ?? 2}px ${t.shadow.blur}px ${t.shadow.color}`
+                            : undefined,
+                          WebkitTextStroke: t.stroke?.enabled
+                            ? `${t.stroke.width}px ${t.stroke.color}`
+                            : undefined,
                         }}
                         className="truncate max-w-full font-medium"
                       >
@@ -1379,25 +1589,54 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
 
                     {/* Info & action bar */}
                     <div className="flex items-center justify-between gap-2 pt-0.5">
-                      <div className="flex flex-col cursor-pointer" onClick={() => applyTemplate(t, false)}>
-                        <span className="text-xs font-bold text-foreground hover:text-primary transition-colors">
-                          {en ? t.nameEn || t.name : t.name}
-                        </span>
-                        <span className="text-[9px] text-muted-foreground font-mono">
-                          {t.font} • {t.animation}
-                        </span>
+                      <div className="flex flex-col cursor-pointer max-w-[50%]" onClick={() => applyNewTextTemplate(t, false)}>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-xs font-bold text-foreground hover:text-primary transition-colors truncate">
+                            {en ? t.nameEn || t.name : t.name}
+                          </span>
+                          {t.isCustom && (
+                            <span className="text-[9px] bg-amber-500/20 text-amber-400 px-1 rounded font-bold">
+                              {en ? "Custom" : "مخصص"}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground font-mono truncate">
+                          <span>{t.typography.fontFamily}</span>
+                          {t.wordAnimation && (
+                            <span className="text-cyan-400 bg-cyan-400/10 px-1 rounded">
+                              {t.wordAnimation.type}
+                            </span>
+                          )}
+                          {t.characterAnimation && (
+                            <span className="text-purple-400 bg-purple-400/10 px-1 rounded">
+                              {t.characterAnimation.type}
+                            </span>
+                          )}
+                        </div>
                       </div>
 
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        {t.isCustom && (
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteCustomTemplate(t.id, e)}
+                            className="w-7 h-7 rounded-lg bg-destructive/15 hover:bg-destructive/30 text-destructive flex items-center justify-center transition-all"
+                            title={en ? "Delete preset" : "حذف القالب"}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         <button
-                          onClick={() => applyTemplate(t, false)}
+                          type="button"
+                          onClick={() => applyNewTextTemplate(t, false)}
                           className="px-2.5 py-1.5 rounded-lg bg-primary/20 hover:bg-primary/30 text-primary text-[10px] font-bold transition-all border border-primary/30"
-                          title={en ? "Apply style to all captions" : "تطبيق النمط على كل الكابشنات"}
+                          title={en ? "Apply style and animation to all captions" : "تطبيق النمط والأنيميشن على كل الكابشنات"}
                         >
-                          {en ? "Apply Preset ✨" : "تطبيق القالب ✨"}
+                          {en ? "Apply ✨" : "تطبيق القالب ✨"}
                         </button>
                         <button
-                          onClick={() => applyTemplate(t, true)}
+                          type="button"
+                          onClick={() => applyNewTextTemplate(t, true)}
                           className="px-2.5 py-1.5 rounded-lg bg-secondary hover:bg-secondary/80 text-foreground text-[10px] font-bold transition-all flex items-center gap-1 border border-border/60"
                           title={en ? "Add new caption clip" : "إضافة كليب نصي جديد"}
                         >

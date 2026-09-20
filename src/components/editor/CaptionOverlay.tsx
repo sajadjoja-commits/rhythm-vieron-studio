@@ -2,6 +2,7 @@ import { useRef, useState, useCallback, memo, useEffect } from "react";
 import { useMedia, CaptionAnimation, interpolateKeyframes } from "@/context/MediaContext";
 import { X, FlipHorizontal, FlipVertical, RotateCw, Maximize2, WrapText, Youtube, Instagram, Sparkles, MapPin, AlertTriangle, Quote, Bell, Flame, CheckCircle2, Radio, Tv, Hash, Bookmark, Award, Star } from "lucide-react";
 import { snapPreviewTransform } from "@/lib/timelineSnap";
+import { computeWordState, computeCharacterReveal } from "@/lib/textTemplatesLibrary";
 
 const renderBadgeIcon = (iconName?: string) => {
   if (!iconName) return null;
@@ -498,7 +499,50 @@ const CaptionOverlay = memo(({ currentTime }: Props) => {
                   className={`ring-0 transition-shadow flex items-center justify-center gap-1.5 ${isSelected ? "ring-2 ring-primary" : "group-hover:ring-2 group-hover:ring-primary/60"}`}
                 >
                   {renderBadgeIcon(badgeIcon)}
-                  <span>{active.text}</span>
+                  {active.wordAnimation?.enabled ? (
+                    <span className="inline-flex flex-wrap items-center justify-center gap-x-1 gap-y-0.5">
+                      {active.text.split(/\s+/).filter(Boolean).map((word, wIdx, arr) => {
+                        const wState = computeWordState(
+                          wIdx,
+                          arr.length,
+                          localTime,
+                          Math.max(0.1, active.end - active.start),
+                          active.wordAnimation
+                        );
+                        return (
+                          <span
+                            key={wIdx}
+                            style={{
+                              display: "inline-block",
+                              opacity: wState.opacity,
+                              transform: `scale(${wState.scale}) translateY(${wState.translateY}px)`,
+                              color: wState.highlightColor || color,
+                              backgroundColor: wState.highlightBg || undefined,
+                              padding: wState.highlightBg ? "2px 6px" : undefined,
+                              borderRadius: wState.highlightBg ? "6px" : undefined,
+                              transition: "transform 0.08s ease-out, opacity 0.08s ease-out, color 0.08s ease-out",
+                              whiteSpace: "pre",
+                            }}
+                          >
+                            {word}
+                          </span>
+                        );
+                      })}
+                    </span>
+                  ) : active.characterAnimation?.enabled ? (
+                    <span>
+                      {
+                        computeCharacterReveal(
+                          active.text,
+                          localTime,
+                          Math.max(0.1, active.end - active.start),
+                          active.characterAnimation
+                        ).visibleText
+                      }
+                    </span>
+                  ) : (
+                    <span>{active.text}</span>
+                  )}
                 </div>
               )}
 

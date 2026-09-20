@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import {
   ArrowRight, Play, Pause, PauseCircle, Scissors, Type, Music, Sparkles, Ratio, Download,
   Image as ImageIcon, Video, Plus, Wand2, Loader2, Palette, Activity, Layers,
-  Gauge, Zap, Clapperboard, Undo2, Redo2, Eye, EyeOff, RotateCw, Diamond, Minus, Trash2, Maximize2,
+  Gauge, Zap, Clapperboard, Undo2, Redo2, Eye, EyeOff, RotateCw, Diamond, Minus, Trash2, Maximize2, Minimize2,
   ChevronLeft,
 } from "lucide-react";
 import { useMedia, TransitionType, Clip, interpolateKeyframes } from "@/context/MediaContext";
@@ -78,7 +78,20 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
   const [showCropOverlay, setShowCropOverlay] = useState(false);
   const [compareRaw, setCompareRaw] = useState(false); // real-time compare state
   const [showFrame, setShowFrame] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [isPanningPreview, setIsPanningPreview] = useState(false);
+
+  useEffect(() => {
+    const handleFsChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener("fullscreenchange", handleFsChange);
+    document.addEventListener("webkitfullscreenchange", handleFsChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFsChange);
+      document.removeEventListener("webkitfullscreenchange", handleFsChange);
+    };
+  }, []);
   const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null);
   const [mediaReady, setMediaReady] = useState(true);
   const [mediaError, setMediaError] = useState(false);
@@ -1848,7 +1861,11 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
 
             {/* Aspect Ratio Canvas Stage Container */}
             <div
-              className="relative flex items-center justify-center select-none"
+              className={
+                isFullscreen && !document.fullscreenElement
+                  ? "fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-2 sm:p-6"
+                  : "relative flex items-center justify-center select-none"
+              }
               style={{
                 aspectRatio: `${ASPECT_RATIOS[activeRatio]?.w ?? 16} / ${ASPECT_RATIOS[activeRatio]?.h ?? 9}`,
                 height: "100%",
@@ -1862,7 +1879,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
               {/* Inner Clipped Canvas: clips video & media content strictly to export ratio */}
               <div
                 ref={previewRef}
-                className="w-full h-full rounded-xl overflow-hidden relative transition-all duration-200 flex items-center justify-center shadow-2xl bg-black border border-white/20"
+                className={`w-full h-full ${isFullscreen ? "rounded-none border-none" : "rounded-xl border border-white/20"} overflow-hidden relative transition-all duration-200 flex items-center justify-center shadow-2xl bg-black`}
                 style={{
                   ...getPreviewBgStyle(),
                 }}
@@ -2133,8 +2150,8 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
               <CaptionOverlay currentTime={currentTime} />
             </div>
 
-            {/* Extended CapCut-style Transform Bounding Box (Visible on timeline when video track is focused, but hidden when tool panels are open) */}
-            {((focusedTrack === "video" && !tool) || showFrame || isPanningPreview) && !isPlaying && Boolean(resolved?.clip) && (
+            {/* Extended CapCut-style Transform Bounding Box (Visible on timeline when video track is focused, but hidden when tool panels are open or in fullscreen) */}
+            {((focusedTrack === "video" && !tool) || showFrame || isPanningPreview) && !isPlaying && !isFullscreen && Boolean(resolved?.clip) && (
               <div
                 className="absolute inset-0 pointer-events-none z-30 transition-all duration-150"
                 style={{
@@ -2195,6 +2212,132 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
                 {isPanningPreview && Math.abs(activePan.y) < 8 && (
                   <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-0.5 bg-cyan-400 border-b border-dashed border-cyan-200 shadow-[0_0_8px_rgba(6,182,212,0.9)] z-40" />
                 )}
+              </div>
+            )}
+
+            {/* CapCut-style Fullscreen Playback HUD & Interactive Controls */}
+            {isFullscreen && (
+              <div 
+                className="absolute inset-0 z-50 flex flex-col justify-between p-4 pointer-events-auto select-none bg-gradient-to-b from-black/80 via-transparent to-black/90 transition-opacity duration-200"
+                onClick={(e) => {
+                  if ((e.target as HTMLElement).closest("button") || (e.target as HTMLElement).closest("input")) return;
+                  togglePlay();
+                }}
+              >
+                {/* Top Bar: Time, Safe Zones Toggle, Exit Fullscreen */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/15">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="font-mono text-xs font-bold text-white tracking-wider">
+                      {formatTime(currentTime)} / {formatTime(totalDuration)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {ASPECT_RATIOS[activeRatio]?.hasSafeZones && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setShowSafeZones((s) => !s); }}
+                        className={`px-3 py-1 rounded-full text-xs font-bold transition-all border ${
+                          showSafeZones ? "bg-primary text-white border-primary" : "bg-black/60 text-white/80 border-white/20 hover:text-white"
+                        }`}
+                      >
+                        {getLang() === "ar" ? "حدود الأمان" : "Safe Zones"}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (document.fullscreenElement) {
+                          document.exitFullscreen?.().catch(() => {});
+                        }
+                        setIsFullscreen(false);
+                      }}
+                      className="w-8 h-8 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center border border-white/20 active:scale-95 transition-transform"
+                      title={getLang() === "ar" ? "تصغير المعاينة" : "Exit Fullscreen"}
+                    >
+                      <Minimize2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Center subtle Play/Pause pulse icon indicator when paused */}
+                <div className="flex-1 flex items-center justify-center pointer-events-none">
+                  {!isPlaying && (
+                    <div className="w-16 h-16 rounded-full bg-black/50 backdrop-blur-md border border-white/20 flex items-center justify-center text-white shadow-2xl animate-in zoom-in-75 duration-200">
+                      <Play className="w-8 h-8 fill-white translate-x-0.5" />
+                    </div>
+                  )}
+                </div>
+
+                {/* Bottom Bar: Timeline Scrubber Slider & Playback Buttons */}
+                <div className="flex flex-col gap-2 bg-black/60 backdrop-blur-md p-3 rounded-2xl border border-white/15">
+                  <div className="flex items-center gap-3">
+                    <span className="text-[11px] font-mono text-white/70 min-w-[36px]">
+                      {formatTime(currentTime)}
+                    </span>
+                    <div className="relative flex-1 flex items-center h-6 cursor-pointer">
+                      <input
+                        type="range"
+                        min={0}
+                        max={Math.max(0.1, totalDuration)}
+                        step={0.05}
+                        value={currentTime}
+                        onChange={(e) => {
+                          const newTime = parseFloat(e.target.value);
+                          seek(newTime);
+                        }}
+                        className="w-full h-1.5 bg-white/25 rounded-full appearance-none accent-primary cursor-pointer focus:outline-none"
+                      />
+                    </div>
+                    <span className="text-[11px] font-mono text-white/70 min-w-[36px]">
+                      {formatTime(totalDuration)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-center gap-4">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        seek(Math.max(0, currentTime - 1));
+                      }}
+                      className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-transform active:scale-90"
+                      title={getLang() === "ar" ? "تراجع ثانية" : "-1s"}
+                    >
+                      <span className="text-xs font-bold font-mono">-1s</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        togglePlay();
+                      }}
+                      className="w-12 h-12 rounded-full gradient-primary flex items-center justify-center text-white shadow-lg glow-primary active:scale-95 transition-transform"
+                      title={isPlaying ? "إيقاف مؤقت" : "تشغيل"}
+                    >
+                      {isPlaying ? (
+                        <Pause className="w-5 h-5 fill-white" />
+                      ) : (
+                        <Play className="w-5 h-5 fill-white translate-x-0.5" />
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        seek(Math.min(totalDuration, currentTime + 1));
+                      }}
+                      className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-transform active:scale-90"
+                      title={getLang() === "ar" ? "تقدم ثانية" : "+1s"}
+                    >
+                      <span className="text-xs font-bold font-mono">+1s</span>
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -2297,18 +2440,27 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
             )}
             <button
               onClick={() => {
-                if (previewRef.current) {
+                if (document.fullscreenElement || isFullscreen) {
                   if (document.fullscreenElement) {
                     document.exitFullscreen?.().catch(() => {});
+                  }
+                  setIsFullscreen(false);
+                } else {
+                  if (previewRef.current?.requestFullscreen) {
+                    previewRef.current.requestFullscreen().then(() => {
+                      setIsFullscreen(true);
+                    }).catch(() => {
+                      setIsFullscreen(true);
+                    });
                   } else {
-                    previewRef.current.requestFullscreen?.().catch(() => {});
+                    setIsFullscreen(true);
                   }
                 }
               }}
               className="w-7.5 h-7.5 sm:w-8 sm:h-8 rounded-lg bg-secondary/80 hover:bg-secondary flex items-center justify-center text-foreground active:scale-90 transition-transform shadow-xs"
-              title={getLang() === "ar" ? "ملء الشاشة" : "Fullscreen Preview"}
+              title={getLang() === "ar" ? "ملء الشاشة والمعاينة الكاملة" : "Fullscreen Preview"}
             >
-              <Maximize2 className="w-3.5 h-3.5" />
+              {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
             </button>
           </div>
         </div>

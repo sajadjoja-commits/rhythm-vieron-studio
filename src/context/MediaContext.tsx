@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { t } from "@/lib/i18n";
 import { triggerHapticTick } from "@/lib/haptics";
 import { robustSeekVideo } from "@/lib/videoSeeking";
+import type { WordAnimationConfig, CharacterAnimationConfig } from "@/types/textTemplate";
 
 export type MediaType = "video" | "image";
 
@@ -199,6 +200,10 @@ export interface Caption {
   badgeIcon?: string;
   badgePosition?: "left" | "right" | "top";
   presetCategory?: string;
+  templateId?: string;
+  templateOverrides?: Partial<Caption>;
+  wordAnimation?: WordAnimationConfig;
+  characterAnimation?: CharacterAnimationConfig;
 }
 
 export interface CaptionTemplate {

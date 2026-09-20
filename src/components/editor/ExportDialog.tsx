@@ -13,6 +13,7 @@ import { robustSeekVideo } from "@/lib/videoSeeking";
 import { validateExportedVideo } from "@/lib/videoValidator";
 import { isWebCodecsSupported, exportWithWebCodecs } from "@/lib/webcodecsEncoder";
 import { computeVfxState } from "@/lib/vfxEngine";
+import { computeWordState, computeCharacterReveal } from "@/lib/textTemplatesLibrary";
 
 const VireonMedia = registerPlugin<any>('VireonMedia');
 
@@ -1621,6 +1622,8 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
         }
 
         const startY = -((textLines.length - 1) * lineHeightPx) / 2;
+        const capDuration = Math.max(0.1, activeCap.end - activeCap.start);
+
         textLines.forEach((line, idx) => {
           let lineToRender = line;
           if (idx === 0 && badgeIconPrefix) {
@@ -1632,10 +1635,55 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
             ? lineToRender.toLowerCase() 
             : lineToRender;
 
-          if (strokeWidth > 0) {
-            ctx.strokeText(formattedLine, 0, startY + idx * lineHeightPx);
+          const currentLineY = startY + idx * lineHeightPx;
+
+          if (activeCap.wordAnimation?.enabled) {
+            // Word-level rendering matching CaptionOverlay
+            const words = formattedLine.split(/\s+/).filter(Boolean);
+            const spaceW = ctx.measureText(" ").width;
+            const wordWidths = words.map((w) => ctx.measureText(w).width);
+            const totalLineW = wordWidths.reduce((sum, w) => sum + w, 0) + (words.length - 1) * spaceW;
+            let curX = -totalLineW / 2;
+
+            words.forEach((word, wIdx) => {
+              const wState = computeWordState(wIdx, words.length, capLocalTime, capDuration, activeCap.wordAnimation);
+              const wW = wordWidths[wIdx];
+              const wordCenterX = curX + wW / 2;
+
+              if (wState.isVisible) {
+                ctx.save();
+                ctx.translate(wordCenterX, currentLineY + (wState.translateY || 0) * scaleFactor);
+                ctx.scale(wState.scale, wState.scale);
+                ctx.globalAlpha = (ctx.globalAlpha || 1) * wState.opacity;
+
+                if (wState.highlightBg) {
+                  ctx.fillStyle = wState.highlightBg;
+                  const bgPad = 4 * scaleFactor;
+                  ctx.fillRect(-wW / 2 - bgPad, -fontSize / 2, wW + bgPad * 2, fontSize);
+                }
+
+                ctx.fillStyle = wState.highlightColor || color;
+                if (strokeWidth > 0) {
+                  ctx.strokeText(word, 0, 0);
+                }
+                ctx.fillText(word, 0, 0);
+                ctx.restore();
+              }
+              curX += wW + spaceW;
+            });
+          } else if (activeCap.characterAnimation?.enabled) {
+            // Character-level reveal
+            const charResult = computeCharacterReveal(formattedLine, capLocalTime, capDuration, activeCap.characterAnimation);
+            if (strokeWidth > 0) {
+              ctx.strokeText(charResult.visibleText, 0, currentLineY);
+            }
+            ctx.fillText(charResult.visibleText, 0, currentLineY);
+          } else {
+            if (strokeWidth > 0) {
+              ctx.strokeText(formattedLine, 0, currentLineY);
+            }
+            ctx.fillText(formattedLine, 0, currentLineY);
           }
-          ctx.fillText(formattedLine, 0, startY + idx * lineHeightPx);
         });
 
         ctx.restore();
