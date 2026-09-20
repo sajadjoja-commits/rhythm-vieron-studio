@@ -690,6 +690,29 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
   const firstInputRef = useRef<HTMLInputElement | null>(null);
   const srtFileInputRef = useRef<HTMLInputElement | null>(null);
   const en = getLang() === "en";
+  const [applyPositionToAll, setApplyPositionToAll] = useState(true);
+
+  const activeCaptionAtCurrentTime = captions.find((c) => currentTime >= c.start && currentTime <= c.end) || captions[0];
+  const currentXPercent = activeCaptionAtCurrentTime?.xPercent ?? 50;
+  const currentYPercent = activeCaptionAtCurrentTime?.yPercent ?? (captionStyle.position === "top" ? 8 : captionStyle.position === "center" ? 50 : 88);
+
+  const handleUpdatePositionX = (newX: number) => {
+    const clampedX = Math.round(Math.max(0, Math.min(100, newX)));
+    if (applyPositionToAll || !activeCaptionAtCurrentTime) {
+      setCaptions((prev) => prev.map((c) => ({ ...c, xPercent: clampedX })));
+    } else {
+      setCaptions((prev) => prev.map((c) => (c.id === activeCaptionAtCurrentTime.id ? { ...c, xPercent: clampedX } : c)));
+    }
+  };
+
+  const handleUpdatePositionY = (newY: number) => {
+    const clampedY = Math.round(Math.max(0, Math.min(100, newY)));
+    if (applyPositionToAll || !activeCaptionAtCurrentTime) {
+      setCaptions((prev) => prev.map((c) => ({ ...c, yPercent: clampedY })));
+    } else {
+      setCaptions((prev) => prev.map((c) => (c.id === activeCaptionAtCurrentTime.id ? { ...c, yPercent: clampedY } : c)));
+    }
+  };
 
   const handleSRTFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1879,25 +1902,233 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
               />
             </div>
 
-            <div>
-              <label className="text-[10px] text-muted-foreground block mb-1">{en ? "Default Position" : "الموقع الافتراضي"}</label>
-              <div className="flex gap-1">
-                {POSITIONS.map((p) => (
+            {/* Position by Percentage & Precision Placement */}
+            <div className="p-3 rounded-xl border border-primary/30 bg-primary/5 space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-primary flex items-center gap-1.5">
+                  <Sliders className="w-3.5 h-3.5" />
+                  {en ? "Position by Percentage (%)" : "تحريك النص بالنسب المئوية (%)"}
+                </label>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-mono text-primary font-bold bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20">
+                    X: {Math.round(currentXPercent)}% · Y: {Math.round(currentYPercent)}%
+                  </span>
                   <button
-                    key={p}
-                    onClick={() => setCaptionStyle((s) => ({ ...s, position: p }))}
-                    className={`flex-1 py-1.5 rounded text-[10px] font-bold ${
-                      captionStyle.position === p
-                        ? "gradient-primary text-primary-foreground"
-                        : "bg-secondary text-muted-foreground"
+                    type="button"
+                    onClick={() => setApplyPositionToAll((v) => !v)}
+                    className={`text-[9px] px-2 py-0.5 rounded-full border font-bold transition-colors ${
+                      applyPositionToAll
+                        ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                        : "bg-secondary text-muted-foreground border-border"
+                    }`}
+                    title={en ? "Apply to all captions or just current" : "تطبيق على جميع النصوص أو النص الحالي فقط"}
+                  >
+                    {applyPositionToAll ? (en ? "All Captions" : "كل النصوص") : (en ? "Current Only" : "الحالي فقط")}
+                  </button>
+                </div>
+              </div>
+
+              {/* Horizontal Position (X%) Slider */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-muted-foreground font-medium flex items-center gap-1">
+                    ↔️ {en ? "Horizontal (X% - Left/Right)" : "الموقع الأفقي (يسار / يمين X%)"}
+                  </span>
+                  <span className="font-mono font-bold text-primary">{Math.round(currentXPercent)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={currentXPercent}
+                  onChange={(e) => handleUpdatePositionX(Number(e.target.value))}
+                  className="w-full accent-primary h-1.5 bg-secondary rounded-lg appearance-none cursor-pointer"
+                />
+                {/* Horizontal Quick Align Buttons */}
+                <div className="grid grid-cols-5 gap-1 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => handleUpdatePositionX(10)}
+                    className={`py-1 px-0.5 rounded text-[9px] font-bold transition-colors border text-center ${
+                      Math.round(currentXPercent) === 10
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-secondary hover:bg-primary/20 text-muted-foreground hover:text-primary border-border/50"
+                    }`}
+                    title="10%"
+                  >
+                    {en ? "Far Left" : "أقصى اليسار"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleUpdatePositionX(25)}
+                    className={`py-1 px-0.5 rounded text-[9px] font-bold transition-colors border text-center ${
+                      Math.round(currentXPercent) === 25
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-secondary hover:bg-primary/20 text-muted-foreground hover:text-primary border-border/50"
+                    }`}
+                    title="25%"
+                  >
+                    {en ? "Left 25%" : "يسار 25%"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleUpdatePositionX(50)}
+                    className={`py-1 px-0.5 rounded text-[9px] font-bold transition-colors border text-center ${
+                      Math.round(currentXPercent) === 50
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-secondary hover:bg-primary/20 text-muted-foreground hover:text-primary border-border/50"
+                    }`}
+                    title="50%"
+                  >
+                    {en ? "Center 50%" : "وسط 50%"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleUpdatePositionX(75)}
+                    className={`py-1 px-0.5 rounded text-[9px] font-bold transition-colors border text-center ${
+                      Math.round(currentXPercent) === 75
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-secondary hover:bg-primary/20 text-muted-foreground hover:text-primary border-border/50"
+                    }`}
+                    title="75%"
+                  >
+                    {en ? "Right 75%" : "يمين 75%"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleUpdatePositionX(90)}
+                    className={`py-1 px-0.5 rounded text-[9px] font-bold transition-colors border text-center ${
+                      Math.round(currentXPercent) === 90
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-secondary hover:bg-primary/20 text-muted-foreground hover:text-primary border-border/50"
+                    }`}
+                    title="90%"
+                  >
+                    {en ? "Far Right" : "أقصى اليمين"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Vertical Position (Y%) Slider */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-muted-foreground font-medium flex items-center gap-1">
+                    ↕️ {en ? "Vertical (Y% - Top/Bottom)" : "الموقع العمودي (أعلى / أسفل Y%)"}
+                  </span>
+                  <span className="font-mono font-bold text-primary">{Math.round(currentYPercent)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={currentYPercent}
+                  onChange={(e) => handleUpdatePositionY(Number(e.target.value))}
+                  className="w-full accent-primary h-1.5 bg-secondary rounded-lg appearance-none cursor-pointer"
+                />
+                {/* Vertical Quick Align Buttons */}
+                <div className="grid grid-cols-3 gap-1 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCaptionStyle((s) => ({ ...s, position: "top" }));
+                      handleUpdatePositionY(10);
+                    }}
+                    className={`py-1 px-1 rounded text-[10px] font-bold transition-colors border text-center ${
+                      Math.round(currentYPercent) === 10
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-secondary hover:bg-primary/20 text-muted-foreground hover:text-primary border-border/50"
                     }`}
                   >
-                    {p === "top" ? (en ? "Top" : "أعلى") : p === "center" ? (en ? "Center" : "وسط") : (en ? "Bottom" : "أسفل")}
+                    {en ? "Top (10%)" : "أعلى (10%)"}
                   </button>
-                ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCaptionStyle((s) => ({ ...s, position: "center" }));
+                      handleUpdatePositionY(50);
+                    }}
+                    className={`py-1 px-1 rounded text-[10px] font-bold transition-colors border text-center ${
+                      Math.round(currentYPercent) === 50
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-secondary hover:bg-primary/20 text-muted-foreground hover:text-primary border-border/50"
+                    }`}
+                  >
+                    {en ? "Middle (50%)" : "منتصف (50%)"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCaptionStyle((s) => ({ ...s, position: "bottom" }));
+                      handleUpdatePositionY(88);
+                    }}
+                    className={`py-1 px-1 rounded text-[10px] font-bold transition-colors border text-center ${
+                      Math.round(currentYPercent) === 88
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-secondary hover:bg-primary/20 text-muted-foreground hover:text-primary border-border/50"
+                    }`}
+                  >
+                    {en ? "Bottom (88%)" : "أسفل (88%)"}
+                  </button>
+                </div>
               </div>
-              <p className="text-[9px] text-muted-foreground mt-1">
-                {en ? "💡 You can drag the caption on the video preview to manually reposition it" : "💡 يمكن سحب الكابشن على المعاينة لتغيير موقعه يدوياً"}
+
+              {/* Step Nudge Controls (أزرار التحريك الدقيق خطوة بخطوة) */}
+              <div className="pt-2 border-t border-border/40">
+                <div className="text-[10px] text-muted-foreground mb-1.5 flex items-center justify-between">
+                  <span>{en ? "Precision Step Movement (±2%)" : "تحريك دقيق خطوة بخطوة (±2%)"}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleUpdatePositionX(50);
+                      handleUpdatePositionY(88);
+                    }}
+                    className="text-[9px] text-primary hover:underline font-bold"
+                  >
+                    {en ? "Reset Center" : "إعادة للوسط"}
+                  </button>
+                </div>
+                <div className="flex items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleUpdatePositionX(currentXPercent - 2)}
+                    className="px-3 py-1.5 rounded-lg bg-secondary hover:bg-primary/20 text-foreground font-bold text-xs border border-border transition-all active:scale-95 flex items-center gap-1 shadow-sm"
+                    title={en ? "Move Left 2%" : "تحريك لليسار 2%"}
+                  >
+                    ◀ {en ? "Left -2%" : "يسار 2%"}
+                  </button>
+                  <div className="flex flex-col gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleUpdatePositionY(currentYPercent - 2)}
+                      className="px-2.5 py-0.5 rounded bg-secondary hover:bg-primary/20 text-foreground font-bold text-xs border border-border transition-all active:scale-95 shadow-sm"
+                      title={en ? "Move Up 2%" : "تحريك لأعلى 2%"}
+                    >
+                      ▲
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleUpdatePositionY(currentYPercent + 2)}
+                      className="px-2.5 py-0.5 rounded bg-secondary hover:bg-primary/20 text-foreground font-bold text-xs border border-border transition-all active:scale-95 shadow-sm"
+                      title={en ? "Move Down 2%" : "تحريك لأسفل 2%"}
+                    >
+                      ▼
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleUpdatePositionX(currentXPercent + 2)}
+                    className="px-3 py-1.5 rounded-lg bg-secondary hover:bg-primary/20 text-foreground font-bold text-xs border border-border transition-all active:scale-95 flex items-center gap-1 shadow-sm"
+                    title={en ? "Move Right 2%" : "تحريك لليمين 2%"}
+                  >
+                    {en ? "Right +2%" : "يمين 2%"} ▶
+                  </button>
+                </div>
+              </div>
+
+              <p className="text-[9px] text-muted-foreground text-center">
+                {en ? "💡 You can also drag the caption directly on the preview to place it freely anywhere." : "💡 يمكنك أيضاً سحب النص مباشرة على شاشة المعاينة لوضعه في أي مكان بحرية تامة."}
               </p>
             </div>
 

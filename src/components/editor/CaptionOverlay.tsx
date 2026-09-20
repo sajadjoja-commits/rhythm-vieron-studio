@@ -95,12 +95,8 @@ const CaptionOverlay = memo(({ currentTime }: Props) => {
     };
   }, []);
   
-  const dragRefs = useRef<Record<string, {
-    startX: number;
-    startY: number;
-    startXPercent: number;
-    startYPercent: number;
-  }>>({});
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const [dragLiveCoords, setDragLiveCoords] = useState<{ x: number; y: number } | null>(null);
 
   const touchStateRef = useRef<{
     startXPercent: number;
@@ -115,42 +111,7 @@ const CaptionOverlay = memo(({ currentTime }: Props) => {
 
   if (activeList.length === 0) return null;
 
-  const startDrag = (e: React.PointerEvent, id: string, startXPercent: number, startYPercent: number) => {
-    if (editingId === id) return;
-    e.stopPropagation();
-    setSelectedId(id);
-    
-    const container = containerRef.current?.parentElement;
-    if (!container) return;
-    
-    e.preventDefault();
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-    
-    dragRefs.current[id] = {
-      startX: e.clientX,
-      startY: e.clientY,
-      startXPercent,
-      startYPercent
-    };
-  };
-
-  const onMove = (e: React.PointerEvent, id: string) => {
-    const drag = dragRefs.current[id];
-    if (!drag) return;
-    
-    const container = containerRef.current?.parentElement;
-    if (!container) return;
-    const rect = container.getBoundingClientRect();
-    
-    const dx = e.clientX - drag.startX;
-    const dy = e.clientY - drag.startY;
-    
-    const rawX = Math.max(4, Math.min(96, drag.startXPercent + (dx / rect.width) * 100));
-    const rawY = Math.max(4, Math.min(96, drag.startYPercent + (dy / rect.height) * 100));
-    const snapped = snapPreviewTransform({ x: rawX, y: rawY });
-    const nextXPercent = snapped.x;
-    const nextYPercent = snapped.y;
-    
+  const applyPositionUpdate = (id: string, nextXPercent: number, nextYPercent: number) => {
     const active = captions.find((c) => c.id === id);
     if (!active) return;
 
@@ -219,8 +180,59 @@ const CaptionOverlay = memo(({ currentTime }: Props) => {
     }
   };
 
-  const endDrag = (id: string) => {
-    delete dragRefs.current[id];
+  const startDrag = (e: React.PointerEvent, id: string, startXPercent: number, startYPercent: number) => {
+    if (editingId === id) return;
+    e.stopPropagation();
+    e.preventDefault();
+    setSelectedId(id);
+    
+    // Container reference: check element itself or its parent canvas
+    const container = containerRef.current?.parentElement || containerRef.current;
+    if (!container) return;
+    const initialRect = container.getBoundingClientRect();
+    if (initialRect.width <= 0 || initialRect.height <= 0) return;
+
+    setActiveDragId(id);
+    setDragLiveCoords({ x: Math.round(startXPercent), y: Math.round(startYPercent) });
+
+    const startClientX = e.clientX;
+    const startClientY = e.clientY;
+
+    const onPointerMove = (ev: PointerEvent) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+
+      const curRect = container.getBoundingClientRect();
+      if (curRect.width <= 0 || curRect.height <= 0) return;
+
+      const dx = ev.clientX - startClientX;
+      const dy = ev.clientY - startClientY;
+
+      // Fully unrestricted movement: allow moving from 0% left edge to 100% right edge and beyond (-5% to 105%)
+      const rawX = Math.max(-5, Math.min(105, startXPercent + (dx / curRect.width) * 100));
+      const rawY = Math.max(2, Math.min(98, startYPercent + (dy / curRect.height) * 100));
+
+      // Gentle snap to center axes with smooth release
+      const snapped = snapPreviewTransform({ x: rawX, y: rawY, thresholdPercent: 1.5 });
+      const nextX = Math.round(snapped.x * 10) / 10;
+      const nextY = Math.round(snapped.y * 10) / 10;
+
+      setDragLiveCoords({ x: Math.round(nextX), y: Math.round(nextY) });
+      applyPositionUpdate(id, nextX, nextY);
+    };
+
+    const onPointerUp = (ev: PointerEvent) => {
+      ev.stopPropagation();
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+      setActiveDragId(null);
+      setDragLiveCoords(null);
+    };
+
+    window.addEventListener("pointermove", onPointerMove, { passive: false });
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
   };
 
   const handleTouchStart = (e: React.TouchEvent, id: string) => {
@@ -418,89 +430,96 @@ const CaptionOverlay = memo(({ currentTime }: Props) => {
 
         return (
           <div
-            key={active.id + animation}
+            key={active.id}
             data-caption-text
-            className={`absolute flex justify-center px-3 ${animClass(animation)}`}
+            className="absolute select-none pointer-events-none"
             style={{ 
               top: `${yPercent}%`, 
               left: `${xPercent}%`, 
               transform: "translate(-50%, -50%)",
+              width: "max-content",
+              minWidth: "max-content",
+              maxWidth: "none",
               opacity: opacity,
               position: "absolute",
-              zIndex: isSelected ? 50 : 10
+              zIndex: isSelected ? 50 : 10,
+              direction: "ltr",
             }}
           >
-            <div 
-              className="relative pointer-events-auto group"
-              style={{
-                transform: `scale(${scale}) rotate(${rotation}deg) scaleX(${flipH ? -1 : 1}) scaleY(${flipV ? -1 : 1})`,
-                transformOrigin: "center center"
-              }}
-              onTouchStart={(e) => handleTouchStart(e, active.id)}
-              onTouchMove={(e) => handleTouchMove(e, active.id)}
-              onTouchEnd={handleTouchEnd}
-            >
-              {editingId === active.id ? (
-                <input
-                  autoFocus
-                  value={draftText}
-                  onChange={(e) => setDraftText(e.target.value)}
-                  onBlur={() => commitEdit(active.id, active.text)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") commitEdit(active.id, active.text);
-                    if (e.key === "Escape") setEditingId(null);
-                  }}
-                  dir={captionStyle.language === "ar" ? "rtl" : "ltr"}
-                  style={{
-                    fontFamily: font,
-                    fontSize: Math.min(size, 28),
-                    color,
-                    background: bg,
-                    padding: "4px 10px",
-                    borderRadius: 8,
-                    outline: "2px solid hsl(var(--primary))",
-                    textAlign: "center",
-                    minWidth: 80,
-                    maxWidth: "80vw",
-                    textShadow: "0 2px 4px rgba(0,0,0,0.8)"
-                  }}
-                />
-              ) : (
-                <div
-                  onPointerDown={(e) => startDrag(e, active.id, xPercent, yPercent)}
-                  onPointerMove={(e) => onMove(e, active.id)}
-                  onPointerUp={() => endDrag(active.id)}
-                  onPointerCancel={() => endDrag(active.id)}
-                  onWheel={(e) => handleWheel(e, active.id, scale)}
-                  onDoubleClick={() => beginEdit(active.id, active.text)}
-                  dir={captionStyle.language === "ar" ? "rtl" : "ltr"}
-                  style={{
-                    fontFamily: font,
-                    fontSize: Math.min(size, 28),
-                    color,
-                    background: bg,
-                    padding: bgPadding ? `${bgPadding}px ${bgPadding * 2}px` : "4px 12px",
-                    borderRadius: bgRadius,
-                    whiteSpace: active.isMultiLine ? "pre-wrap" : "nowrap",
-                    maxWidth: active.isMultiLine ? "75vw" : "none",
-                    textAlign: "center",
-                    lineHeight: lineHeight,
-                    letterSpacing: letterSpacing ? `${letterSpacing}px` : undefined,
-                    textTransform: textTransform,
-                    cursor: "grab",
-                    touchAction: "none",
-                    userSelect: "none",
-                    boxShadow: isSelected ? "0 4px 20px rgba(var(--primary-rgb),0.5)" : "0 2px 12px rgba(0,0,0,0.35)",
-                    textShadow: shadowColor
-                      ? `${active.shadowOffsetX || 0}px ${active.shadowOffsetY || 2}px ${shadowBlur}px ${shadowColor}`
-                      : "0 2px 4px rgba(0,0,0,0.8)",
-                    WebkitTextStroke: strokeWidth > 0 ? `${strokeWidth}px ${strokeColor}` : undefined,
-                  }}
-                  className={`ring-0 transition-shadow flex items-center justify-center gap-1.5 ${isSelected ? "ring-2 ring-primary" : "group-hover:ring-2 group-hover:ring-primary/60"}`}
-                >
+            {/* Animation Wrapper: isolates animation transforms from position */}
+            <div className={`flex justify-center px-1 ${animClass(animation)}`} style={{ width: "max-content", minWidth: "max-content" }}>
+              <div 
+                className="relative pointer-events-auto group"
+                style={{
+                  transform: `scale(${scale}) rotate(${rotation}deg) scaleX(${flipH ? -1 : 1}) scaleY(${flipV ? -1 : 1})`,
+                  transformOrigin: "center center",
+                  width: "max-content",
+                  minWidth: "max-content",
+                }}
+                onTouchStart={(e) => handleTouchStart(e, active.id)}
+                onTouchMove={(e) => handleTouchMove(e, active.id)}
+                onTouchEnd={handleTouchEnd}
+              >
+                {editingId === active.id ? (
+                  <input
+                    autoFocus
+                    value={draftText}
+                    onChange={(e) => setDraftText(e.target.value)}
+                    onBlur={() => commitEdit(active.id, active.text)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitEdit(active.id, active.text);
+                      if (e.key === "Escape") setEditingId(null);
+                    }}
+                    dir={captionStyle.language === "ar" ? "rtl" : "ltr"}
+                    style={{
+                      fontFamily: font,
+                      fontSize: Math.min(size, 28),
+                      color,
+                      background: bg,
+                      padding: "4px 10px",
+                      borderRadius: 8,
+                      outline: "2px solid hsl(var(--primary))",
+                      textAlign: "center",
+                      minWidth: 80,
+                      maxWidth: "80vw",
+                      textShadow: "0 2px 4px rgba(0,0,0,0.8)"
+                    }}
+                  />
+                ) : (
+                  <div
+                    onPointerDown={(e) => startDrag(e, active.id, xPercent, yPercent)}
+                    onWheel={(e) => handleWheel(e, active.id, scale)}
+                    onDoubleClick={() => beginEdit(active.id, active.text)}
+                    dir={captionStyle.language === "ar" ? "rtl" : "ltr"}
+                    style={{
+                      fontFamily: font,
+                      fontSize: Math.min(size, 28),
+                      color,
+                      background: bg,
+                      padding: bgPadding ? `${bgPadding}px ${bgPadding * 2}px` : "4px 12px",
+                      borderRadius: bgRadius,
+                      whiteSpace: active.isMultiLine ? "pre" : "nowrap",
+                      width: "max-content",
+                      minWidth: "max-content",
+                      maxWidth: "none",
+                      textAlign: "center",
+                      lineHeight: lineHeight,
+                      letterSpacing: letterSpacing ? `${letterSpacing}px` : undefined,
+                      textTransform: textTransform,
+                      cursor: "grab",
+                      touchAction: "none",
+                      userSelect: "none",
+                      boxShadow: isSelected ? "0 4px 20px rgba(var(--primary-rgb),0.5)" : "0 2px 12px rgba(0,0,0,0.35)",
+                      textShadow: shadowColor
+                        ? `${active.shadowOffsetX || 0}px ${active.shadowOffsetY || 2}px ${shadowBlur}px ${shadowColor}`
+                        : "0 2px 4px rgba(0,0,0,0.8)",
+                      WebkitTextStroke: strokeWidth > 0 ? `${strokeWidth}px ${strokeColor}` : undefined,
+                    }}
+                    className={`ring-0 transition-shadow flex items-center justify-center gap-1.5 active:cursor-grabbing ${isSelected ? "ring-2 ring-primary" : "group-hover:ring-2 group-hover:ring-primary/60"}`}
+                  >
                   {renderBadgeIcon(badgeIcon)}
                   {active.wordAnimation?.enabled ? (
-                    <span className="inline-flex flex-wrap items-center justify-center gap-x-1 gap-y-0.5">
+                    <span className="inline-flex flex-nowrap items-center justify-center gap-x-1 gap-y-0.5" style={{ width: "max-content", minWidth: "max-content" }}>
                       {active.text.split(/\s+/).filter(Boolean).map((word, wIdx, arr) => {
                         const wState = computeWordState(
                           wIdx,
@@ -629,6 +648,7 @@ const CaptionOverlay = memo(({ currentTime }: Props) => {
                   </div>
                 </>
               )}
+            </div>
             </div>
           </div>
         );

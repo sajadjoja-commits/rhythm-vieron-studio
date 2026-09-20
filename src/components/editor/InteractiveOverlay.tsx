@@ -94,8 +94,8 @@ const InteractiveOverlay = memo(({ overlay, selected, containerRef, currentTime 
       const touch = e.touches[0];
       const dx = touch.clientX - gesture.startX;
       const dy = touch.clientY - gesture.startY;
-      const rawX = Math.max(5, Math.min(95, gesture.startXPercent + (dx / rect.width) * 100));
-      const rawY = Math.max(5, Math.min(95, gesture.startYPercent + (dy / rect.height) * 100));
+      const rawX = Math.max(0, Math.min(100, gesture.startXPercent + (dx / rect.width) * 100));
+      const rawY = Math.max(0, Math.min(100, gesture.startYPercent + (dy / rect.height) * 100));
       const snapped = snapPreviewTransform({ x: rawX, y: rawY, rotation: overlay.rotation });
       onUpdate(overlay.id, {
         x: snapped.x,
@@ -162,8 +162,8 @@ const InteractiveOverlay = memo(({ overlay, selected, containerRef, currentTime 
 
       const dx = ev.clientX - gesture.startX;
       const dy = ev.clientY - gesture.startY;
-      const rawX = Math.max(5, Math.min(95, gesture.startXPercent + (dx / rect.width) * 100));
-      const rawY = Math.max(5, Math.min(95, gesture.startYPercent + (dy / rect.height) * 100));
+      const rawX = Math.max(0, Math.min(100, gesture.startXPercent + (dx / rect.width) * 100));
+      const rawY = Math.max(0, Math.min(100, gesture.startYPercent + (dy / rect.height) * 100));
       const snapped = snapPreviewTransform({ x: rawX, y: rawY, rotation: overlay.rotation });
       onUpdate(overlay.id, {
         x: snapped.x,

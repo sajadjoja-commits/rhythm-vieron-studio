@@ -1012,8 +1012,8 @@ export function applyTemplateToCaption(
   caption: Partial<Caption>,
   duration: number
 ): Caption {
-  const generatedKeyframes = generateKeyframesForTemplate(template, duration);
-
+  // Templates have automatic built-in motion (entrance animation, word animation, character animation)
+  // They do not force artificial timeline keyframes onto the caption.
   return {
     id: caption.id || `cap_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     start: caption.start ?? 0,
@@ -1022,29 +1022,29 @@ export function applyTemplateToCaption(
     font: template.typography.fontFamily,
     size: template.typography.fontSize,
     color: template.fill.color,
-    bg: template.background.enabled ? template.background.color : "rgba(0,0,0,0)",
-    bgRadius: template.background.radius,
-    bgPadding: template.background.padding,
-    strokeColor: template.stroke.enabled ? template.stroke.color : undefined,
-    strokeWidth: template.stroke.enabled ? template.stroke.width : 0,
-    shadowColor: template.shadow.enabled ? template.shadow.color : undefined,
-    shadowBlur: template.shadow.enabled ? template.shadow.blur : 0,
-    shadowOffsetX: template.shadow.enabled ? template.shadow.offsetX : 0,
-    shadowOffsetY: template.shadow.enabled ? template.shadow.offsetY : 0,
+    bg: template.background?.enabled ? template.background.color : "rgba(0,0,0,0)",
+    bgRadius: template.background?.radius,
+    bgPadding: template.background?.padding,
+    strokeColor: template.stroke?.enabled ? template.stroke.color : undefined,
+    strokeWidth: template.stroke?.enabled ? template.stroke.width : 0,
+    shadowColor: template.shadow?.enabled ? template.shadow.color : undefined,
+    shadowBlur: template.shadow?.enabled ? template.shadow.blur : 0,
+    shadowOffsetX: template.shadow?.enabled ? template.shadow.offsetX : 0,
+    shadowOffsetY: template.shadow?.enabled ? template.shadow.offsetY : 0,
     letterSpacing: template.typography.letterSpacing,
     lineHeight: template.typography.lineHeight,
     textTransform: template.typography.textTransform,
-    animation: (template.entrance.animation as CaptionAnimation) || "none",
+    animation: (template.entrance?.animation as CaptionAnimation) || "none",
     badgeIcon: template.badgeIcon,
     badgePosition: template.badgePosition,
     presetCategory: template.category,
     templateId: template.id,
     wordAnimation: template.wordAnimation,
     characterAnimation: template.characterAnimation,
-    keyframes: generatedKeyframes,
-    yPercent: template.layout.yPercent,
-    xPercent: template.layout.xPercent,
-    scale: template.layout.scale,
-    rotation: template.layout.rotation,
+    keyframes: undefined,
+    yPercent: caption.yPercent ?? template.layout.yPercent,
+    xPercent: caption.xPercent ?? template.layout.xPercent,
+    scale: caption.scale ?? template.layout.scale,
+    rotation: caption.rotation ?? template.layout.rotation,
   };
 }
