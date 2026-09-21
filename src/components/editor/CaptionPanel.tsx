@@ -4,7 +4,7 @@ import { useAdGate } from "@/context/AdGateContext";
 import { X, Plus, Trash2, Type, Languages, Sparkles, Loader2, Palette, Eye, EyeOff, Check, Music, AlertTriangle, CheckCircle2, RotateCw, RefreshCw, Search, Layers, Sliders, Zap, BookOpen, Radio, Youtube, Instagram, MapPin, Quote, Star, Flame, Award, WrapText, FlipHorizontal, FlipVertical, Upload, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { Capacitor } from "@capacitor/core";
-import { transcribeLocally, TranscribedSegment } from "@/lib/localTranscribe";
+import { captionService } from "@/services/caption";
 import { AudioSourceResolver } from "@/ai/audio/AudioSourceResolver";
 import { analyzeAudioTrack } from "@/lib/beatDetector";
 import { parseSRT } from "@/lib/srtParser";
@@ -927,7 +927,7 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
     setExtractMsg(en ? "Preparing audio for speech extraction..." : "تجهيز مقطع الصوت لاستخراج الكلام...");
 
     try {
-      const mergedItems = await transcribeLocally(targetSource, {
+      const mergedItems = await captionService.transcribe(targetSource, {
         language: captionStyle.language,
         startTime: resolved?.start || 0,
         endTime: resolved ? resolved.start + resolved.duration : undefined,
@@ -1015,7 +1015,7 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
     toast.info(en ? "Re-transcribing segment locally..." : "جارٍ إعادة استخراج المقطع المحدّد محلياً...");
 
     try {
-      const items = await transcribeLocally(targetSource, {
+      const items = await captionService.transcribe(targetSource, {
         startTime: start,
         endTime: end,
         language: captionStyle.language,
