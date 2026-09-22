@@ -2,6 +2,7 @@ package com.vireon.ai;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.view.View;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import androidx.core.splashscreen.SplashScreen;
@@ -28,17 +29,14 @@ public class MainActivity extends BridgeActivity {
             // Performance & WebGL / Video Playback Optimization
             settings.setMediaPlaybackRequiresUserGesture(false);
             settings.setDomStorageEnabled(true);
-            settings.setDatabaseEnabled(true);
             settings.setAllowFileAccess(false);
             settings.setAllowContentAccess(false);
             settings.setJavaScriptEnabled(true);
             settings.setCacheMode(WebSettings.LOAD_NO_CACHE); // إجبار أندرويد على قراءة التحديثات البرمجية الجديدة فوراً وعدم استخدام كاش قديم
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-                settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-            }
+            settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
             // مسح الكاش المخزن تماماً لمنع بقاء أي إصدار قديم
             webView.clearCache(true);
-            webView.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null);
+            webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
             webView.setKeepScreenOn(true);
         }
     }
