@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { Capacitor, registerPlugin } from "@capacitor/core";
 import { CaptionService } from "../CaptionService";
 import { WebCaptionProvider } from "../WebCaptionProvider";
 import { AndroidCaptionProvider } from "../AndroidCaptionProvider";
@@ -25,6 +26,28 @@ vi.mock("@/lib/localTranscribe", () => ({
   }),
 }));
 
+const mockNativeSTT = {
+  isAvailable: vi.fn().mockResolvedValue({
+    available: true,
+    hasLibrary: true,
+    hasModel: true,
+    modelPath: "/data/user/0/com.vireon.ai/files/models/whisper/ggml-model.bin",
+    engine: "whisper.cpp",
+  }),
+  transcribe: vi.fn().mockResolvedValue({
+    success: true,
+    segments: [
+      {
+        start: 0.5,
+        end: 2.2,
+        text: "مرحبا بكم في استوديو فيرون الأصلي",
+        confidence: 0.98,
+      },
+    ],
+  }),
+  cancel: vi.fn().mockResolvedValue({ cancelled: true }),
+};
+
 // Mock @capacitor/core
 vi.mock("@capacitor/core", () => ({
   Capacitor: {
@@ -32,11 +55,27 @@ vi.mock("@capacitor/core", () => ({
     getPlatform: vi.fn(() => "web"),
     isPluginAvailable: vi.fn(() => false),
   },
+  registerPlugin: vi.fn(() => mockNativeSTT),
 }));
 
-describe("Caption Architecture Refactor (Phase 2)", () => {
+// Mock @capacitor/filesystem
+vi.mock("@capacitor/filesystem", () => ({
+  Filesystem: {
+    writeFile: vi.fn().mockResolvedValue({ uri: "file:///cache/temp.mp4" }),
+    deleteFile: vi.fn().mockResolvedValue(true),
+  },
+  Directory: {
+    Cache: "CACHE",
+    Data: "DATA",
+  },
+}));
+
+describe("Caption Architecture (Phase 2 & Phase 3)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
+    vi.mocked(Capacitor.getPlatform).mockReturnValue("web");
+    vi.mocked(Capacitor.isPluginAvailable).mockReturnValue(false);
   });
 
   describe("WebCaptionProvider", () => {
@@ -87,6 +126,50 @@ describe("Caption Architecture Refactor (Phase 2)", () => {
     it("should fall back transparently to Web provider when native is not installed", async () => {
       const provider = new AndroidCaptionProvider();
       const segments = await provider.transcribe("mock-audio-source", { language: "ar" });
+      expect(segments).toHaveLength(1);
+      expect(segments[0].text).toBe("مرحبا بكم في استوديو فيرون");
+    });
+
+    it("should execute native VireonSTT when on Android and native plugin is available", async () => {
+      vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+      vi.mocked(Capacitor.getPlatform).mockReturnValue("android");
+      vi.mocked(Capacitor.isPluginAvailable).mockReturnValue(true);
+
+      const provider = new AndroidCaptionProvider();
+      expect(provider.isNativeCapabilityAvailable()).toBe(true);
+
+      const segments = await provider.transcribe("/data/user/0/com.vireon.ai/cache/audio.mp4", {
+        language: "ar",
+        startTime: 10.0,
+      });
+
+      expect(mockNativeSTT.transcribe).toHaveBeenCalledWith(
+        expect.objectContaining({
+          audioPath: "/data/user/0/com.vireon.ai/cache/audio.mp4",
+          language: "ar",
+          startTime: 10.0,
+        })
+      );
+      expect(segments.length).toBeGreaterThan(0);
+      expect(segments[0].text).toContain("مرحبا بكم في استوديو فيرون");
+    });
+
+    it("should gracefully fall back to WebCaptionProvider if native STT fails (e.g. model missing)", async () => {
+      vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+      vi.mocked(Capacitor.getPlatform).mockReturnValue("android");
+      vi.mocked(Capacitor.isPluginAvailable).mockReturnValue(true);
+
+      mockNativeSTT.transcribe.mockRejectedValueOnce({
+        code: "NATIVE_MODEL_NOT_FOUND",
+        message: "Model file not found on disk",
+      });
+
+      const provider = new AndroidCaptionProvider();
+      const segments = await provider.transcribe("/data/user/0/com.vireon.ai/cache/audio.mp4", {
+        language: "ar",
+      });
+
+      // Verification: Even with native failure, returned valid transcript via Web fallback
       expect(segments).toHaveLength(1);
       expect(segments[0].text).toBe("مرحبا بكم في استوديو فيرون");
     });

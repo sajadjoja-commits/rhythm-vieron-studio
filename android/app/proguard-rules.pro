@@ -12,6 +12,14 @@
     @android.webkit.JavascriptInterface <methods>;
 }
 
+# Keep rules for Vireon Native AI STT & Whisper JNI bridge
+-keep class com.vireon.ai.VireonSTTPlugin { *; }
+-keep class com.vireon.ai.WhisperNative {
+    native <methods>;
+    *;
+}
+-keep class com.vireon.ai.NativeAudioDecoder { *; }
+
 # Uncomment this to preserve the line number information for
 # debugging stack traces.
 #-keepattributes SourceFile,LineNumberTable
