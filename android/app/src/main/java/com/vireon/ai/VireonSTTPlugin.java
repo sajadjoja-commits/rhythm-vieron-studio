@@ -2,6 +2,7 @@ package com.vireon.ai;
 
 import android.Manifest;
 import android.content.Context;
+import android.content.res.AssetManager;
 import android.os.Build;
 import android.util.Log;
 
@@ -14,15 +15,20 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Native Speech-to-Text (STT) Plugin for Vireon AI Studio on Android.
  * 
- * Provides on-device offline Whisper inference via native JNI whisper.cpp bridge,
- * with high-performance local audio decoding and non-blocking background execution.
+ * Executes on-device offline Whisper inference via native JNI whisper.cpp,
+ * using high-performance local audio decoding (MediaCodec/MediaExtractor)
+ * and responsive abort_callback cancellation.
  */
 @CapacitorPlugin(
     name = "VireonSTT",
@@ -44,9 +50,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class VireonSTTPlugin extends Plugin {
     private static final String TAG = "VireonSTT";
 
-    // Dedicated single background thread for native Whisper inference
+    // Dedicated single background thread for native Whisper inference (whisper.cpp is single-context thread-bound)
     private final ExecutorService mExecutor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean mIsCancelled = new AtomicBoolean(false);
+    private final AtomicLong mActiveContextPtr = new AtomicLong(0);
 
     /**
      * Check whether native Whisper STT is available and ready on this device.
@@ -63,20 +70,35 @@ public class VireonSTTPlugin extends Plugin {
         result.put("hasModel", hasModel);
         result.put("modelPath", modelPath != null ? modelPath : "");
         result.put("engine", "whisper.cpp");
+
+        if (hasLib) {
+            try {
+                result.put("systemInfo", WhisperNative.getSystemInfo());
+            } catch (Throwable ignored) {}
+        }
+
         if (!hasLib) {
-            result.put("reason", "libwhisper native binary is not installed: " + WhisperNative.getLoadError());
+            result.put("reason", "libwhisper native binary is not loaded: " + WhisperNative.getLoadError());
         } else if (!hasModel) {
-            result.put("reason", "GGML/GGUF Whisper model file not found in device storage.");
+            result.put("reason", "GGML Whisper model file (ggml-*.bin) not found in device storage or assets.");
         }
         call.resolve(result);
     }
 
     /**
-     * Cancel any ongoing native transcription.
+     * Cancel any ongoing native transcription via whisper.cpp abort_callback.
      */
     @PluginMethod
     public void cancel(PluginCall call) {
         mIsCancelled.set(true);
+        long activeCtx = mActiveContextPtr.get();
+        if (activeCtx != 0) {
+            try {
+                WhisperNative.cancelTranscription(activeCtx);
+            } catch (Throwable t) {
+                Log.w(TAG, "Failed to send cancel to native whisper context: " + t.getMessage());
+            }
+        }
         JSObject ret = new JSObject();
         ret.put("cancelled", true);
         call.resolve(ret);
@@ -116,7 +138,7 @@ public class VireonSTTPlugin extends Plugin {
                     return;
                 }
 
-                // 2. Resolve Whisper GGML/GGUF model file
+                // 2. Resolve Whisper GGML model file
                 String resolvedModelPath = findWhisperModel(userModelPath);
                 if (resolvedModelPath == null) {
                     Log.w(TAG, "Native Whisper model file not found.");
@@ -140,7 +162,6 @@ public class VireonSTTPlugin extends Plugin {
                 }
 
                 if (samples == null || samples.length == 0) {
-                    // Empty audio or silence
                     JSObject emptyResult = new JSObject();
                     emptyResult.put("success", true);
                     emptyResult.put("segments", new JSArray());
@@ -153,7 +174,7 @@ public class VireonSTTPlugin extends Plugin {
                     return;
                 }
 
-                // 4. Initialize native Whisper context
+                // 4. Initialize native Whisper context from GGML model file
                 long ctx = WhisperNative.initContext(resolvedModelPath);
                 if (ctx == 0) {
                     Log.e(TAG, "Failed to initialize native whisper context for: " + resolvedModelPath);
@@ -161,20 +182,22 @@ public class VireonSTTPlugin extends Plugin {
                     return;
                 }
 
+                mActiveContextPtr.set(ctx);
+
                 try {
                     // 5. Run inference with optimal thread count
                     int nThreads = Math.max(1, Math.min(4, Runtime.getRuntime().availableProcessors() - 1));
                     String langCode = (language != null && !language.isEmpty() && !language.equals("auto")) ? language : null;
 
                     int status = WhisperNative.fullTranscribe(ctx, samples, samples.length, langCode, nThreads, false);
-                    if (status != 0) {
+
+                    if (mIsCancelled.get() || status != 0) {
+                        if (mIsCancelled.get()) {
+                            call.reject("Transcription was cancelled during native inference", "NATIVE_CANCELLED");
+                            return;
+                        }
                         Log.e(TAG, "Native whisper inference returned error code: " + status);
                         call.reject("Native whisper inference failed with code: " + status, "NATIVE_INFERENCE_FAILED");
-                        return;
-                    }
-
-                    if (mIsCancelled.get()) {
-                        call.reject("Transcription was cancelled after inference", "NATIVE_CANCELLED");
                         return;
                     }
 
@@ -187,6 +210,7 @@ public class VireonSTTPlugin extends Plugin {
                         long t0 = WhisperNative.getSegmentT0(ctx, i); // in 10ms (centisecond) units
                         long t1 = WhisperNative.getSegmentT1(ctx, i);
                         String text = WhisperNative.getSegmentText(ctx, i);
+                        float conf = WhisperNative.getSegmentConfidence(ctx, i);
 
                         double segStart = (t0 / 100.0) + baseOffsetSec;
                         double segEnd = (t1 / 100.0) + baseOffsetSec;
@@ -195,7 +219,7 @@ public class VireonSTTPlugin extends Plugin {
                         segObj.put("start", segStart);
                         segObj.put("end", segEnd);
                         segObj.put("text", text != null ? text.trim() : "");
-                        segObj.put("confidence", 0.95);
+                        segObj.put("confidence", (double) conf);
                         segments.put(segObj);
                     }
 
@@ -204,6 +228,7 @@ public class VireonSTTPlugin extends Plugin {
                     response.put("segments", segments);
                     call.resolve(response);
                 } finally {
+                    mActiveContextPtr.set(0);
                     // Deterministic native resource cleanup
                     WhisperNative.freeContext(ctx);
                 }
@@ -215,7 +240,7 @@ public class VireonSTTPlugin extends Plugin {
     }
 
     /**
-     * Search standard storage locations for a compatible GGML/GGUF Whisper model file.
+     * Search storage and asset locations for a compatible GGML Whisper model file.
      */
     private String findWhisperModel(String explicitPath) {
         if (explicitPath != null && !explicitPath.isEmpty()) {
@@ -252,6 +277,47 @@ public class VireonSTTPlugin extends Plugin {
             }
         }
 
+        // Check if a model is stored in APK assets and extract if available
+        for (String name : candidateFileNames) {
+            String extracted = extractModelFromAssetsIfPresent(ctx, name);
+            if (extracted != null) {
+                return extracted;
+            }
+        }
+
+        return null;
+    }
+
+    private String extractModelFromAssetsIfPresent(Context ctx, String modelFileName) {
+        try {
+            AssetManager am = ctx.getAssets();
+            String[] prefixes = {"models/whisper/", "models/", ""};
+            for (String prefix : prefixes) {
+                String assetPath = prefix + modelFileName;
+                try (InputStream is = am.open(assetPath)) {
+                    File targetDir = new File(ctx.getFilesDir(), "models/whisper");
+                    if (!targetDir.exists()) targetDir.mkdirs();
+                    File targetFile = new File(targetDir, modelFileName);
+                    if (targetFile.exists() && targetFile.length() > 1024 * 1024) {
+                        return targetFile.getAbsolutePath();
+                    }
+                    try (OutputStream os = new FileOutputStream(targetFile)) {
+                        byte[] buffer = new byte[8192];
+                        int read;
+                        while ((read = is.read(buffer)) != -1) {
+                            os.write(buffer, 0, read);
+                        }
+                    }
+                    if (targetFile.length() > 1024 * 1024) {
+                        return targetFile.getAbsolutePath();
+                    }
+                } catch (Exception ignored) {
+                    // Not found in this asset prefix
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Error checking assets for model: " + e.getMessage());
+        }
         return null;
     }
 

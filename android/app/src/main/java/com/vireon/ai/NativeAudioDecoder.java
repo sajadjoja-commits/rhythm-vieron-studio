@@ -17,7 +17,7 @@ import java.util.ArrayList;
 /**
  * Native Android audio decoder.
  * 
- * Decodes audio from local files or content URIs (MP4, M4A, WAV, MP3, AAC)
+ * Decodes audio from local files, file URIs, or content URIs (MP4, M4A, WAV, MP3, AAC)
  * directly into 16,000 Hz Mono Float32Array PCM buffers suitable for Whisper inference.
  * Runs completely on-device without passing audio buffers across the WebView JS bridge.
  */
@@ -30,9 +30,18 @@ public class NativeAudioDecoder {
             throw new IllegalArgumentException("audioPath must not be empty");
         }
 
+        // Normalize file:// URI to standard filesystem path
+        String cleanPath = audioPath;
+        if (cleanPath.startsWith("file://")) {
+            Uri parsed = Uri.parse(cleanPath);
+            if (parsed.getPath() != null) {
+                cleanPath = parsed.getPath();
+            }
+        }
+
         // Check if it is a raw WAV file first
-        File file = new File(audioPath);
-        if (file.exists() && audioPath.toLowerCase().endsWith(".wav")) {
+        File file = new File(cleanPath);
+        if (file.exists() && cleanPath.toLowerCase().endsWith(".wav")) {
             try {
                 return decodeWavDirect(file, startSec, durationSec);
             } catch (Exception e) {
@@ -42,10 +51,10 @@ public class NativeAudioDecoder {
 
         MediaExtractor extractor = new MediaExtractor();
         try {
-            if (audioPath.startsWith("content://")) {
-                extractor.setDataSource(context, Uri.parse(audioPath), null);
+            if (cleanPath.startsWith("content://")) {
+                extractor.setDataSource(context, Uri.parse(cleanPath), null);
             } else {
-                extractor.setDataSource(audioPath);
+                extractor.setDataSource(cleanPath);
             }
 
             int audioTrackIndex = -1;
@@ -61,7 +70,7 @@ public class NativeAudioDecoder {
             }
 
             if (audioTrackIndex < 0 || format == null) {
-                throw new IllegalStateException("No audio track found in media source: " + audioPath);
+                throw new IllegalStateException("No audio track found in media source: " + cleanPath);
             }
 
             extractor.selectTrack(audioTrackIndex);
@@ -121,7 +130,7 @@ public class NativeAudioDecoder {
                         outBuffer.order(ByteOrder.LITTLE_ENDIAN);
 
                         int shortsCount = info.size / 2;
-                        int frames = shortsCount / channelCount;
+                        int frames = shortsCount / Math.max(1, channelCount);
                         float[] monoChunk = new float[frames];
 
                         for (int f = 0; f < frames; f++) {
@@ -136,6 +145,14 @@ public class NativeAudioDecoder {
                         totalSamples += frames;
                     }
                     codec.releaseOutputBuffer(outIndex, false);
+                } else if (outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    MediaFormat newFormat = codec.getOutputFormat();
+                    if (newFormat.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) {
+                        channelCount = newFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
+                    }
+                    if (newFormat.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
+                        sourceSampleRate = newFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+                    }
                 }
             }
 
