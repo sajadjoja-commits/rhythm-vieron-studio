@@ -32,6 +32,7 @@ export interface CaptionTranscriptionOptions {
   language?: string;
   startTime?: number;
   endTime?: number;
+  modelId?: string;
   preferredModel?: string;
   signal?: AbortSignal;
   onProgress?: (progress: CaptionProgress) => void;

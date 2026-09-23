@@ -9,19 +9,26 @@ import { WebCaptionProvider } from "./WebCaptionProvider";
 import { processRawSegments } from "../../lib/captionTextProcessor";
 
 export interface NativeSTTPlugin {
-  isAvailable(): Promise<{
+  isAvailable(options?: { modelId?: string }): Promise<{
     available: boolean;
     hasLibrary?: boolean;
     hasModel?: boolean;
+    modelId?: string;
     modelPath?: string;
     engine?: string;
     reason?: string;
+    modelInfo?: any;
   }>;
+  getModels(): Promise<{ models: any[]; defaultModelId?: string }>;
+  getModelInfo(options: { modelId: string }): Promise<{ model: any | null }>;
+  isModelAvailable(options?: { modelId?: string }): Promise<{ available: boolean; modelId?: string; status?: string }>;
+  releaseModel(): Promise<{ released: boolean }>;
   transcribe(options: {
     audioPath: string;
     language?: string;
     startTime?: number;
     endTime?: number;
+    modelId?: string;
     modelPath?: string;
   }): Promise<{
     success: boolean;
@@ -45,6 +52,10 @@ export function getVireonSTTPlugin(): NativeSTTPlugin {
   } catch {
     return {
       isAvailable: async () => ({ available: false, reason: "Plugin registration unavailable" }),
+      getModels: async () => ({ models: [], defaultModelId: "whisper-tiny" }),
+      getModelInfo: async () => ({ model: null }),
+      isModelAvailable: async () => ({ available: false, status: "not_found" }),
+      releaseModel: async () => ({ released: false }),
       transcribe: async () => {
         throw { code: "NATIVE_STT_UNAVAILABLE", message: "VireonSTT plugin is not available" };
       },
@@ -232,6 +243,7 @@ export class AndroidCaptionProvider implements CaptionTranscriptionProvider {
         language: options?.language,
         startTime: options?.startTime,
         endTime: options?.endTime,
+        modelId: options?.modelId || options?.preferredModel,
         modelPath: options?.preferredModel,
       });
 
