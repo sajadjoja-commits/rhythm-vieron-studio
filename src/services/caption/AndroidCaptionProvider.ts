@@ -128,7 +128,20 @@ export class AndroidCaptionProvider implements CaptionTranscriptionProvider {
   private async resolveNativeAudioPath(
     source: File | Blob | Float32Array | string
   ): Promise<{ path: string; isTemp: boolean }> {
+    // Check if source object has nativePath attached
+    if (source && typeof source === "object") {
+      const nativePath = (source as any).nativePath || (source as any).nativeUri;
+      if (nativePath) {
+        return { path: nativePath, isTemp: false };
+      }
+    }
+
     if (typeof source === "string") {
+      if (source.includes("/_capacitor_file_/")) {
+        const localPath = decodeURIComponent(source.split("/_capacitor_file_")[1]);
+        return { path: localPath, isTemp: false };
+      }
+
       // Local Android path or Content URI
       if (
         source.startsWith("/") ||

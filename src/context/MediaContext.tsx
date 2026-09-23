@@ -1,9 +1,11 @@
 import { createContext, useContext, useState, useCallback, ReactNode, useMemo, useEffect, useRef } from "react";
 import { toast } from "sonner";
+import { Capacitor } from "@capacitor/core";
 import { supabase } from "@/integrations/supabase/client";
 import { t } from "@/lib/i18n";
 import { triggerHapticTick } from "@/lib/haptics";
 import { robustSeekVideo } from "@/lib/videoSeeking";
+import { mediaService } from "@/services/media";
 import type { WordAnimationConfig, CharacterAnimationConfig } from "@/types/textTemplate";
 
 export type MediaType = "video" | "image";
@@ -21,6 +23,8 @@ export interface MediaItem {
   processedUrl?: string;
   originalUrl?: string;
   hasAlpha?: boolean;
+  nativePath?: string;
+  nativeUri?: string;
 }
 
 export type TransitionType = 
@@ -415,8 +419,21 @@ interface MediaContextType {
 
 const MediaContext = createContext<MediaContextType | null>(null);
 
-const getVideoMetadata = (file: File): Promise<{ duration: number; width: number; height: number }> =>
-  new Promise((resolve) => {
+const getVideoMetadata = async (file: File, nativePath?: string): Promise<{ duration: number; width: number; height: number }> => {
+  try {
+    const meta = await mediaService.getMetadata(nativePath || file);
+    if (meta && meta.duration > 0) {
+      return {
+        duration: meta.duration,
+        width: meta.width || 1920,
+        height: meta.height || 1080,
+      };
+    }
+  } catch (err) {
+    console.warn("[MediaContext] mediaService.getMetadata failed, falling back to DOM video:", err);
+  }
+
+  return new Promise((resolve) => {
     const video = document.createElement("video");
     video.preload = "metadata";
     video.onloadedmetadata = () => { 
@@ -430,6 +447,7 @@ const getVideoMetadata = (file: File): Promise<{ duration: number; width: number
     video.onerror = () => resolve({ duration: 0, width: 0, height: 0 });
     video.src = URL.createObjectURL(file);
   });
+};
 
 const extractVideoFrameThumbnail = async (file: File): Promise<string> => {
   const url = URL.createObjectURL(file);
@@ -767,14 +785,31 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
         const isVideoExt = /\.(mp4|mov|avi|m4v|webm|mkv|3gp)$/i.test((file.name || "").toLowerCase());
         type = isVideoExt ? "video" : "image";
       }
-      return { id: uid(), url: URL.createObjectURL(file), type, name: file.name, size: file.size, file, duration: type === "video" ? 0 : 5 };
+
+      const nativePath = (file as any).nativePath as string | undefined;
+      const nativeUri = (file as any).nativeUri as string | undefined;
+      const url = nativePath && Capacitor.isNativePlatform()
+        ? Capacitor.convertFileSrc(nativePath)
+        : URL.createObjectURL(file);
+
+      return {
+        id: uid(),
+        url,
+        type,
+        name: file.name,
+        size: file.size,
+        file,
+        duration: type === "video" ? 0 : 5,
+        nativePath,
+        nativeUri,
+      };
     });
     setMedia((prev) => [...prev, ...items]);
     setClips((prev) => [...prev, ...items.map<Clip>((m) => ({ id: uid(), mediaId: m.id, in: 0, out: m.duration || 5 }))]);
     toast.success(t("toast.mediaUploaded", { n: items.length }));
     items.forEach((m) => {
       if (m.type === "video") {
-        getVideoMetadata(m.file).then((meta) => {
+        getVideoMetadata(m.file, m.nativePath).then((meta) => {
           const dur = meta.duration || 5;
           setMedia((prev) => prev.map((x) => (x.id === m.id ? { ...x, duration: dur, width: meta.width, height: meta.height } : x)));
           setClips((prev) => prev.map((c) => c.mediaId === m.id && c.in === 0 && (c.out === 5 || c.out === 0) ? { ...c, out: dur } : c));

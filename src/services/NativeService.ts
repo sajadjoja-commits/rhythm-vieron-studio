@@ -130,6 +130,20 @@ export async function saveVideoToGallery(
   const finalFileName = cleanFileName.endsWith('.mp4') || cleanFileName.endsWith('.webm') ? cleanFileName : `${cleanFileName}.mp4`;
   let cacheUri = '';
 
+  // Direct Fast Path: If Blob already has an underlying native file path, use it directly!
+  if ((blob as any)?.nativePath) {
+    const directPath = (blob as any).nativePath;
+    console.log("[NativeService] Using direct nativePath, bypassing JS base64 transfer:", directPath);
+    try {
+      const result = await VireonMedia.saveVideoToGallery({ path: directPath });
+      if (result && result.success) {
+        return { success: true, path: directPath, warning: sizeWarning };
+      }
+    } catch (err: any) {
+      console.warn("[NativeService] Direct saveVideoToGallery failed, falling back to cache write:", err);
+    }
+  }
+
   // Phase 1: Write file to native cache (using chunked write to prevent OOM)
   try {
     if (blob.size > 2 * 1024 * 1024) {

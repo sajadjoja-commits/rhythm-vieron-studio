@@ -95,7 +95,10 @@ export const MediaPicker = ({
             try {
               const response = await fetch(Capacitor.convertFileSrc(fileInfo.webPath));
               const blob = await response.blob();
-              pickedFiles.push(new File([blob], fileInfo.name, { type: fileInfo.mimeType }));
+              const fileObj = new File([blob], fileInfo.name, { type: fileInfo.mimeType });
+              Object.defineProperty(fileObj, "nativePath", { value: fileInfo.path, writable: false });
+              Object.defineProperty(fileObj, "nativeUri", { value: fileInfo.webPath, writable: false });
+              pickedFiles.push(fileObj);
             } catch (e) {
               console.warn("[MediaPicker] File conversion error:", e);
             }
