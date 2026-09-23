@@ -3,7 +3,7 @@
     <!-- الشعار الرسمي Vireon AI في المركز بمقاس متناسق مع الدائرة الآمنة لأيقونات أندرويد -->
     <item
         android:drawable="@drawable/img"
-        android:width="64dp"
-        android:height="64dp"
+        android:width="52dp"
+        android:height="52dp"
         android:gravity="center" />
 </layer-list>
