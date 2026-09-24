@@ -156,6 +156,35 @@ if (distInfo.hash === androidInfo.hash && distInfo.count === androidInfo.count) 
   fs.writeFileSync(path.join(DIST_DIR, 'fingerprint.txt'), distInfo.hash);
   fs.writeFileSync(path.join(ANDROID_ASSETS_DIR, 'fingerprint.txt'), distInfo.hash);
 
+  // Generate standardized Phase 6 OTA Manifests
+  let totalDistSize = 0;
+  for (const f of getAllFiles(DIST_DIR)) {
+    totalDistSize += fs.statSync(f).size;
+  }
+
+  const otaManifestStaging = {
+    channel: "staging",
+    version: "1.0.0",
+    build: 1,
+    bundleUrl: `https://rhythm-vieron-studio.lovable.app/bundles/web-${gitSha}.zip`,
+    checksum: distInfo.hash,
+    size: totalDistSize,
+    minNativeVersion: "1.0.0",
+    maxNativeVersion: null,
+    createdAt: new Date().toISOString(),
+    releaseNotes: `Vieron Studio Staging Web Update (${gitSha})`
+  };
+
+  const otaManifestProd = {
+    ...otaManifestStaging,
+    channel: "production",
+    releaseNotes: `Vieron Studio Production Web Update (${gitSha})`
+  };
+
+  fs.writeFileSync(path.join(DIST_DIR, 'ota-manifest.json'), JSON.stringify(otaManifestProd, null, 2));
+  fs.writeFileSync(path.join(DIST_DIR, 'ota-manifest-staging.json'), JSON.stringify(otaManifestStaging, null, 2));
+  fs.writeFileSync(path.join(ANDROID_ASSETS_DIR, 'ota-manifest.json'), JSON.stringify(otaManifestProd, null, 2));
+
   console.log('\n=========================================');
   console.log('VIERON SYNC SUCCESS');
   console.log(`Version: ${buildInfo.web}`);

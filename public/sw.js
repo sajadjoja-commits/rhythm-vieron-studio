@@ -46,10 +46,15 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// Skip waiting message listener for instant updates
+// Skip waiting message listener for instant updates & OTA cache flush
 self.addEventListener("message", (event) => {
   if (event.data && event.data.type === "SKIP_WAITING") {
     self.skipWaiting();
+  } else if (event.data && event.data.type === "FLUSH_OTA_CACHE") {
+    console.log("[SW] Flushing runtime caches for atomic OTA bundle activation");
+    caches.delete(RUNTIME_CACHE).then(() => {
+      caches.open(RUNTIME_CACHE);
+    });
   }
 });
 
@@ -57,6 +62,16 @@ self.addEventListener("message", (event) => {
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = new URL(request.url);
+
+  // Bypass Capacitor native container requests, internal bridges, and file paths
+  if (
+    url.protocol === "capacitor:" ||
+    url.pathname.includes("/_capacitor_file_/") ||
+    url.pathname.includes("capacitor.js") ||
+    url.pathname.includes("cordova.js")
+  ) {
+    return;
+  }
 
   // Skip non-GET requests, API proxies, range/media stream requests, and Vite dev server internal assets
   if (

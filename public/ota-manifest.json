@@ -1,0 +1,12 @@
+{
+  "channel": "production",
+  "version": "1.0.0",
+  "build": 1,
+  "bundleUrl": "https://rhythm-vieron-studio.lovable.app/bundles/web-1.0.0.zip",
+  "checksum": "0913b43403ee86878969dfa2e35627272cca73990f512a25a0abe207a80abc86",
+  "size": 15428900,
+  "minNativeVersion": "1.0.0",
+  "maxNativeVersion": null,
+  "createdAt": "2026-09-24T08:00:00.000Z",
+  "releaseNotes": "Initial Vieron Studio production release"
+}

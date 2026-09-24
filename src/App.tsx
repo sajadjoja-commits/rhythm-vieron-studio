@@ -10,8 +10,26 @@ import { MediaProvider } from "./context/MediaContext";
 import { AdGateProvider } from "./context/AdGateContext";
 import InstallPrompt from "./components/InstallPrompt";
 import ErrorBoundary from "./components/ErrorBoundary";
+import { useEffect } from "react";
+import { webUpdateService } from "@/services/ota";
 
 const queryClient = new QueryClient();
+
+function OtaLifecycleManager() {
+  useEffect(() => {
+    // 1. Notify native engine that React has mounted and hydrated successfully
+    webUpdateService.notifyStartupSuccess();
+
+    // 2. Non-blocking asynchronous update check after app startup
+    const timer = setTimeout(() => {
+      webUpdateService.checkForUpdate().catch(() => {});
+    }, 4000);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  return null;
+}
 
 const App = () => (
   <ErrorBoundary>
@@ -19,6 +37,7 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
+        <OtaLifecycleManager />
         <MediaProvider>
           <AdGateProvider>
             <BrowserRouter>
