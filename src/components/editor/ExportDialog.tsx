@@ -8,6 +8,7 @@ import { registerPlugin, Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { saveVideoToGallery } from "@/services/NativeService";
+import { mediaService, resolveExportPath } from "@/services/media";
 import PublishTemplateDialog from "@/components/editor/PublishTemplateDialog";
 import { robustSeekVideo } from "@/lib/videoSeeking";
 import { validateExportedVideo } from "@/lib/videoValidator";
@@ -532,6 +533,75 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
       return;
     }
 
+    // Phase 5.1 Export Decision Layer
+    const exportDecision = resolveExportPath({
+      clips,
+      media,
+      captions,
+      filters,
+      vfx,
+      overlays,
+      audioTracks,
+      isNativePlatform: Capacitor.isNativePlatform(),
+    });
+
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[EXPORT PATH]: ${exportDecision.pathType}`, exportDecision.reason);
+    }
+
+    // A) NATIVE FAST PATH: Stream copy or clean native trim via MediaMuxer without re-encoding or JS heap bloat
+    if (exportDecision.pathType === "NATIVE_FAST_PATH" && exportDecision.nativeConfig) {
+      setExporting(true);
+      setProgress(0);
+      setEstimatedTimeLeft(null);
+      if (exportedVideoUrl) {
+        URL.revokeObjectURL(exportedVideoUrl);
+        setExportedVideoUrl(null);
+      }
+      abortControllerRef.current = false;
+      toast.info(isRTL() ? "بدء التصدير السريع المباشر (Native Fast Path)..." : "Starting Native Fast Path export...");
+
+      try {
+        const cleanName = projectName.trim().replace(/\s+/g, "_") || "vireon_video";
+        const outputFileName = `${cleanName}_${Date.now()}.mp4`;
+
+        const exportResult = await mediaService.exportMedia(
+          {
+            inputUri: exportDecision.nativeConfig.inputUri,
+            startTime: exportDecision.nativeConfig.startTime,
+            endTime: exportDecision.nativeConfig.endTime,
+            outputFileName,
+            saveToGallery: true,
+          },
+          (p) => {
+            setProgress(p.progress);
+          }
+        );
+
+        if (abortControllerRef.current) {
+          setExporting(false);
+          setProgress(0);
+          return;
+        }
+
+        if (exportResult && exportResult.success) {
+          if (exportResult.path) {
+            setSavedNativePath(exportResult.path);
+          }
+          const displayUrl = exportResult.uri || (exportResult.path ? Capacitor.convertFileSrc(exportResult.path) : "");
+          setExportedVideoUrl(displayUrl);
+          setProgress(1.0);
+          setExporting(false);
+          toast.success(isRTL() ? "تم تصدير وحفظ الفيديو في المعرض بنجاح!" : "Video exported and saved to native gallery successfully!");
+          return;
+        }
+      } catch (nativeErr: any) {
+        console.warn("[ExportDialog] Native Fast Path error, falling back to Web Render Path:", nativeErr);
+        toast.info(isRTL() ? "جاري التبديل لمسار المعالجة الشاملة..." : "Switching to full Web Render Path...");
+      }
+    }
+
+    // B) WEB RENDER PATH (For complex timelines with captions, text, overlays, filters, VFX, multi-tracks)
     const fpsValCheck = FPS_OPTIONS[fps] || 30;
     const totalFramesCheck = Math.ceil(totalDuration * fpsValCheck);
     const chosenQualityCheck = QUALITY_OPTIONS[quality] || QUALITY_OPTIONS[2];

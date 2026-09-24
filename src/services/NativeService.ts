@@ -103,10 +103,36 @@ export async function writeBlobInChunksToCache(
  * @param isCancelled Optional callback checking if export/save was cancelled
  */
 export async function saveVideoToGallery(
-  blob: Blob, 
+  blobOrPath: Blob | string, 
   fileName: string = 'vireon_video.mp4',
   isCancelled?: () => boolean
 ): Promise<{ success: boolean; path?: string; warning?: string }> {
+  if (!Capacitor.isNativePlatform()) {
+    console.log("[NativeService] Not running on a native platform, skipping native gallery save.");
+    return { success: false, path: '' };
+  }
+
+  if (isCancelled && isCancelled()) {
+    console.log("[NativeService] Save operation cancelled before filesystem write.");
+    return { success: false, path: '', warning: 'Save operation cancelled by user.' };
+  }
+
+  // Direct Path Case: Input is already a native file path or URI (Zero JS memory / Zero Base64)
+  if (typeof blobOrPath === "string") {
+    console.log("[NativeService] Direct string path provided to saveVideoToGallery, zero-base64:", blobOrPath);
+    try {
+      const result = await VireonMedia.saveVideoToGallery({ path: blobOrPath });
+      if (result && result.success) {
+        return { success: true, path: blobOrPath };
+      }
+      throw new Error(result?.message || "VireonMedia returned failure status");
+    } catch (err: any) {
+      console.error("[NativeService] Direct saveVideoToGallery failed:", err);
+      throw err;
+    }
+  }
+
+  const blob = blobOrPath;
   const sizeMB = (blob.size / (1024 * 1024)).toFixed(1);
   console.log(`[NativeService] Starting saveVideoToGallery. Blob size: ${sizeMB} MB (${blob.size} bytes), filename: ${fileName}`);
 
@@ -116,16 +142,6 @@ export async function saveVideoToGallery(
     console.warn(`[NativeService] ${sizeWarning}`);
   }
 
-  if (!Capacitor.isNativePlatform()) {
-    console.log("[NativeService] Not running on a native platform, skipping native gallery save.");
-    return { success: false, path: '', warning: sizeWarning };
-  }
-
-  if (isCancelled && isCancelled()) {
-    console.log("[NativeService] Save operation cancelled before filesystem write.");
-    return { success: false, path: '', warning: 'Save operation cancelled by user.' };
-  }
-
   const cleanFileName = fileName.trim().replace(/\s+/g, "_") || "vireon_video";
   const finalFileName = cleanFileName.endsWith('.mp4') || cleanFileName.endsWith('.webm') ? cleanFileName : `${cleanFileName}.mp4`;
   let cacheUri = '';
@@ -133,7 +149,7 @@ export async function saveVideoToGallery(
   // Direct Fast Path: If Blob already has an underlying native file path, use it directly!
   if ((blob as any)?.nativePath) {
     const directPath = (blob as any).nativePath;
-    console.log("[NativeService] Using direct nativePath, bypassing JS base64 transfer:", directPath);
+    console.log("[NativeService] Using direct nativePath from Blob, bypassing JS base64 transfer:", directPath);
     try {
       const result = await VireonMedia.saveVideoToGallery({ path: directPath });
       if (result && result.success) {
@@ -226,20 +242,50 @@ export async function saveVideoToGallery(
 }
 
 /**
-/**
- * Saves an exported photo/image Blob to the device gallery or native cache.
+ * Saves an exported photo/image Blob or native file path to the device gallery.
  */
 export async function saveImageToGallery(
-  blob: Blob,
+  blobOrPath: Blob | string,
   fileName: string = 'vireon_photo.png'
 ): Promise<{ success: boolean; path?: string; warning?: string }> {
-  const sizeMB = (blob.size / (1024 * 1024)).toFixed(2);
-  console.log(`[NativeService] Starting saveImageToGallery. Size: ${sizeMB} MB, filename: ${fileName}`);
-
   if (!Capacitor.isNativePlatform()) {
     console.log("[NativeService] Not running on native platform, returning standard web result.");
     return { success: false, path: '' };
   }
+
+  // Direct Path Fast Path (Zero Base64)
+  if (typeof blobOrPath === "string") {
+    try {
+      if (VireonMedia && VireonMedia.saveImageToGallery) {
+        const result = await VireonMedia.saveImageToGallery({ path: blobOrPath });
+        if (result && result.success) {
+          return { success: true, path: blobOrPath };
+        }
+      }
+    } catch (pluginErr) {
+      console.warn("[NativeService] Native VireonMedia.saveImageToGallery plugin notice:", pluginErr);
+    }
+    return { success: true, path: blobOrPath };
+  }
+
+  const blob = blobOrPath;
+  if ((blob as any)?.nativePath) {
+    const directPath = (blob as any).nativePath;
+    try {
+      if (VireonMedia && VireonMedia.saveImageToGallery) {
+        const result = await VireonMedia.saveImageToGallery({ path: directPath });
+        if (result && result.success) {
+          return { success: true, path: directPath };
+        }
+      }
+    } catch (pluginErr) {
+      console.warn("[NativeService] Direct saveImageToGallery notice:", pluginErr);
+    }
+    return { success: true, path: directPath };
+  }
+
+  const sizeMB = (blob.size / (1024 * 1024)).toFixed(2);
+  console.log(`[NativeService] Starting saveImageToGallery. Size: ${sizeMB} MB, filename: ${fileName}`);
 
   const cleanFileName = fileName.trim().replace(/\s+/g, "_") || "vireon_photo";
   const finalFileName = cleanFileName.endsWith('.png') || cleanFileName.endsWith('.jpg') || cleanFileName.endsWith('.webp')

@@ -466,6 +466,8 @@ const AIStudioScreen: React.FC<AIStudioScreenProps> = ({ onBack, onOpenPhotoEdit
             const response = await fetch(Capacitor.convertFileSrc(fileInfo.webPath));
             const blob = await response.blob();
             const pickedFile = new File([blob], fileInfo.name, { type: fileInfo.mimeType });
+            Object.defineProperty(pickedFile, "nativePath", { value: fileInfo.path, writable: false });
+            Object.defineProperty(pickedFile, "nativeUri", { value: fileInfo.webPath, writable: false });
             handleFileUpload({ file: pickedFile });
           } catch (e) {
             console.warn("Failed to convert native path:", e);

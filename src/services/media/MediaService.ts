@@ -45,17 +45,45 @@ export class MediaService {
   }
 
   /**
+   * Resolve provider specifically for a media source:
+   * - Android + nativeUri/path -> AndroidMediaProvider
+   * - Android + pure in-memory Blob -> WebMediaProvider fallback (prevents binary serialization)
+   * - Web -> WebMediaProvider
+   */
+  public getProviderForSource(source: string | File | Blob): MediaProvider {
+    if (this.androidProvider.isAvailable()) {
+      if (typeof source === "string") {
+        if (
+          source.startsWith("content://") ||
+          source.startsWith("file://") ||
+          source.startsWith("/") ||
+          source.includes("/_capacitor_file_/")
+        ) {
+          return this.androidProvider;
+        }
+      } else if (source && typeof source === "object") {
+        if ((source as any).nativePath || (source as any).nativeUri) {
+          return this.androidProvider;
+        }
+      }
+      // Pure in-memory Blob without native handle: use web provider fallback
+      return this.webProvider;
+    }
+    return this.webProvider;
+  }
+
+  /**
    * Extract video/audio/image metadata natively
    */
   public async getMetadata(source: string | File | Blob): Promise<MediaMetadata> {
-    return this.getProvider().getMetadata(source);
+    return this.getProviderForSource(source).getMetadata(source);
   }
 
   /**
    * Prepare media input for downstream native or web operations
    */
   public async prepareInput(source: string | File | Blob): Promise<PreparedMediaFile> {
-    return this.getProvider().prepareInput(source);
+    return this.getProviderForSource(source).prepareInput(source);
   }
 
   /**
@@ -66,7 +94,10 @@ export class MediaService {
     onProgress?: MediaProgressCallback,
     signal?: AbortSignal
   ): Promise<ExportMediaResult> {
-    return this.getProvider().exportMedia(config, onProgress, signal);
+    if (this.androidProvider.isAvailable() && config.inputUri) {
+      return this.androidProvider.exportMedia(config, onProgress, signal);
+    }
+    return this.webProvider.exportMedia(config, onProgress, signal);
   }
 
   /**

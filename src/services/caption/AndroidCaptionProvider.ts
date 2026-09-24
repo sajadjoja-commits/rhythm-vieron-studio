@@ -127,7 +127,7 @@ export class AndroidCaptionProvider implements CaptionTranscriptionProvider {
    */
   private async resolveNativeAudioPath(
     source: File | Blob | Float32Array | string
-  ): Promise<{ path: string; isTemp: boolean }> {
+  ): Promise<{ path: string; isTemp: boolean } | null> {
     // Check if source object has nativePath attached
     if (source && typeof source === "object") {
       const nativePath = (source as any).nativePath || (source as any).nativeUri;
@@ -152,26 +152,17 @@ export class AndroidCaptionProvider implements CaptionTranscriptionProvider {
         return { path: source, isTemp: false };
       }
 
-      // If source is a remote or blob URL, fetch and save to native cache
-      if (source.startsWith("http://") || source.startsWith("https://") || source.startsWith("blob:")) {
-        const res = await fetch(source);
-        const blob = await res.blob();
-        return this.writeTempAudioBlobToCache(blob);
-      }
-
-      return { path: source, isTemp: false };
+      // If source is a remote or blob URL without native handle, return null to use Web fallback
+      return null;
     }
 
-    if (source instanceof Blob) {
-      return this.writeTempAudioBlobToCache(source);
-    }
-
-    // Float32Array cannot be directly resolved to native path without encoding
-    throw new Error("Raw Float32Array not directly supported in native path mode");
+    // In-memory Web Blob or Float32Array without native handle:
+    // Delegate to WebCaptionProvider to avoid unnecessary Base64 temporary disk serialization
+    return null;
   }
 
   /**
-   * Write an audio Blob into the Android native cache directory
+   * Optional emergency write of an audio Blob into native cache
    */
   private async writeTempAudioBlobToCache(blob: Blob): Promise<{ path: string; isTemp: boolean }> {
     const tempFileName = `vireon_stt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.mp4`;
@@ -215,6 +206,14 @@ export class AndroidCaptionProvider implements CaptionTranscriptionProvider {
       throw new Error("Transcription was cancelled");
     }
 
+    // 3. Resolve native path (Zero-Base64 path)
+    const resolved = await this.resolveNativeAudioPath(source);
+    if (!resolved) {
+      // In-memory Web Blob without native path -> use WebCaptionProvider directly
+      console.log("[AndroidCaptionProvider] Pure in-memory Blob/URI, delegating directly to WebCaptionProvider");
+      return this.fallbackWebProvider.transcribe(source, options);
+    }
+
     let tempAudioPath: string | null = null;
 
     try {
@@ -224,8 +223,7 @@ export class AndroidCaptionProvider implements CaptionTranscriptionProvider {
         message: "جاري تجهيز الصوت للتعرف المحلي الفائق...",
       });
 
-      // 3. Resolve native path
-      const { path: audioPath, isTemp } = await this.resolveNativeAudioPath(source);
+      const { path: audioPath, isTemp } = resolved;
       if (isTemp) {
         tempAudioPath = audioPath;
       }

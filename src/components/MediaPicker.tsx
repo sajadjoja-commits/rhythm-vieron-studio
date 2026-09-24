@@ -93,14 +93,26 @@ export const MediaPicker = ({
           const pickedFiles: File[] = [];
           for (const fileInfo of result.files) {
             try {
-              const response = await fetch(Capacitor.convertFileSrc(fileInfo.webPath));
-              const blob = await response.blob();
-              const fileObj = new File([blob], fileInfo.name, { type: fileInfo.mimeType });
+              if (process.env.NODE_ENV !== "production") {
+                console.log("[MEDIA INPUT]: NATIVE_URI", {
+                  path: fileInfo.path,
+                  webPath: fileInfo.webPath,
+                  name: fileInfo.name,
+                  size: fileInfo.size,
+                });
+              }
+
+              // Zero-RAM handle: avoid loading huge video binary into JS heap
+              const emptyBlob = new Blob([], { type: fileInfo.mimeType || "video/mp4" });
+              const fileObj = new File([emptyBlob], fileInfo.name || "media", {
+                type: fileInfo.mimeType || "video/mp4",
+              });
+              Object.defineProperty(fileObj, "size", { value: fileInfo.size || 0, writable: false });
               Object.defineProperty(fileObj, "nativePath", { value: fileInfo.path, writable: false });
               Object.defineProperty(fileObj, "nativeUri", { value: fileInfo.webPath, writable: false });
               pickedFiles.push(fileObj);
             } catch (e) {
-              console.warn("[MediaPicker] File conversion error:", e);
+              console.warn("[MediaPicker] File handle creation error:", e);
             }
           }
 

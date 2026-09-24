@@ -450,7 +450,9 @@ const getVideoMetadata = async (file: File, nativePath?: string): Promise<{ dura
 };
 
 const extractVideoFrameThumbnail = async (file: File): Promise<string> => {
-  const url = URL.createObjectURL(file);
+  const nativePath = (file as any)?.nativePath;
+  const isNative = nativePath && Capacitor.isNativePlatform();
+  const url = isNative ? Capacitor.convertFileSrc(nativePath) : URL.createObjectURL(file);
   const video = document.createElement("video");
   video.preload = "auto";
   video.muted = true;
@@ -483,7 +485,9 @@ const extractVideoFrameThumbnail = async (file: File): Promise<string> => {
       video.src = "";
       video.load();
     } catch {}
-    URL.revokeObjectURL(url);
+    if (!isNative) {
+      URL.revokeObjectURL(url);
+    }
   }
   return "";
 };
