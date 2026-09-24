@@ -25,6 +25,7 @@ public class MainActivity extends BridgeActivity {
         SplashScreen.installSplashScreen(this);
         
         registerPlugin(AIImageProcessorPlugin.class);
+        registerPlugin(VireonAIPlugin.class);
         registerPlugin(VireonMediaPlugin.class);
         registerPlugin(VireonSTTPlugin.class);
         registerPlugin(VireonOTAPlugin.class);
