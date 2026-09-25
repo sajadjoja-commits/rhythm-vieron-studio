@@ -1,4 +1,6 @@
+import { Capacitor } from "@capacitor/core";
 import { robustSeekVideo } from "@/lib/videoSeeking";
+import { thumbnailService } from "@/services/media/ThumbnailService";
 
 export function getThumbnailTierCount(widthPx: number): number {
   if (widthPx < 100) return 1;
@@ -80,6 +82,35 @@ export async function generateThumbnails(
   if (cached && cached.length > 0) {
     if (onProgress) onProgress(cached);
     return cached;
+  }
+
+  // Native Android Fast Path via MediaMetadataRetriever (zero DOM video overhead)
+  if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android") {
+    try {
+      const dur = Math.max(0.05, outSec - inSec);
+      const nativeThumbs: string[] = [];
+      for (let i = 0; i < count; i++) {
+        if (signal?.aborted) break;
+        const t = inSec + (dur * (i + 0.5)) / count;
+        const res = await thumbnailService.getThumbnail(videoUrl, {
+          timestampSeconds: t,
+          width,
+          height: Math.max(24, Math.round(width / (16 / 9))),
+        });
+        if (res && res.success && res.webPath) {
+          nativeThumbs.push(res.webPath);
+          if (onProgress && !signal?.aborted) {
+            onProgress([...nativeThumbs]);
+          }
+        }
+      }
+      if (nativeThumbs.length > 0 && !signal?.aborted) {
+        thumbCache.set(cacheKey, nativeThumbs);
+        return nativeThumbs;
+      }
+    } catch (e) {
+      console.warn("[videoUtils] Native thumbnail extraction failed, falling back to Web canvas:", e);
+    }
   }
 
   const acquired = await acquireThumbnailLock(signal);

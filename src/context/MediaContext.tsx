@@ -6,6 +6,7 @@ import { t } from "@/lib/i18n";
 import { triggerHapticTick } from "@/lib/haptics";
 import { robustSeekVideo } from "@/lib/videoSeeking";
 import { mediaService } from "@/services/media";
+import { projectRecoveryService } from "@/services/recovery/ProjectRecoveryService";
 import type { WordAnimationConfig, CharacterAnimationConfig } from "@/types/textTemplate";
 
 export type MediaType = "video" | "image";
@@ -688,6 +689,7 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
         console.warn("[MediaContext] project restore failed:", e);
       } finally {
         hydratedRef.current = true;
+        projectRecoveryService.startProjectSession(projectId, projectName);
         console.log("[MediaContext] Hydration process finished.");
       }
     })();
@@ -733,6 +735,7 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
         };
         await idbPut(STORE_PROJECTS, undefined, payload);
         localStorage.setItem(ACTIVE_KEY, projectId);
+        projectRecoveryService.saveSnapshot(projectId, projectName, payload);
 
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {

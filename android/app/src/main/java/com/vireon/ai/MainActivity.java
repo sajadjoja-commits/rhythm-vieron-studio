@@ -29,6 +29,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(VireonMediaPlugin.class);
         registerPlugin(VireonSTTPlugin.class);
         registerPlugin(VireonOTAPlugin.class);
+        registerPlugin(VireonBackgroundJobPlugin.class);
         registerPlugin(com.capacitorjs.plugins.browser.BrowserPlugin.class);
         registerPlugin(com.capacitorjs.plugins.app.AppPlugin.class);
         registerPlugin(com.capacitorjs.plugins.camera.CameraPlugin.class);

@@ -6,6 +6,15 @@ import {
   ExportMediaConfig,
   ExportMediaResult,
   MediaProgressCallback,
+  ThumbnailOptions,
+  ThumbnailResult,
+  WaveformOptions,
+  WaveformResult,
+  ProxyOptions,
+  ProxyResult,
+  StorageDiagnostics,
+  StorageCleanupResult,
+  ProjectCacheInfo,
 } from "./types";
 import { WebMediaProvider } from "./WebMediaProvider";
 
@@ -54,6 +63,74 @@ export interface NativeMediaPlugin {
   saveVideoToGallery(options: { path: string }): Promise<{ success: boolean; message?: string }>;
   saveImageToGallery(options: { path: string }): Promise<{ success: boolean; message?: string }>;
   saveAudioToMusic(options: { path: string }): Promise<{ success: boolean; message?: string }>;
+  generateThumbnail(options: {
+    uri: string;
+    timestampSeconds?: number;
+    width?: number;
+    height?: number;
+    quality?: number;
+    operationId?: string;
+  }): Promise<{
+    success: boolean;
+    filePath: string;
+    webPath: string;
+    width: number;
+    height: number;
+    timestampSeconds: number;
+    fromCache: boolean;
+  }>;
+  generateWaveform(options: {
+    uri: string;
+    samplesCount?: number;
+    operationId?: string;
+  }): Promise<{
+    success: boolean;
+    peaks: number[];
+    duration: number;
+    sampleRate: number;
+    channels: number;
+    fromCache: boolean;
+  }>;
+  generateProxyVideo(options: {
+    inputUri: string;
+    targetHeight?: number;
+    projectId?: string;
+    operationId?: string;
+  }): Promise<{
+    success: boolean;
+    originalPath: string;
+    proxyPath: string;
+    proxyWebPath: string;
+    height: number;
+    size: number;
+    fromCache: boolean;
+  }>;
+  getStorageDiagnostics(): Promise<{
+    success: boolean;
+    freeStorageBytes: number;
+    totalStorageBytes: number;
+    appCacheBytes: number;
+    thumbnailCacheBytes: number;
+    proxyCacheBytes: number;
+    projectCacheBytes: number;
+    modelStorageBytes: number;
+    tempStorageBytes: number;
+  }>;
+  cleanStorageCache(options: { target?: string }): Promise<{
+    success: boolean;
+    freedBytes: number;
+  }>;
+  manageProjectCache(options: {
+    projectId: string;
+    action?: string;
+  }): Promise<{
+    success: boolean;
+    projectId: string;
+    path?: string;
+    sizeBytes?: number;
+    fileCount?: number;
+    freedBytes?: number;
+  }>;
 }
 
 export function getVireonMediaPlugin(): NativeMediaPlugin {
@@ -78,6 +155,24 @@ export function getVireonMediaPlugin(): NativeMediaPlugin {
       saveVideoToGallery: async () => ({ success: false }),
       saveImageToGallery: async () => ({ success: false }),
       saveAudioToMusic: async () => ({ success: false }),
+      generateThumbnail: async () => {
+        throw new Error("VireonMedia plugin not available");
+      },
+      generateWaveform: async () => {
+        throw new Error("VireonMedia plugin not available");
+      },
+      generateProxyVideo: async () => {
+        throw new Error("VireonMedia plugin not available");
+      },
+      getStorageDiagnostics: async () => {
+        throw new Error("VireonMedia plugin not available");
+      },
+      cleanStorageCache: async () => {
+        throw new Error("VireonMedia plugin not available");
+      },
+      manageProjectCache: async () => {
+        throw new Error("VireonMedia plugin not available");
+      },
     };
   }
 }
@@ -266,6 +361,263 @@ export class AndroidMediaProvider implements MediaProvider {
       return Boolean(res?.success);
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Fast native thumbnail generation directly from video/image using MediaMetadataRetriever
+   */
+  public async generateThumbnail(
+    source: string | File | Blob,
+    options?: ThumbnailOptions
+  ): Promise<ThumbnailResult> {
+    if (!this.isAvailable()) {
+      return this.fallbackWebProvider.generateThumbnail(source, options);
+    }
+
+    try {
+      const uri = this.resolveNativeUri(source);
+      if (!uri) {
+        return this.fallbackWebProvider.generateThumbnail(source, options);
+      }
+
+      const plugin = getVireonMediaPlugin();
+      const res = await plugin.generateThumbnail({
+        uri,
+        timestampSeconds: options?.timestampSeconds ?? 0,
+        width: options?.width ?? 320,
+        height: options?.height ?? 180,
+        quality: options?.quality ?? 85,
+        operationId: options?.operationId,
+      });
+
+      if (res && res.success) {
+        return {
+          success: true,
+          filePath: res.filePath,
+          webPath: res.webPath || Capacitor.convertFileSrc(res.filePath),
+          width: res.width,
+          height: res.height,
+          timestampSeconds: res.timestampSeconds,
+          fromCache: Boolean(res.fromCache),
+        };
+      }
+      return this.fallbackWebProvider.generateThumbnail(source, options);
+    } catch (err) {
+      console.warn("[AndroidMediaProvider] Native thumbnail failed, falling back to Web:", err);
+      return this.fallbackWebProvider.generateThumbnail(source, options);
+    }
+  }
+
+  /**
+   * Fast native waveform generation using MediaExtractor and amplitude downsampling
+   */
+  public async generateWaveform(
+    source: string | File | Blob,
+    options?: WaveformOptions
+  ): Promise<WaveformResult> {
+    if (!this.isAvailable()) {
+      return this.fallbackWebProvider.generateWaveform(source, options);
+    }
+
+    try {
+      const uri = this.resolveNativeUri(source);
+      if (!uri) {
+        return this.fallbackWebProvider.generateWaveform(source, options);
+      }
+
+      const plugin = getVireonMediaPlugin();
+      const res = await plugin.generateWaveform({
+        uri,
+        samplesCount: options?.samplesCount ?? 100,
+        operationId: options?.operationId,
+      });
+
+      if (res && res.success) {
+        return {
+          success: true,
+          peaks: Array.isArray(res.peaks) ? res.peaks : [],
+          duration: res.duration || 0,
+          sampleRate: res.sampleRate || 44100,
+          channels: res.channels || 2,
+          fromCache: Boolean(res.fromCache),
+        };
+      }
+      return this.fallbackWebProvider.generateWaveform(source, options);
+    } catch (err) {
+      console.warn("[AndroidMediaProvider] Native waveform generation failed, falling back to Web:", err);
+      return this.fallbackWebProvider.generateWaveform(source, options);
+    }
+  }
+
+  /**
+   * Native editing proxy video generation
+   */
+  public async generateProxy(
+    source: string | File | Blob,
+    options?: ProxyOptions
+  ): Promise<ProxyResult> {
+    if (!this.isAvailable()) {
+      return this.fallbackWebProvider.generateProxy(source, options);
+    }
+
+    try {
+      const uri = this.resolveNativeUri(source);
+      if (!uri) {
+        return this.fallbackWebProvider.generateProxy(source, options);
+      }
+
+      const plugin = getVireonMediaPlugin();
+      const operationId = options?.operationId || `proxy_${Date.now()}`;
+
+      // Abort support
+      const abortListener = () => {
+        plugin.cancelMediaOperation({ operationId }).catch(() => {});
+      };
+      options?.signal?.addEventListener("abort", abortListener, { once: true });
+
+      const res = await plugin.generateProxyVideo({
+        inputUri: uri,
+        targetHeight: options?.targetHeight ?? 540,
+        projectId: options?.projectId ?? "default",
+        operationId,
+      });
+
+      options?.signal?.removeEventListener("abort", abortListener);
+
+      if (res && res.success) {
+        return {
+          success: true,
+          originalPath: res.originalPath,
+          proxyPath: res.proxyPath,
+          proxyWebPath: res.proxyWebPath || Capacitor.convertFileSrc(res.proxyPath),
+          height: res.height,
+          size: res.size,
+          fromCache: Boolean(res.fromCache),
+        };
+      }
+      return this.fallbackWebProvider.generateProxy(source, options);
+    } catch (err) {
+      console.warn("[AndroidMediaProvider] Native proxy generation failed, falling back to Web:", err);
+      return this.fallbackWebProvider.generateProxy(source, options);
+    }
+  }
+
+  /**
+   * Diagnostic statistics for app cache, thumbnails, proxies, and models
+   */
+  public async getStorageDiagnostics(): Promise<StorageDiagnostics> {
+    if (!this.isAvailable()) {
+      return (
+        this.fallbackWebProvider.getStorageDiagnostics?.() ?? {
+          success: true,
+          freeStorageBytes: 10 * 1024 * 1024 * 1024,
+          totalStorageBytes: 64 * 1024 * 1024 * 1024,
+          appCacheBytes: 0,
+          thumbnailCacheBytes: 0,
+          proxyCacheBytes: 0,
+          projectCacheBytes: 0,
+          modelStorageBytes: 0,
+          tempStorageBytes: 0,
+        }
+      );
+    }
+
+    try {
+      const plugin = getVireonMediaPlugin();
+      const diag = await plugin.getStorageDiagnostics();
+      return {
+        success: Boolean(diag?.success),
+        freeStorageBytes: diag?.freeStorageBytes ?? 0,
+        totalStorageBytes: diag?.totalStorageBytes ?? 0,
+        appCacheBytes: diag?.appCacheBytes ?? 0,
+        thumbnailCacheBytes: diag?.thumbnailCacheBytes ?? 0,
+        proxyCacheBytes: diag?.proxyCacheBytes ?? 0,
+        projectCacheBytes: diag?.projectCacheBytes ?? 0,
+        modelStorageBytes: diag?.modelStorageBytes ?? 0,
+        tempStorageBytes: diag?.tempStorageBytes ?? 0,
+      };
+    } catch (err) {
+      console.warn("[AndroidMediaProvider] getStorageDiagnostics failed:", err);
+      return {
+        success: false,
+        freeStorageBytes: 0,
+        totalStorageBytes: 0,
+        appCacheBytes: 0,
+        thumbnailCacheBytes: 0,
+        proxyCacheBytes: 0,
+        projectCacheBytes: 0,
+        modelStorageBytes: 0,
+        tempStorageBytes: 0,
+      };
+    }
+  }
+
+  /**
+   * Clean cache directory targets
+   */
+  public async cleanStorageCache(target = "all_cache"): Promise<StorageCleanupResult> {
+    if (!this.isAvailable()) {
+      return (
+        this.fallbackWebProvider.cleanStorageCache?.(target) ?? {
+          success: true,
+          freedBytes: 0,
+          target,
+        }
+      );
+    }
+
+    try {
+      const plugin = getVireonMediaPlugin();
+      const res = await plugin.cleanStorageCache({ target });
+      return {
+        success: Boolean(res?.success),
+        freedBytes: res?.freedBytes ?? 0,
+        target,
+      };
+    } catch (err) {
+      console.warn("[AndroidMediaProvider] cleanStorageCache failed:", err);
+      return {
+        success: false,
+        freedBytes: 0,
+        target,
+      };
+    }
+  }
+
+  /**
+   * Project cache operations
+   */
+  public async manageProjectCache(
+    projectId: string,
+    action: "getInfo" | "clear" | "delete" = "getInfo"
+  ): Promise<ProjectCacheInfo> {
+    if (!this.isAvailable()) {
+      return (
+        this.fallbackWebProvider.manageProjectCache?.(projectId, action) ?? {
+          success: true,
+          projectId,
+        }
+      );
+    }
+
+    try {
+      const plugin = getVireonMediaPlugin();
+      const res = await plugin.manageProjectCache({ projectId, action });
+      return {
+        success: Boolean(res?.success),
+        projectId,
+        path: res?.path,
+        sizeBytes: res?.sizeBytes,
+        fileCount: res?.fileCount,
+        freedBytes: res?.freedBytes,
+      };
+    } catch (err) {
+      console.warn("[AndroidMediaProvider] manageProjectCache failed:", err);
+      return {
+        success: false,
+        projectId,
+      };
     }
   }
 

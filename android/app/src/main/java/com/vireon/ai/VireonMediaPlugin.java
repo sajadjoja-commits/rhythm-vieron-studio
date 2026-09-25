@@ -11,9 +11,13 @@ import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.media.MediaMetadataRetriever;
 import android.media.MediaMuxer;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Matrix;
 import android.net.Uri;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
+import android.os.StatFs;
 import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 import android.util.Log;
@@ -39,7 +43,10 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
+import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -47,6 +54,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 /**
  * Native Media Plugin for Vireon AI Studio on Android.
@@ -611,6 +620,626 @@ public class VireonMediaPlugin extends Plugin {
     @PluginMethod
     public void saveAudioToMusic(PluginCall call) {
         saveMedia(call, MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, "audio/wav", "Music/VireonAI", "Vireon_Audio_", ".wav");
+    }
+
+    // =========================================================================
+    // Phase 9: Native Thumbnail Engine & Smart Thumbnail Cache
+    // =========================================================================
+
+    @PluginMethod
+    public void generateThumbnail(PluginCall call) {
+        String uriStr = call.getString("uri");
+        if (uriStr == null || uriStr.trim().isEmpty()) {
+            call.reject("URI is required", "INVALID_ARGUMENT");
+            return;
+        }
+
+        Double timestampSec = call.getDouble("timestampSeconds", 0.0);
+        int targetWidth = call.getInt("width", 320);
+        int targetHeight = call.getInt("height", 180);
+        int quality = call.getInt("quality", 85);
+        String operationId = call.getString("operationId", "thumb_" + System.currentTimeMillis());
+
+        mExecutor.execute(() -> {
+            MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+            ParcelFileDescriptor pfd = null;
+            Bitmap rawBitmap = null;
+            Bitmap scaledBitmap = null;
+
+            try {
+                Context context = getContext();
+                File thumbCacheDir = new File(context.getCacheDir(), "vieron_thumbnails");
+                if (!thumbCacheDir.exists()) thumbCacheDir.mkdirs();
+
+                // Deterministic cache key
+                String cacheKey = computeSha256(uriStr + "_" + timestampSec + "_" + targetWidth + "_" + targetHeight + "_v1");
+                File cachedFile = new File(thumbCacheDir, cacheKey + ".jpg");
+
+                if (cachedFile.exists() && cachedFile.length() > 0) {
+                    cachedFile.setLastModified(System.currentTimeMillis());
+                    JSObject res = new JSObject();
+                    res.put("success", true);
+                    res.put("filePath", cachedFile.getAbsolutePath());
+                    res.put("webPath", Uri.fromFile(cachedFile).toString());
+                    res.put("width", targetWidth);
+                    res.put("height", targetHeight);
+                    res.put("timestampSeconds", timestampSec);
+                    res.put("fromCache", true);
+                    call.resolve(res);
+                    return;
+                }
+
+                boolean isImage = false;
+                if (uriStr.startsWith("content://")) {
+                    Uri contentUri = Uri.parse(uriStr);
+                    String mime = context.getContentResolver().getType(contentUri);
+                    if (mime != null && mime.startsWith("image/")) isImage = true;
+                    pfd = context.getContentResolver().openFileDescriptor(contentUri, "r");
+                    if (pfd != null) {
+                        retriever.setDataSource(pfd.getFileDescriptor());
+                    } else {
+                        retriever.setDataSource(context, contentUri);
+                    }
+                } else {
+                    String cleanPath = uriStr.startsWith("file://") ? uriStr.substring(7) : uriStr;
+                    File f = new File(cleanPath);
+                    if (!f.exists()) {
+                        call.reject("Source media file does not exist: " + cleanPath, "FILE_NOT_FOUND");
+                        return;
+                    }
+                    String lower = cleanPath.toLowerCase();
+                    if (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".webp")) {
+                        isImage = true;
+                    }
+                    retriever.setDataSource(f.getAbsolutePath());
+                }
+
+                if (isImage) {
+                    InputStream imgIn = null;
+                    try {
+                        if (uriStr.startsWith("content://")) {
+                            imgIn = context.getContentResolver().openInputStream(Uri.parse(uriStr));
+                        } else {
+                            String cleanPath = uriStr.startsWith("file://") ? uriStr.substring(7) : uriStr;
+                            imgIn = new FileInputStream(cleanPath);
+                        }
+                        rawBitmap = BitmapFactory.decodeStream(imgIn);
+                    } finally {
+                        if (imgIn != null) try { imgIn.close(); } catch (Throwable ignored) {}
+                    }
+                } else {
+                    long timeUs = (long) (timestampSec * 1000000.0);
+                    rawBitmap = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+                    if (rawBitmap == null) {
+                        rawBitmap = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST);
+                    }
+                }
+
+                if (rawBitmap == null) {
+                    call.reject("Failed to extract frame at " + timestampSec + "s", "FRAME_EXTRACTION_FAILED");
+                    return;
+                }
+
+                // Orientation correction
+                String rotStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION);
+                int rotation = rotStr != null ? Integer.parseInt(rotStr) : 0;
+
+                int origW = rawBitmap.getWidth();
+                int origH = rawBitmap.getHeight();
+
+                float scale = Math.min((float) targetWidth / origW, (float) targetHeight / origH);
+                int scaledW = Math.max(1, Math.round(origW * scale));
+                int scaledH = Math.max(1, Math.round(origH * scale));
+
+                Matrix matrix = new Matrix();
+                if (rotation != 0) {
+                    matrix.postRotate(rotation);
+                }
+
+                scaledBitmap = Bitmap.createScaledBitmap(rawBitmap, scaledW, scaledH, true);
+                if (rotation != 0) {
+                    Bitmap rotated = Bitmap.createBitmap(scaledBitmap, 0, 0, scaledBitmap.getWidth(), scaledBitmap.getHeight(), matrix, true);
+                    if (rotated != scaledBitmap) {
+                        scaledBitmap.recycle();
+                        scaledBitmap = rotated;
+                    }
+                }
+
+                try (FileOutputStream fos = new FileOutputStream(cachedFile)) {
+                    scaledBitmap.compress(Bitmap.CompressFormat.JPEG, quality, fos);
+                    fos.flush();
+                }
+
+                // Automatic cache size governance: keep under 50MB
+                pruneDirToLimit(thumbCacheDir, 50 * 1024 * 1024L);
+
+                JSObject res = new JSObject();
+                res.put("success", true);
+                res.put("filePath", cachedFile.getAbsolutePath());
+                res.put("webPath", Uri.fromFile(cachedFile).toString());
+                res.put("width", scaledBitmap.getWidth());
+                res.put("height", scaledBitmap.getHeight());
+                res.put("timestampSeconds", timestampSec);
+                res.put("fromCache", false);
+                call.resolve(res);
+
+            } catch (Exception e) {
+                Log.e(TAG, "generateThumbnail failed for: " + uriStr, e);
+                call.reject("Thumbnail generation failed: " + e.getMessage(), "THUMBNAIL_FAILED");
+            } finally {
+                if (rawBitmap != null && !rawBitmap.isRecycled()) rawBitmap.recycle();
+                if (scaledBitmap != null && !scaledBitmap.isRecycled()) scaledBitmap.recycle();
+                try { retriever.release(); } catch (Throwable ignored) {}
+                if (pfd != null) try { pfd.close(); } catch (Throwable ignored) {}
+            }
+        });
+    }
+
+    // =========================================================================
+    // Phase 9: Native Waveform Engine
+    // =========================================================================
+
+    @PluginMethod
+    public void generateWaveform(PluginCall call) {
+        String uriStr = call.getString("uri");
+        if (uriStr == null || uriStr.trim().isEmpty()) {
+            call.reject("URI is required", "INVALID_ARGUMENT");
+            return;
+        }
+
+        int samplesCount = call.getInt("samplesCount", 100);
+        if (samplesCount <= 0) samplesCount = 100;
+
+        mExecutor.execute(() -> {
+            MediaExtractor extractor = new MediaExtractor();
+            ParcelFileDescriptor pfd = null;
+            try {
+                Context context = getContext();
+                File waveCacheDir = new File(context.getCacheDir(), "vieron_waveforms");
+                if (!waveCacheDir.exists()) waveCacheDir.mkdirs();
+
+                String cacheKey = computeSha256(uriStr + "_" + samplesCount + "_wave_v1");
+                File cachedFile = new File(waveCacheDir, cacheKey + ".json");
+
+                if (cachedFile.exists() && cachedFile.length() > 0) {
+                    try (FileInputStream fis = new FileInputStream(cachedFile)) {
+                        byte[] data = new byte[(int) cachedFile.length()];
+                        fis.read(data);
+                        JSONObject json = new JSONObject(new String(data, "UTF-8"));
+
+                        JSObject res = new JSObject();
+                        res.put("success", true);
+                        res.put("peaks", new JSArray(json.getJSONArray("peaks").toString()));
+                        res.put("duration", json.getDouble("duration"));
+                        res.put("sampleRate", json.getInt("sampleRate"));
+                        res.put("channels", json.getInt("channels"));
+                        res.put("fromCache", true);
+                        call.resolve(res);
+                        return;
+                    } catch (Exception e) {
+                        cachedFile.delete(); // invalidate corrupted cache
+                    }
+                }
+
+                if (uriStr.startsWith("content://")) {
+                    Uri contentUri = Uri.parse(uriStr);
+                    pfd = context.getContentResolver().openFileDescriptor(contentUri, "r");
+                    if (pfd != null) {
+                        extractor.setDataSource(pfd.getFileDescriptor());
+                    } else {
+                        extractor.setDataSource(context, contentUri, null);
+                    }
+                } else {
+                    String cleanPath = uriStr.startsWith("file://") ? uriStr.substring(7) : uriStr;
+                    extractor.setDataSource(cleanPath);
+                }
+
+                int audioTrackIndex = -1;
+                MediaFormat audioFormat = null;
+                for (int i = 0; i < extractor.getTrackCount(); i++) {
+                    MediaFormat format = extractor.getTrackFormat(i);
+                    String mime = format.getString(MediaFormat.KEY_MIME);
+                    if (mime != null && mime.startsWith("audio/")) {
+                        audioTrackIndex = i;
+                        audioFormat = format;
+                        break;
+                    }
+                }
+
+                if (audioTrackIndex == -1 || audioFormat == null) {
+                    // No audio track found: return flat zeroes
+                    JSArray flatPeaks = new JSArray();
+                    for (int i = 0; i < samplesCount; i++) flatPeaks.put(0.0);
+                    JSObject res = new JSObject();
+                    res.put("success", true);
+                    res.put("peaks", flatPeaks);
+                    res.put("duration", 0.0);
+                    res.put("sampleRate", 44100);
+                    res.put("channels", 1);
+                    res.put("fromCache", false);
+                    call.resolve(res);
+                    return;
+                }
+
+                long durationUs = audioFormat.containsKey(MediaFormat.KEY_DURATION) ? audioFormat.getLong(MediaFormat.KEY_DURATION) : 0;
+                int sampleRate = audioFormat.containsKey(MediaFormat.KEY_SAMPLE_RATE) ? audioFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE) : 44100;
+                int channels = audioFormat.containsKey(MediaFormat.KEY_CHANNEL_COUNT) ? audioFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT) : 2;
+                double durationSec = durationUs / 1000000.0;
+
+                extractor.selectTrack(audioTrackIndex);
+
+                // Sample amplitudes across time buckets without decoding raw multi-megabyte PCM into memory
+                float[] buckets = new float[samplesCount];
+                ByteBuffer sampleBuffer = ByteBuffer.allocate(8192);
+
+                long bucketDurationUs = durationUs > 0 ? (durationUs / samplesCount) : 100000;
+                float globalMax = 0.0001f;
+
+                int currentBucket = 0;
+                while (extractor.readSampleData(sampleBuffer, 0) >= 0) {
+                    long sampleTime = extractor.getSampleTime();
+                    int bucketIdx = (int) (sampleTime / bucketDurationUs);
+                    if (bucketIdx >= samplesCount) bucketIdx = samplesCount - 1;
+                    if (bucketIdx < 0) bucketIdx = 0;
+
+                    int sampleSize = sampleBuffer.limit();
+                    float sum = 0f;
+                    int count = 0;
+                    sampleBuffer.rewind();
+                    while (sampleBuffer.remaining() >= 2) {
+                        short val = sampleBuffer.getShort();
+                        sum += Math.abs(val);
+                        count++;
+                        if (count > 64) break; // sparse representative sampling per bucket
+                    }
+
+                    float avgAmp = count > 0 ? (sum / count) : 0f;
+                    if (avgAmp > buckets[bucketIdx]) {
+                        buckets[bucketIdx] = avgAmp;
+                    }
+                    if (avgAmp > globalMax) {
+                        globalMax = avgAmp;
+                    }
+
+                    sampleBuffer.clear();
+                    // Advance to next discrete time bucket
+                    extractor.seekTo(sampleTime + bucketDurationUs, MediaExtractor.SEEK_TO_CLOSEST_SYNC);
+                    if (sampleTime >= durationUs) break;
+                }
+
+                // Normalize to 0.0 - 1.0 range
+                JSArray peaksArray = new JSArray();
+                JSONArray jsonPeaks = new JSONArray();
+                for (int i = 0; i < samplesCount; i++) {
+                    float norm = Math.min(1.0f, Math.max(0.02f, buckets[i] / globalMax));
+                    peaksArray.put(norm);
+                    jsonPeaks.put(norm);
+                }
+
+                // Save waveform cache JSON
+                JSONObject cacheObj = new JSONObject();
+                cacheObj.put("peaks", jsonPeaks);
+                cacheObj.put("duration", durationSec);
+                cacheObj.put("sampleRate", sampleRate);
+                cacheObj.put("channels", channels);
+                try (FileOutputStream fos = new FileOutputStream(cachedFile)) {
+                    fos.write(cacheObj.toString().getBytes("UTF-8"));
+                    fos.flush();
+                }
+
+                pruneDirToLimit(waveCacheDir, 20 * 1024 * 1024L);
+
+                JSObject res = new JSObject();
+                res.put("success", true);
+                res.put("peaks", peaksArray);
+                res.put("duration", durationSec);
+                res.put("sampleRate", sampleRate);
+                res.put("channels", channels);
+                res.put("fromCache", false);
+                call.resolve(res);
+
+            } catch (Exception e) {
+                Log.e(TAG, "generateWaveform error for: " + uriStr, e);
+                call.reject("Waveform generation failed: " + e.getMessage(), "WAVEFORM_FAILED");
+            } finally {
+                try { extractor.release(); } catch (Throwable ignored) {}
+                if (pfd != null) try { pfd.close(); } catch (Throwable ignored) {}
+            }
+        });
+    }
+
+    // =========================================================================
+    // Phase 9: Proxy Video System
+    // =========================================================================
+
+    @PluginMethod
+    public void generateProxyVideo(PluginCall call) {
+        String inputUri = call.getString("inputUri");
+        if (inputUri == null || inputUri.trim().isEmpty()) {
+            call.reject("inputUri is required", "INVALID_ARGUMENT");
+            return;
+        }
+
+        int targetHeight = call.getInt("targetHeight", 540);
+        String projectId = call.getString("projectId", "default");
+        String operationId = call.getString("operationId", "proxy_" + System.currentTimeMillis());
+
+        AtomicBoolean cancelled = new AtomicBoolean(false);
+        mActiveOperations.put(operationId, cancelled);
+
+        mExecutor.execute(() -> {
+            try {
+                Context context = getContext();
+                File projectDir = new File(context.getCacheDir(), "projects/" + projectId + "/proxies");
+                if (!projectDir.exists()) projectDir.mkdirs();
+
+                String proxyHash = computeSha256(inputUri + "_" + targetHeight + "_proxy_v1");
+                File proxyFile = new File(projectDir, "proxy_" + proxyHash + ".mp4");
+
+                if (proxyFile.exists() && proxyFile.length() > 1024) {
+                    JSObject res = new JSObject();
+                    res.put("success", true);
+                    res.put("originalPath", inputUri);
+                    res.put("proxyPath", proxyFile.getAbsolutePath());
+                    res.put("proxyWebPath", Uri.fromFile(proxyFile).toString());
+                    res.put("height", targetHeight);
+                    res.put("size", proxyFile.length());
+                    res.put("fromCache", true);
+                    call.resolve(res);
+                    return;
+                }
+
+                // Produce native editing proxy stream
+                performNativeStreamCopy(inputUri, proxyFile, cancelled);
+
+                if (cancelled.get()) {
+                    if (proxyFile.exists()) proxyFile.delete();
+                    call.reject("Proxy generation was cancelled", "JOB_CANCELLED");
+                    return;
+                }
+
+                JSObject res = new JSObject();
+                res.put("success", true);
+                res.put("originalPath", inputUri);
+                res.put("proxyPath", proxyFile.getAbsolutePath());
+                res.put("proxyWebPath", Uri.fromFile(proxyFile).toString());
+                res.put("height", targetHeight);
+                res.put("size", proxyFile.length());
+                res.put("fromCache", false);
+                call.resolve(res);
+
+            } catch (Exception e) {
+                Log.e(TAG, "generateProxyVideo failed", e);
+                call.reject("Proxy generation failed: " + e.getMessage(), "JOB_FAILED");
+            } finally {
+                mActiveOperations.remove(operationId);
+            }
+        });
+    }
+
+    // =========================================================================
+    // Phase 9: Android Storage Manager & Project Cache Diagnostics
+    // =========================================================================
+
+    @PluginMethod
+    public void getStorageDiagnostics(PluginCall call) {
+        mExecutor.execute(() -> {
+            try {
+                Context context = getContext();
+                StatFs statFs = new StatFs(context.getFilesDir().getAbsolutePath());
+                long freeBytes = statFs.getAvailableBytes();
+                long totalBytes = statFs.getTotalBytes();
+
+                File cacheDir = context.getCacheDir();
+                File thumbDir = new File(cacheDir, "vieron_thumbnails");
+                File proxyDir = new File(cacheDir, "vieron_proxies");
+                File projectDir = new File(cacheDir, "projects");
+                File exportDir = new File(cacheDir, "vireon_exports");
+                File modelDir = new File(context.getFilesDir(), "models");
+                File whisperDir = new File(context.getFilesDir(), "vireon_whisper");
+
+                long appCacheBytes = getDirectorySizeBytes(cacheDir);
+                long thumbBytes = getDirectorySizeBytes(thumbDir);
+                long proxyBytes = getDirectorySizeBytes(proxyDir);
+                long projectCacheBytes = getDirectorySizeBytes(projectDir);
+                long tempBytes = getDirectorySizeBytes(exportDir);
+                long modelBytes = getDirectorySizeBytes(modelDir) + getDirectorySizeBytes(whisperDir);
+
+                JSObject ret = new JSObject();
+                ret.put("success", true);
+                ret.put("freeStorageBytes", freeBytes);
+                ret.put("totalStorageBytes", totalBytes);
+                ret.put("appCacheBytes", appCacheBytes);
+                ret.put("thumbnailCacheBytes", thumbBytes);
+                ret.put("proxyCacheBytes", proxyBytes);
+                ret.put("projectCacheBytes", projectCacheBytes);
+                ret.put("modelStorageBytes", modelBytes);
+                ret.put("tempStorageBytes", tempBytes);
+
+                call.resolve(ret);
+            } catch (Exception e) {
+                Log.e(TAG, "getStorageDiagnostics failed", e);
+                call.reject("Failed to query storage diagnostics: " + e.getMessage(), "STORAGE_FAILED");
+            }
+        });
+    }
+
+    @PluginMethod
+    public void cleanStorageCache(PluginCall call) {
+        String target = call.getString("target", "all_cache");
+
+        mExecutor.execute(() -> {
+            try {
+                Context context = getContext();
+                long freedBytes = 0;
+
+                if ("thumbnails".equalsIgnoreCase(target) || "all_cache".equalsIgnoreCase(target)) {
+                    File thumbDir = new File(context.getCacheDir(), "vieron_thumbnails");
+                    freedBytes += getDirectorySizeBytes(thumbDir);
+                    deleteDirectoryContents(thumbDir);
+                }
+
+                if ("proxies".equalsIgnoreCase(target) || "all_cache".equalsIgnoreCase(target)) {
+                    File proxyDir = new File(context.getCacheDir(), "vieron_proxies");
+                    freedBytes += getDirectorySizeBytes(proxyDir);
+                    deleteDirectoryContents(proxyDir);
+                }
+
+                if ("temp".equalsIgnoreCase(target) || "all_cache".equalsIgnoreCase(target)) {
+                    File exportDir = new File(context.getCacheDir(), "vireon_exports");
+                    freedBytes += getDirectorySizeBytes(exportDir);
+                    deleteDirectoryContents(exportDir);
+                }
+
+                if ("waveforms".equalsIgnoreCase(target) || "all_cache".equalsIgnoreCase(target)) {
+                    File waveDir = new File(context.getCacheDir(), "vieron_waveforms");
+                    freedBytes += getDirectorySizeBytes(waveDir);
+                    deleteDirectoryContents(waveDir);
+                }
+
+                JSObject ret = new JSObject();
+                ret.put("success", true);
+                ret.put("freedBytes", freedBytes);
+                call.resolve(ret);
+            } catch (Exception e) {
+                Log.e(TAG, "cleanStorageCache failed", e);
+                call.reject("Failed to clean cache: " + e.getMessage(), "CLEANUP_FAILED");
+            }
+        });
+    }
+
+    @PluginMethod
+    public void manageProjectCache(PluginCall call) {
+        String projectId = call.getString("projectId");
+        String action = call.getString("action", "getInfo");
+
+        if (projectId == null || projectId.trim().isEmpty()) {
+            call.reject("projectId is required", "INVALID_ARGUMENT");
+            return;
+        }
+
+        mExecutor.execute(() -> {
+            try {
+                Context context = getContext();
+                File projectDir = new File(context.getCacheDir(), "projects/" + projectId);
+
+                if ("delete".equalsIgnoreCase(action) || "clear".equalsIgnoreCase(action)) {
+                    long size = getDirectorySizeBytes(projectDir);
+                    deleteDirectoryContents(projectDir);
+                    if ("delete".equalsIgnoreCase(action)) projectDir.delete();
+
+                    JSObject ret = new JSObject();
+                    ret.put("success", true);
+                    ret.put("projectId", projectId);
+                    ret.put("freedBytes", size);
+                    call.resolve(ret);
+                    return;
+                }
+
+                // getInfo
+                long size = getDirectorySizeBytes(projectDir);
+                int fileCount = countFilesInDir(projectDir);
+
+                JSObject ret = new JSObject();
+                ret.put("success", true);
+                ret.put("projectId", projectId);
+                ret.put("path", projectDir.getAbsolutePath());
+                ret.put("sizeBytes", size);
+                ret.put("fileCount", fileCount);
+                call.resolve(ret);
+
+            } catch (Exception e) {
+                Log.e(TAG, "manageProjectCache failed for " + projectId, e);
+                call.reject("Project cache management error: " + e.getMessage(), "PROJECT_CACHE_FAILED");
+            }
+        });
+    }
+
+    // =========================================================================
+    // Phase 9: Helper Utilities for Caching & Storage
+    // =========================================================================
+
+    private String computeSha256(String input) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] hash = md.digest(input.getBytes("UTF-8"));
+            StringBuilder hexString = new StringBuilder();
+            for (byte b : hash) {
+                String hex = Integer.toHexString(0xff & b);
+                if (hex.length() == 1) hexString.append('0');
+                hexString.append(hex);
+            }
+            return hexString.toString();
+        } catch (Exception e) {
+            return "hash_" + Math.abs(input.hashCode());
+        }
+    }
+
+    private void pruneDirToLimit(File dir, long maxBytes) {
+        if (!dir.exists() || !dir.isDirectory()) return;
+        File[] files = dir.listFiles();
+        if (files == null || files.length == 0) return;
+
+        long totalSize = 0;
+        for (File f : files) {
+            totalSize += f.length();
+        }
+
+        if (totalSize > maxBytes) {
+            // Sort by oldest modified
+            Arrays.sort(files, Comparator.comparingLong(File::lastModified));
+            for (File f : files) {
+                long len = f.length();
+                if (f.delete()) {
+                    totalSize -= len;
+                    if (totalSize <= (maxBytes * 0.75)) { // Prune down to 75% watermark
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    private long getDirectorySizeBytes(File dir) {
+        if (!dir.exists()) return 0;
+        if (dir.isFile()) return dir.length();
+        long size = 0;
+        File[] files = dir.listFiles();
+        if (files != null) {
+            for (File f : files) {
+                if (f.isDirectory()) size += getDirectorySizeBytes(f);
+                else size += f.length();
+            }
+        }
+        return size;
+    }
+
+    private void deleteDirectoryContents(File dir) {
+        if (!dir.exists() || !dir.isDirectory()) return;
+        File[] files = dir.listFiles();
+        if (files != null) {
+            for (File f : files) {
+                if (f.isDirectory()) {
+                    deleteDirectoryContents(f);
+                    f.delete();
+                } else {
+                    f.delete();
+                }
+            }
+        }
+    }
+
+    private int countFilesInDir(File dir) {
+        if (!dir.exists() || !dir.isDirectory()) return 0;
+        int count = 0;
+        File[] files = dir.listFiles();
+        if (files != null) {
+            for (File f : files) {
+                if (f.isDirectory()) count += countFilesInDir(f);
+                else count++;
+            }
+        }
+        return count;
     }
 
     private void saveMedia(PluginCall call, Uri collectionUri, String mimeType, String relativePath, String prefix, String extension) {

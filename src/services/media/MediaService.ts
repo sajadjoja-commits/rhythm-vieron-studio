@@ -5,6 +5,15 @@ import {
   ExportMediaConfig,
   ExportMediaResult,
   MediaProgressCallback,
+  ThumbnailOptions,
+  ThumbnailResult,
+  WaveformOptions,
+  WaveformResult,
+  ProxyOptions,
+  ProxyResult,
+  StorageDiagnostics,
+  StorageCleanupResult,
+  ProjectCacheInfo,
 } from "./types";
 import { WebMediaProvider } from "./WebMediaProvider";
 import { AndroidMediaProvider } from "./AndroidMediaProvider";
@@ -105,6 +114,69 @@ export class MediaService {
    */
   public async releaseResource(pathOrUri: string): Promise<boolean> {
     return this.getProvider().releaseResource(pathOrUri);
+  }
+
+  /**
+   * Fast thumbnail generation for timeline scrubbing and media pickers
+   */
+  public async generateThumbnail(
+    source: string | File | Blob,
+    options?: ThumbnailOptions
+  ): Promise<ThumbnailResult> {
+    return this.getProviderForSource(source).generateThumbnail(source, options);
+  }
+
+  /**
+   * Fast audio waveform generation
+   */
+  public async generateWaveform(
+    source: string | File | Blob,
+    options?: WaveformOptions
+  ): Promise<WaveformResult> {
+    return this.getProviderForSource(source).generateWaveform(source, options);
+  }
+
+  /**
+   * Fast native or web editing proxy generation
+   */
+  public async generateProxy(
+    source: string | File | Blob,
+    options?: ProxyOptions
+  ): Promise<ProxyResult> {
+    return this.getProviderForSource(source).generateProxy(source, options);
+  }
+
+  /**
+   * Retrieve storage diagnostics
+   */
+  public async getStorageDiagnostics(): Promise<StorageDiagnostics> {
+    if (this.androidProvider.isAvailable()) {
+      return this.androidProvider.getStorageDiagnostics();
+    }
+    return this.webProvider.getStorageDiagnostics();
+  }
+
+  /**
+   * Clean cache directory targets
+   */
+  public async cleanStorageCache(target = "all_cache"): Promise<StorageCleanupResult> {
+    if (this.androidProvider.isAvailable()) {
+      return this.androidProvider.cleanStorageCache(target);
+    }
+    return this.webProvider.cleanStorageCache(target);
+  }
+
+  /**
+   * Project cache operations
+   */
+  public async manageProjectCache(
+    projectId: string,
+    action: "getInfo" | "clear" | "delete" = "getInfo"
+  ): Promise<ProjectCacheInfo> {
+    if (this.androidProvider.isAvailable()) {
+      return this.androidProvider.manageProjectCache(projectId, action);
+    }
+    return this.webProvider.manageProjectCache(projectId, action);
   }
 }
 

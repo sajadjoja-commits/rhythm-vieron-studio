@@ -3,3 +3,7 @@ export * from "./WebMediaProvider";
 export * from "./AndroidMediaProvider";
 export * from "./MediaService";
 export * from "./exportDecision";
+export * from "./ThumbnailService";
+export * from "./WaveformService";
+export * from "./ProxyService";
+export * from "./StorageCacheService";

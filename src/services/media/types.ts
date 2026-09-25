@@ -49,6 +49,84 @@ export interface MediaProgressUpdate {
 
 export type MediaProgressCallback = (update: MediaProgressUpdate) => void;
 
+export interface ThumbnailOptions {
+  timestampSeconds?: number;
+  width?: number;
+  height?: number;
+  quality?: number;
+  operationId?: string;
+}
+
+export interface ThumbnailResult {
+  success: boolean;
+  filePath: string;
+  webPath: string;
+  width: number;
+  height: number;
+  timestampSeconds: number;
+  fromCache: boolean;
+}
+
+export interface WaveformOptions {
+  samplesCount?: number;
+  operationId?: string;
+}
+
+export interface WaveformResult {
+  success: boolean;
+  peaks: number[];
+  duration: number;
+  sampleRate: number;
+  channels: number;
+  fromCache: boolean;
+}
+
+export interface ProxyOptions {
+  targetHeight?: number;
+  targetBitrate?: number;
+  projectId?: string;
+  operationId?: string;
+  signal?: AbortSignal;
+  onProgress?: (progress: number) => void;
+}
+
+export interface ProxyResult {
+  success: boolean;
+  originalPath: string;
+  proxyPath: string;
+  proxyWebPath: string;
+  height: number;
+  size: number;
+  fromCache: boolean;
+}
+
+export interface StorageDiagnostics {
+  success: boolean;
+  freeStorageBytes: number;
+  totalStorageBytes: number;
+  appCacheBytes: number;
+  thumbnailCacheBytes: number;
+  proxyCacheBytes: number;
+  projectCacheBytes: number;
+  modelStorageBytes: number;
+  tempStorageBytes: number;
+}
+
+export interface StorageCleanupResult {
+  success: boolean;
+  freedBytes: number;
+  target: string;
+}
+
+export interface ProjectCacheInfo {
+  success: boolean;
+  projectId: string;
+  path?: string;
+  sizeBytes?: number;
+  fileCount?: number;
+  freedBytes?: number;
+}
+
 export interface MediaProvider {
   readonly id: string;
   readonly platform: "web" | "android";
@@ -61,4 +139,10 @@ export interface MediaProvider {
     signal?: AbortSignal
   ): Promise<ExportMediaResult>;
   releaseResource(pathOrUri: string): Promise<boolean>;
+  generateThumbnail(source: string | File | Blob, options?: ThumbnailOptions): Promise<ThumbnailResult>;
+  generateWaveform(source: string | File | Blob, options?: WaveformOptions): Promise<WaveformResult>;
+  generateProxy(source: string | File | Blob, options?: ProxyOptions): Promise<ProxyResult>;
+  getStorageDiagnostics?(): Promise<StorageDiagnostics>;
+  cleanStorageCache?(target?: string): Promise<StorageCleanupResult>;
+  manageProjectCache?(projectId: string, action?: "getInfo" | "clear" | "delete"): Promise<ProjectCacheInfo>;
 }

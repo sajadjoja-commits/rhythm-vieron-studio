@@ -7,6 +7,7 @@ import android.graphics.BitmapFactory;
 import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Build;
+import android.os.StatFs;
 import android.util.Base64;
 import android.util.Log;
 
@@ -28,15 +29,19 @@ import com.google.mlkit.vision.segmentation.subject.SubjectSegmenterOptions;
 import com.google.mlkit.vision.segmentation.subject.SubjectSegmentationResult;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.nio.FloatBuffer;
+import java.security.MessageDigest;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 /**
  * Phase 7.1: Vireon Native AI Engine Plugin
@@ -185,6 +190,371 @@ public class VireonAIPlugin extends Plugin {
         }
 
         call.resolve(ret);
+    }
+
+    // =========================================================================
+    // Phase 9: Local AI Model Pack System & Registry
+    // =========================================================================
+
+    @PluginMethod
+    public void getInstalledModelPacks(PluginCall call) {
+        mExecutor.execute(() -> {
+            try {
+                Context context = getContext();
+                File installedBase = new File(context.getFilesDir(), "models/installed");
+                JSArray list = new JSArray();
+
+                if (installedBase.exists() && installedBase.isDirectory()) {
+                    File[] modelDirs = installedBase.listFiles();
+                    if (modelDirs != null) {
+                        for (File mDir : modelDirs) {
+                            if (mDir.isDirectory()) {
+                                File binFile = new File(mDir, "model.bin");
+                                if (binFile.exists() && binFile.length() > 0) {
+                                    JSObject item = new JSObject();
+                                    item.put("id", mDir.getName());
+                                    item.put("path", binFile.getAbsolutePath());
+                                    item.put("sizeBytes", binFile.length());
+
+                                    File metaFile = new File(mDir, "metadata.json");
+                                    if (metaFile.exists()) {
+                                        try (FileInputStream fis = new FileInputStream(metaFile)) {
+                                            byte[] buf = new byte[(int) metaFile.length()];
+                                            fis.read(buf);
+                                            JSONObject metaJson = new JSONObject(new String(buf, "UTF-8"));
+                                            item.put("name", metaJson.optString("name", mDir.getName()));
+                                            item.put("version", metaJson.optString("version", "1.0.0"));
+                                            item.put("framework", metaJson.optString("framework", "onnx"));
+                                            item.put("sha256", metaJson.optString("sha256", ""));
+                                            item.put("license", metaJson.optString("license", "Unknown"));
+                                            item.put("licenseUrl", metaJson.optString("licenseUrl", ""));
+                                        } catch (Exception ignored) {}
+                                    }
+
+                                    File bakFile = new File(mDir, "model.bin.bak");
+                                    item.put("hasBackup", bakFile.exists());
+                                    list.put(item);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                JSObject ret = new JSObject();
+                ret.put("success", true);
+                ret.put("models", list);
+                call.resolve(ret);
+            } catch (Exception e) {
+                Log.e(TAG, "getInstalledModelPacks error", e);
+                call.reject("Failed to list installed models: " + e.getMessage(), "MODEL_LIST_FAILED");
+            }
+        });
+    }
+
+    @PluginMethod
+    public void installModelPack(PluginCall call) {
+        String modelId = call.getString("modelId");
+        if (modelId == null || modelId.trim().isEmpty()) {
+            call.reject("modelId is required", "INVALID_ARGUMENT");
+            return;
+        }
+
+        String name = call.getString("name", modelId);
+        String version = call.getString("version", "1.0.0");
+        String downloadUrl = call.getString("downloadUrl", "");
+        String sourceFilePath = call.getString("sourceFilePath", "");
+        String expectedSha256 = call.getString("expectedSha256", "");
+        Long expectedSize = call.getLong("expectedSize", 0L);
+        String framework = call.getString("framework", "onnx");
+        String license = call.getString("license", "Open Source");
+        String licenseUrl = call.getString("licenseUrl", "");
+        String operationId = call.getString("operationId", "model_install_" + System.currentTimeMillis());
+
+        AtomicBoolean cancelToken = new AtomicBoolean(false);
+        mActiveOperations.put(operationId, cancelToken);
+
+        mExecutor.execute(() -> {
+            File tmpFile = null;
+            try {
+                Context context = getContext();
+                StatFs statFs = new StatFs(context.getFilesDir().getAbsolutePath());
+                long availableBytes = statFs.getAvailableBytes();
+
+                long reqBytes = expectedSize != null && expectedSize > 0 ? expectedSize : 50 * 1024 * 1024L;
+                if (availableBytes < (long)(reqBytes * 1.5)) {
+                    call.reject("Insufficient storage space for model install", "JOB_STORAGE_FULL");
+                    return;
+                }
+
+                File tmpDir = new File(context.getFilesDir(), "models/tmp");
+                if (!tmpDir.exists()) tmpDir.mkdirs();
+
+                File targetDir = new File(context.getFilesDir(), "models/installed/" + modelId);
+                if (!targetDir.exists()) targetDir.mkdirs();
+
+                tmpFile = new File(tmpDir, modelId + "_" + System.currentTimeMillis() + ".tmp");
+
+                InputStream in = null;
+                if (sourceFilePath != null && !sourceFilePath.isEmpty()) {
+                    String cleanPath = sourceFilePath.startsWith("file://") ? sourceFilePath.substring(7) : sourceFilePath;
+                    File src = new File(cleanPath);
+                    if (!src.exists()) {
+                        call.reject("Source model file does not exist: " + cleanPath, "JOB_MODEL_NOT_FOUND");
+                        return;
+                    }
+                    in = new FileInputStream(src);
+                } else if (downloadUrl.startsWith("content://")) {
+                    in = context.getContentResolver().openInputStream(Uri.parse(downloadUrl));
+                } else if (downloadUrl.startsWith("file://") || downloadUrl.startsWith("/")) {
+                    String cleanPath = downloadUrl.startsWith("file://") ? downloadUrl.substring(7) : downloadUrl;
+                    in = new FileInputStream(new File(cleanPath));
+                } else if (downloadUrl.startsWith("http://") || downloadUrl.startsWith("https://")) {
+                    java.net.URL url = new java.net.URL(downloadUrl);
+                    java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+                    conn.setConnectTimeout(15000);
+                    conn.setReadTimeout(30000);
+                    conn.connect();
+                    in = conn.getInputStream();
+                } else {
+                    call.reject("Unsupported model source URL or path: " + downloadUrl, "JOB_INVALID_INPUT");
+                    return;
+                }
+
+                MessageDigest md = MessageDigest.getInstance("SHA-256");
+                long totalBytesWritten = 0;
+
+                try (InputStream streamIn = in;
+                     FileOutputStream fos = new FileOutputStream(tmpFile)) {
+                    byte[] buffer = new byte[32768];
+                    int len;
+                    while ((len = streamIn.read(buffer)) > 0) {
+                        if (cancelToken.get()) {
+                            call.reject("Model install cancelled by user", "JOB_CANCELLED");
+                            return;
+                        }
+                        fos.write(buffer, 0, len);
+                        md.update(buffer, 0, len);
+                        totalBytesWritten += len;
+                    }
+                    fos.flush();
+                }
+
+                // Verify checksum
+                byte[] hashBytes = md.digest();
+                StringBuilder sb = new StringBuilder();
+                for (byte b : hashBytes) {
+                    sb.append(String.format("%02x", b));
+                }
+                String computedHash = sb.toString();
+
+                if (expectedSha256 != null && !expectedSha256.trim().isEmpty()) {
+                    if (!computedHash.equalsIgnoreCase(expectedSha256.trim())) {
+                        call.reject("Model checksum verification failed. Expected: " + expectedSha256 + ", computed: " + computedHash, "JOB_MODEL_INVALID");
+                        return;
+                    }
+                }
+
+                // Safe atomic replacement: backup old version if present
+                File targetBin = new File(targetDir, "model.bin");
+                File backupBin = new File(targetDir, "model.bin.bak");
+                if (targetBin.exists()) {
+                    if (backupBin.exists()) backupBin.delete();
+                    targetBin.renameTo(backupBin);
+                }
+
+                // Move verified temp to target
+                if (!tmpFile.renameTo(targetBin)) {
+                    // Fallback stream copy if cross-filesystem rename fails
+                    try (FileInputStream fis = new FileInputStream(tmpFile);
+                         FileOutputStream fos = new FileOutputStream(targetBin)) {
+                        byte[] buf = new byte[32768];
+                        int l;
+                        while ((l = fis.read(buf)) > 0) fos.write(buf, 0, l);
+                        fos.flush();
+                    }
+                    tmpFile.delete();
+                }
+
+                // Write metadata.json
+                JSONObject metaJson = new JSONObject();
+                metaJson.put("id", modelId);
+                metaJson.put("name", name);
+                metaJson.put("version", version);
+                metaJson.put("framework", framework);
+                metaJson.put("sizeBytes", targetBin.length());
+                metaJson.put("sha256", computedHash);
+                metaJson.put("installedAt", System.currentTimeMillis());
+                metaJson.put("license", license);
+                metaJson.put("licenseUrl", licenseUrl);
+
+                File metaFile = new File(targetDir, "metadata.json");
+                try (FileOutputStream fos = new FileOutputStream(metaFile)) {
+                    fos.write(metaJson.toString(2).getBytes("UTF-8"));
+                    fos.flush();
+                }
+
+                File checksumFile = new File(targetDir, "checksum");
+                try (FileOutputStream fos = new FileOutputStream(checksumFile)) {
+                    fos.write(computedHash.getBytes("UTF-8"));
+                    fos.flush();
+                }
+
+                File verFile = new File(targetDir, "version.json");
+                try (FileOutputStream fos = new FileOutputStream(verFile)) {
+                    fos.write(("{\"version\":\"" + version + "\"}").getBytes("UTF-8"));
+                    fos.flush();
+                }
+
+                JSObject res = new JSObject();
+                res.put("success", true);
+                res.put("modelId", modelId);
+                res.put("version", version);
+                res.put("sizeBytes", targetBin.length());
+                res.put("sha256", computedHash);
+                res.put("path", targetBin.getAbsolutePath());
+                call.resolve(res);
+
+            } catch (Exception e) {
+                Log.e(TAG, "installModelPack error for: " + modelId, e);
+                call.reject("Model install failed: " + e.getMessage(), "JOB_FAILED");
+            } finally {
+                mActiveOperations.remove(operationId);
+                if (tmpFile != null && tmpFile.exists()) {
+                    tmpFile.delete();
+                }
+            }
+        });
+    }
+
+    @PluginMethod
+    public void verifyModelPack(PluginCall call) {
+        String modelId = call.getString("modelId");
+        if (modelId == null || modelId.trim().isEmpty()) {
+            call.reject("modelId is required", "INVALID_ARGUMENT");
+            return;
+        }
+
+        mExecutor.execute(() -> {
+            try {
+                Context context = getContext();
+                File targetBin = new File(context.getFilesDir(), "models/installed/" + modelId + "/model.bin");
+                if (!targetBin.exists() || targetBin.length() == 0) {
+                    JSObject ret = new JSObject();
+                    ret.put("success", false);
+                    ret.put("valid", false);
+                    ret.put("message", "Model binary not found");
+                    call.resolve(ret);
+                    return;
+                }
+
+                MessageDigest md = MessageDigest.getInstance("SHA-256");
+                try (FileInputStream fis = new FileInputStream(targetBin)) {
+                    byte[] buffer = new byte[32768];
+                    int len;
+                    while ((len = fis.read(buffer)) > 0) {
+                        md.update(buffer, 0, len);
+                    }
+                }
+
+                byte[] hashBytes = md.digest();
+                StringBuilder sb = new StringBuilder();
+                for (byte b : hashBytes) {
+                    sb.append(String.format("%02x", b));
+                }
+                String computed = sb.toString();
+
+                File checksumFile = new File(context.getFilesDir(), "models/installed/" + modelId + "/checksum");
+                String expected = "";
+                if (checksumFile.exists()) {
+                    try (FileInputStream fis = new FileInputStream(checksumFile)) {
+                        byte[] buf = new byte[(int) checksumFile.length()];
+                        fis.read(buf);
+                        expected = new String(buf, "UTF-8").trim();
+                    }
+                }
+
+                boolean valid = expected.isEmpty() || expected.equalsIgnoreCase(computed);
+
+                JSObject ret = new JSObject();
+                ret.put("success", true);
+                ret.put("valid", valid);
+                ret.put("computedSha256", computed);
+                ret.put("expectedSha256", expected);
+                ret.put("sizeBytes", targetBin.length());
+                call.resolve(ret);
+            } catch (Exception e) {
+                Log.e(TAG, "verifyModelPack error", e);
+                call.reject("Model verification error: " + e.getMessage(), "VERIFICATION_FAILED");
+            }
+        });
+    }
+
+    @PluginMethod
+    public void rollbackModelPack(PluginCall call) {
+        String modelId = call.getString("modelId");
+        if (modelId == null || modelId.trim().isEmpty()) {
+            call.reject("modelId is required", "INVALID_ARGUMENT");
+            return;
+        }
+
+        mExecutor.execute(() -> {
+            try {
+                Context context = getContext();
+                File targetDir = new File(context.getFilesDir(), "models/installed/" + modelId);
+                File targetBin = new File(targetDir, "model.bin");
+                File backupBin = new File(targetDir, "model.bin.bak");
+
+                if (!backupBin.exists() || backupBin.length() == 0) {
+                    call.reject("No backup version available for rollback of " + modelId, "ROLLBACK_UNAVAILABLE");
+                    return;
+                }
+
+                if (targetBin.exists()) targetBin.delete();
+                boolean restored = backupBin.renameTo(targetBin);
+
+                JSObject ret = new JSObject();
+                ret.put("success", restored);
+                ret.put("modelId", modelId);
+                ret.put("message", restored ? "Model successfully rolled back to previous backup" : "Rollback file rename failed");
+                call.resolve(ret);
+            } catch (Exception e) {
+                Log.e(TAG, "rollbackModelPack error", e);
+                call.reject("Rollback failed: " + e.getMessage(), "ROLLBACK_FAILED");
+            }
+        });
+    }
+
+    @PluginMethod
+    public void deleteModelPack(PluginCall call) {
+        String modelId = call.getString("modelId");
+        if (modelId == null || modelId.trim().isEmpty()) {
+            call.reject("modelId is required", "INVALID_ARGUMENT");
+            return;
+        }
+
+        mExecutor.execute(() -> {
+            try {
+                Context context = getContext();
+                File targetDir = new File(context.getFilesDir(), "models/installed/" + modelId);
+                boolean deleted = false;
+                if (targetDir.exists()) {
+                    File[] files = targetDir.listFiles();
+                    if (files != null) {
+                        for (File f : files) f.delete();
+                    }
+                    deleted = targetDir.delete();
+                }
+
+                JSObject ret = new JSObject();
+                ret.put("success", true);
+                ret.put("deleted", deleted);
+                ret.put("modelId", modelId);
+                call.resolve(ret);
+            } catch (Exception e) {
+                Log.e(TAG, "deleteModelPack error", e);
+                call.reject("Delete model failed: " + e.getMessage(), "DELETE_FAILED");
+            }
+        });
     }
 
     @PluginMethod
