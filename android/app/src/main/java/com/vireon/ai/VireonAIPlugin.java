@@ -4,6 +4,7 @@ import android.app.ActivityManager;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Build;
 import android.util.Base64;
@@ -17,6 +18,10 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.google.android.gms.tasks.Tasks;
 import com.google.mlkit.vision.common.InputImage;
+import com.google.mlkit.vision.face.Face;
+import com.google.mlkit.vision.face.FaceDetection;
+import com.google.mlkit.vision.face.FaceDetector;
+import com.google.mlkit.vision.face.FaceDetectorOptions;
 import com.google.mlkit.vision.segmentation.subject.SubjectSegmentation;
 import com.google.mlkit.vision.segmentation.subject.SubjectSegmenter;
 import com.google.mlkit.vision.segmentation.subject.SubjectSegmenterOptions;
@@ -26,6 +31,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.nio.FloatBuffer;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -33,17 +39,28 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Phase 7: Vireon Native AI Engine Plugin
+ * Phase 7.1: Vireon Native AI Engine Plugin
  *
- * Provides:
- * - Hardware acceleration & capability detection (NNAPI, ARM64, RAM tier)
- * - Zero-copy / low-copy media pipelines (URI / direct file descriptors)
- * - On-device neural subject segmentation via Google ML Kit
- * - Lifecycle management, cancellation, and structured error reporting
+ * Truthful, memory-safe Android Native AI integration:
+ * - Native low-copy pipeline avoiding JavaScript heap bloat & Base64 transfers.
+ * - Accurate hardware capability detection (ARM64, NNAPI API presence, truthful accelerator flags).
+ * - Real Google ML Kit Subject Segmentation & Face Detection with dynamic Play Services modules.
+ * - Strict memory safety: proactive bitmap recycling, scoped buffer lifetime, and cache purging.
+ * - Comprehensive structured error codes & responsive cancellation tokens.
  */
 @CapacitorPlugin(name = "VireonAI")
 public class VireonAIPlugin extends Plugin {
     private static final String TAG = "VireonAI";
+
+    // Structured error codes contract
+    public static final String ERROR_MODEL_NOT_FOUND = "AI_MODEL_NOT_FOUND";
+    public static final String ERROR_MODEL_INVALID = "AI_MODEL_INVALID";
+    public static final String ERROR_RUNTIME_UNAVAILABLE = "AI_RUNTIME_UNAVAILABLE";
+    public static final String ERROR_ACCELERATOR_UNAVAILABLE = "AI_ACCELERATOR_UNAVAILABLE";
+    public static final String ERROR_OUT_OF_MEMORY = "AI_OUT_OF_MEMORY";
+    public static final String ERROR_INFERENCE_FAILED = "AI_INFERENCE_FAILED";
+    public static final String ERROR_CANCELLED = "AI_CANCELLED";
+    public static final String ERROR_UNSUPPORTED_OPERATION = "AI_UNSUPPORTED_OPERATION";
 
     private final ExecutorService mExecutor = Executors.newFixedThreadPool(2);
     private final ConcurrentHashMap<String, AtomicBoolean> mActiveOperations = new ConcurrentHashMap<>();
@@ -52,8 +69,9 @@ public class VireonAIPlugin extends Plugin {
     public void getAICapabilities(PluginCall call) {
         JSObject ret = new JSObject();
         ret.put("nativeAI", true);
+        ret.put("platform", "android");
 
-        // Detect ARM64
+        // 1. Architecture detection (ARM64 check)
         boolean isArm64 = false;
         if (Build.SUPPORTED_ABIS != null) {
             for (String abi : Build.SUPPORTED_ABIS) {
@@ -65,41 +83,70 @@ public class VireonAIPlugin extends Plugin {
         }
         ret.put("arm64", isArm64);
 
-        // Detect NNAPI (available on Android 8.1+ / API 27+)
-        boolean hasNnapi = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1;
-        ret.put("nnapi", hasNnapi);
-        ret.put("xnnpack", true);
-        ret.put("gpuAcceleration", hasNnapi || Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP);
+        // 2. Truthful Accelerator & API capability reporting
+        // NNAPI API is introduced in Android 8.1 (API 27). This denotes API presence, not active delegate.
+        boolean hasNnapiApi = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1;
 
-        // Detect RAM and device performance tier
-        ActivityManager actManager = (ActivityManager) getContext().getSystemService(Context.ACTIVITY_SERVICE);
-        ActivityManager.MemoryInfo memInfo = new ActivityManager.MemoryInfo();
-        actManager.getMemoryInfo(memInfo);
+        JSObject accelerators = new JSObject();
+        accelerators.put("nnapiApiAvailable", hasNnapiApi);
+        // Do not falsely claim GPU or XNNPACK unless an explicit GPU/XNNPACK engine is attached
+        accelerators.put("gpuUsable", false);
+        accelerators.put("xnnpackUsable", false);
+        ret.put("accelerators", accelerators);
 
-        long availMB = memInfo.availMem / (1024 * 1024);
-        long totalMB = memInfo.totalMem / (1024 * 1024);
+        // 3. Memory detection
+        long availMB = 0;
+        long totalMB = 0;
+        String tier = "medium";
+        try {
+            ActivityManager actManager = (ActivityManager) getContext().getSystemService(Context.ACTIVITY_SERVICE);
+            if (actManager != null) {
+                ActivityManager.MemoryInfo memInfo = new ActivityManager.MemoryInfo();
+                actManager.getMemoryInfo(memInfo);
+                availMB = memInfo.availMem / (1024 * 1024);
+                totalMB = memInfo.totalMem / (1024 * 1024);
 
-        ret.put("availableMemoryMB", availMB);
-        ret.put("totalMemoryMB", totalMB);
-
-        String tier;
-        if (totalMB >= 7500) {
-            tier = "flagship";
-        } else if (totalMB >= 4500) {
-            tier = "high";
-        } else if (totalMB >= 2500) {
-            tier = "medium";
-        } else {
-            tier = "low";
+                if (totalMB >= 7500) {
+                    tier = "flagship";
+                } else if (totalMB >= 4500) {
+                    tier = "high";
+                } else if (totalMB >= 2500) {
+                    tier = "medium";
+                } else {
+                    tier = "low";
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to query system memory: " + e.getMessage());
         }
+
+        JSObject memory = new JSObject();
+        memory.put("availableMB", availMB);
+        memory.put("totalMB", totalMB);
+        ret.put("memory", memory);
         ret.put("performanceTier", tier);
+
+        // 4. Truthful runtime availability
+        JSObject runtimes = new JSObject();
+        runtimes.put("whisperCpp", true);
+        runtimes.put("mlkitSubjectSegmentation", true);
+        runtimes.put("mlkitFaceDetection", true);
+        runtimes.put("mediapipe", false); // MediaPipe is web-only in this project
+        runtimes.put("onnx", false);      // ONNX Runtime Mobile is not embedded in APK
+        ret.put("runtimes", runtimes);
 
         JSArray backends = new JSArray();
         backends.put("mlkit_subject_segmentation");
+        backends.put("mlkit_face_detection");
         backends.put("whisper_cpp");
-        backends.put("mediapipe_vision");
-        backends.put("dsp_audio");
         ret.put("backends", backends);
+
+        // Flat backwards-compatibility fields
+        ret.put("availableMemoryMB", availMB);
+        ret.put("totalMemoryMB", totalMB);
+        ret.put("nnapi", hasNnapiApi);
+        ret.put("gpuAcceleration", false);
+        ret.put("xnnpack", false);
 
         call.resolve(ret);
     }
@@ -109,7 +156,11 @@ public class VireonAIPlugin extends Plugin {
         String modelId = call.getString("modelId", "");
         JSObject ret = new JSObject();
 
-        if (modelId.contains("mlkit") || modelId.contains("segment")) {
+        if ("mlkit-subject-segmenter".equals(modelId) || modelId.contains("segment")) {
+            ret.put("status", "AVAILABLE");
+            ret.put("available", true);
+            ret.put("framework", "mlkit");
+        } else if ("mlkit-face-detector".equals(modelId) || modelId.contains("face")) {
             ret.put("status", "AVAILABLE");
             ret.put("available", true);
             ret.put("framework", "mlkit");
@@ -120,10 +171,17 @@ public class VireonAIPlugin extends Plugin {
             ret.put("status", avail ? "AVAILABLE" : "NOT_DOWNLOADED");
             ret.put("available", avail);
             ret.put("framework", "whisper.cpp");
-        } else {
-            ret.put("status", "AVAILABLE");
-            ret.put("available", true);
+        } else if ("rmbg-2.0".equals(modelId)) {
+            File rmbgFile = new File(getContext().getFilesDir(), "models/rmbg-2.0.onnx");
+            boolean downloaded = rmbgFile.exists() && rmbgFile.length() > 1000000;
+            ret.put("status", downloaded ? "AVAILABLE" : "NOT_DOWNLOADED");
+            ret.put("available", downloaded);
             ret.put("framework", "onnx");
+        } else {
+            // Strictly truthful: never report an unknown/unsupported model as AVAILABLE
+            ret.put("status", "NOT_SUPPORTED");
+            ret.put("available", false);
+            ret.put("framework", "unknown");
         }
 
         call.resolve(ret);
@@ -140,15 +198,17 @@ public class VireonAIPlugin extends Plugin {
     }
 
     private void executeSegmentation(PluginCall call) {
-        String opId = call.getString("operationId", "ai_op_" + System.currentTimeMillis());
+        String opId = call.getString("operationId", "ai_seg_" + System.currentTimeMillis());
         AtomicBoolean cancelToken = new AtomicBoolean(false);
         mActiveOperations.put(opId, cancelToken);
 
         mExecutor.execute(() -> {
             long startTime = System.currentTimeMillis();
+            Bitmap originalBitmap = null;
+            Bitmap outputBitmap = null;
             try {
                 if (cancelToken.get()) {
-                    call.reject("AI_CANCELLED: Operation cancelled by user");
+                    call.reject("Operation was cancelled by user", ERROR_CANCELLED);
                     return;
                 }
 
@@ -157,19 +217,20 @@ public class VireonAIPlugin extends Plugin {
                 String imageBase64 = call.getString("imageBase64");
                 boolean refineEdges = call.getBoolean("refineEdges", true);
 
-                Bitmap originalBitmap = loadBitmap(filePath, imageUri, imageBase64);
+                // Proactive cache housekeeping on background thread
+                cleanOldCacheFiles();
+
+                originalBitmap = loadBitmap(filePath, imageUri, imageBase64);
                 if (originalBitmap == null) {
-                    call.reject("AI_MODEL_INVALID: Unable to decode input image from provided path or URI");
+                    call.reject("Unable to decode input image from provided path or URI", ERROR_MODEL_INVALID);
                     return;
                 }
 
                 if (cancelToken.get()) {
-                    originalBitmap.recycle();
-                    call.reject("AI_CANCELLED: Operation cancelled during image preparation");
+                    call.reject("Operation cancelled during image preparation", ERROR_CANCELLED);
                     return;
                 }
 
-                // Execute Google ML Kit Subject Segmentation
                 SubjectSegmenterOptions options = new SubjectSegmenterOptions.Builder()
                         .enableForegroundBitmap()
                         .enableForegroundConfidenceMask()
@@ -178,21 +239,25 @@ public class VireonAIPlugin extends Plugin {
                 SubjectSegmenter segmenter = SubjectSegmentation.getClient(options);
                 InputImage inputImage = InputImage.fromBitmap(originalBitmap, 0);
 
-                SubjectSegmentationResult result = Tasks.await(segmenter.process(inputImage), 30, TimeUnit.SECONDS);
+                SubjectSegmentationResult result;
+                try {
+                    result = Tasks.await(segmenter.process(inputImage), 30, TimeUnit.SECONDS);
+                } catch (Exception mlKitErr) {
+                    Log.e(TAG, "ML Kit Subject Segmentation inference failed: " + mlKitErr.getMessage());
+                    call.reject("ML Kit Subject Segmentation inference failed: " + mlKitErr.getMessage(), ERROR_INFERENCE_FAILED);
+                    return;
+                }
 
                 if (cancelToken.get()) {
-                    originalBitmap.recycle();
-                    call.reject("AI_CANCELLED: Operation cancelled after neural inference");
+                    call.reject("Operation cancelled after neural inference", ERROR_CANCELLED);
                     return;
                 }
 
                 if (result == null) {
-                    originalBitmap.recycle();
-                    call.reject("AI_INFERENCE_FAILED: ML Kit did not produce any segmentation result");
+                    call.reject("ML Kit did not produce any segmentation result", ERROR_INFERENCE_FAILED);
                     return;
                 }
 
-                Bitmap outputBitmap = null;
                 FloatBuffer maskBuffer = result.getForegroundConfidenceMask();
                 Bitmap fgBitmap = result.getForegroundBitmap();
 
@@ -203,14 +268,23 @@ public class VireonAIPlugin extends Plugin {
                     outputBitmap = fgBitmap.copy(Bitmap.Config.ARGB_8888, true);
                 }
 
-                originalBitmap.recycle();
+                // Immediately release originalBitmap to reduce memory pressure
+                if (originalBitmap != null && !originalBitmap.isRecycled()) {
+                    originalBitmap.recycle();
+                    originalBitmap = null;
+                }
 
                 if (outputBitmap == null) {
-                    call.reject("AI_INFERENCE_FAILED: Failed to extract foreground cutout bitmap");
+                    call.reject("Failed to extract foreground cutout bitmap", ERROR_INFERENCE_FAILED);
                     return;
                 }
 
-                // Save to native cache file
+                if (cancelToken.get()) {
+                    call.reject("Operation cancelled before writing output file", ERROR_CANCELLED);
+                    return;
+                }
+
+                // Save directly to native cache directory (native low-copy pipeline)
                 File cacheDir = new File(getContext().getCacheDir(), "vieron_ai");
                 if (!cacheDir.exists()) cacheDir.mkdirs();
 
@@ -222,7 +296,6 @@ public class VireonAIPlugin extends Plugin {
 
                 int outW = outputBitmap.getWidth();
                 int outH = outputBitmap.getHeight();
-                outputBitmap.recycle();
 
                 long elapsed = System.currentTimeMillis() - startTime;
 
@@ -237,15 +310,29 @@ public class VireonAIPlugin extends Plugin {
 
                 call.resolve(ret);
 
+            } catch (OutOfMemoryError oom) {
+                Log.e(TAG, "Out of memory in executeSegmentation", oom);
+                call.reject("Device ran out of memory during neural segmentation", ERROR_OUT_OF_MEMORY);
             } catch (Exception e) {
                 Log.e(TAG, "Error in executeSegmentation: " + e.getMessage(), e);
-                call.reject("AI_INFERENCE_FAILED: " + e.getMessage());
+                call.reject("Segmentation failed: " + e.getMessage(), ERROR_INFERENCE_FAILED);
             } finally {
                 mActiveOperations.remove(opId);
+                if (originalBitmap != null && !originalBitmap.isRecycled()) {
+                    originalBitmap.recycle();
+                }
+                if (outputBitmap != null && !outputBitmap.isRecycled()) {
+                    outputBitmap.recycle();
+                }
             }
         });
     }
 
+    /**
+     * Real Google ML Kit Face Detection Implementation
+     * Accurately extracts face count, bounding boxes, Euler orientation angles,
+     * smiling probability, and eye open probabilities without fake stubs.
+     */
     @PluginMethod
     public void detectFaces(PluginCall call) {
         String opId = call.getString("operationId", "ai_face_" + System.currentTimeMillis());
@@ -254,36 +341,107 @@ public class VireonAIPlugin extends Plugin {
 
         mExecutor.execute(() -> {
             long startTime = System.currentTimeMillis();
+            Bitmap originalBitmap = null;
             try {
                 if (cancelToken.get()) {
-                    call.reject("AI_CANCELLED: Operation cancelled by user");
+                    call.reject("Operation cancelled by user", ERROR_CANCELLED);
                     return;
                 }
 
                 String filePath = call.getString("filePath");
                 String imageUri = call.getString("imageUri");
 
-                Bitmap originalBitmap = loadBitmap(filePath, imageUri, null);
+                originalBitmap = loadBitmap(filePath, imageUri, null);
                 if (originalBitmap == null) {
-                    call.reject("AI_MODEL_INVALID: Unable to decode input image for face detection");
+                    call.reject("Unable to decode input image for face detection", ERROR_MODEL_INVALID);
                     return;
                 }
 
-                // Lightweight heuristic / native face result
+                if (cancelToken.get()) {
+                    call.reject("Operation cancelled during image preparation", ERROR_CANCELLED);
+                    return;
+                }
+
+                // Configure real Google ML Kit Face Detection
+                FaceDetectorOptions options = new FaceDetectorOptions.Builder()
+                        .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+                        .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_NONE)
+                        .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
+                        .build();
+
+                FaceDetector detector = FaceDetection.getClient(options);
+                InputImage inputImage = InputImage.fromBitmap(originalBitmap, 0);
+
+                List<Face> faces;
+                try {
+                    faces = Tasks.await(detector.process(inputImage), 25, TimeUnit.SECONDS);
+                } catch (Exception detectorErr) {
+                    Log.e(TAG, "ML Kit Face Detection process failed: " + detectorErr.getMessage());
+                    call.reject("ML Kit Face Detection unavailable or failed: " + detectorErr.getMessage(), ERROR_RUNTIME_UNAVAILABLE);
+                    return;
+                }
+
+                if (cancelToken.get()) {
+                    call.reject("Operation cancelled after face inference", ERROR_CANCELLED);
+                    return;
+                }
+
+                JSArray facesArray = new JSArray();
+                if (faces != null) {
+                    for (Face face : faces) {
+                        JSObject faceObj = new JSObject();
+                        Rect bounds = face.getBoundingBox();
+
+                        JSObject box = new JSObject();
+                        box.put("x", bounds.left);
+                        box.put("y", bounds.top);
+                        box.put("width", bounds.width());
+                        box.put("height", bounds.height());
+                        faceObj.put("box", box);
+
+                        if (face.getTrackingId() != null) {
+                            faceObj.put("trackingId", face.getTrackingId());
+                        }
+
+                        faceObj.put("headEulerAngleX", face.getHeadEulerAngleX());
+                        faceObj.put("headEulerAngleY", face.getHeadEulerAngleY());
+                        faceObj.put("headEulerAngleZ", face.getHeadEulerAngleZ());
+
+                        if (face.getSmilingProbability() != null) {
+                            faceObj.put("smilingProbability", face.getSmilingProbability());
+                        }
+                        if (face.getLeftEyeOpenProbability() != null) {
+                            faceObj.put("leftEyeOpenProbability", face.getLeftEyeOpenProbability());
+                        }
+                        if (face.getRightEyeOpenProbability() != null) {
+                            faceObj.put("rightEyeOpenProbability", face.getRightEyeOpenProbability());
+                        }
+
+                        facesArray.put(faceObj);
+                    }
+                }
+
+                long elapsed = System.currentTimeMillis() - startTime;
+
                 JSObject ret = new JSObject();
                 ret.put("success", true);
-                ret.put("facesCount", 0);
-                ret.put("faces", new JSArray());
-                ret.put("processingTime", System.currentTimeMillis() - startTime);
-                ret.put("engine", "Google ML Kit Face Detection");
+                ret.put("facesCount", faces != null ? faces.size() : 0);
+                ret.put("faces", facesArray);
+                ret.put("processingTime", elapsed);
+                ret.put("engine", "Google ML Kit Face Detection (Android Native)");
 
-                originalBitmap.recycle();
                 call.resolve(ret);
 
+            } catch (OutOfMemoryError oom) {
+                call.reject("Out of memory during face detection", ERROR_OUT_OF_MEMORY);
             } catch (Exception e) {
-                call.reject("AI_INFERENCE_FAILED: " + e.getMessage());
+                Log.e(TAG, "Face detection error: " + e.getMessage(), e);
+                call.reject("Face detection failed: " + e.getMessage(), ERROR_INFERENCE_FAILED);
             } finally {
                 mActiveOperations.remove(opId);
+                if (originalBitmap != null && !originalBitmap.isRecycled()) {
+                    originalBitmap.recycle();
+                }
             }
         });
     }
@@ -291,7 +449,7 @@ public class VireonAIPlugin extends Plugin {
     @PluginMethod
     public void cancelAI(PluginCall call) {
         String opId = call.getString("operationId");
-        if (opId != null) {
+        if (opId != null && !opId.isEmpty()) {
             AtomicBoolean token = mActiveOperations.get(opId);
             if (token != null) {
                 token.set(true);
@@ -365,5 +523,29 @@ public class VireonAIPlugin extends Plugin {
 
         result.setPixels(pixels, 0, w, 0, 0, w, h);
         return result;
+    }
+
+    /**
+     * Purges temporary AI cache files older than 24 hours to prevent cache leakage.
+     */
+    private void cleanOldCacheFiles() {
+        try {
+            File cacheDir = new File(getContext().getCacheDir(), "vieron_ai");
+            if (!cacheDir.exists() || !cacheDir.isDirectory()) return;
+
+            long now = System.currentTimeMillis();
+            long maxAgeMs = 24L * 60 * 60 * 1000; // 24 hours
+
+            File[] files = cacheDir.listFiles();
+            if (files != null && files.length > 20) {
+                for (File file : files) {
+                    if (now - file.lastModified() > maxAgeMs) {
+                        file.delete();
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to clean old AI cache files: " + e.getMessage());
+        }
     }
 }

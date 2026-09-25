@@ -16,16 +16,34 @@ import { blobToBase64Optimized } from "../NativeService";
 interface NativeVireonAIPlugin {
   getAICapabilities(): Promise<{
     nativeAI: boolean;
+    platform?: "android" | "web";
     arm64: boolean;
-    nnapi: boolean;
-    gpuAcceleration: boolean;
-    xnnpack: boolean;
+    nnapi?: boolean;
+    gpuAcceleration?: boolean;
+    xnnpack?: boolean;
     availableMemoryMB: number;
     totalMemoryMB?: number;
-    performanceTier: "low" | "medium" | "high" | "flagship";
+    memory?: { availableMB: number; totalMB: number };
+    runtimes?: {
+      whisperCpp: boolean;
+      mlkitSubjectSegmentation: boolean;
+      mlkitFaceDetection: boolean;
+      mediapipe: boolean;
+      onnx: boolean;
+    };
+    accelerators?: {
+      nnapiApiAvailable: boolean;
+      gpuUsable: boolean;
+      xnnpackUsable: boolean;
+    };
+    performanceTier: "low" | "medium" | "high" | "flagship" | "unknown";
     backends: string[];
   }>;
-  getAIModelStatus(options: { modelId: string }): Promise<{ status: string; available: boolean }>;
+  getAIModelStatus(options: { modelId: string }): Promise<{
+    status: string;
+    available: boolean;
+    framework?: string;
+  }>;
   removeBackground(options: {
     filePath?: string;
     imageUri?: string;
@@ -52,8 +70,14 @@ interface NativeVireonAIPlugin {
     facesCount: number;
     faces: Array<{
       box: { x: number; y: number; width: number; height: number };
-      confidence: number;
-      landmarks?: Array<{ x: number; y: number }>;
+      confidence?: number;
+      trackingId?: number;
+      headEulerAngleX?: number;
+      headEulerAngleY?: number;
+      headEulerAngleZ?: number;
+      smilingProbability?: number;
+      leftEyeOpenProbability?: number;
+      rightEyeOpenProbability?: number;
     }>;
     processingTime: number;
     engine: string;
@@ -74,10 +98,10 @@ export function getVireonAIPlugin(): NativeVireonAIPlugin | null {
 
 export class AndroidNativeAIProvider implements IAIProvider {
   public readonly id = "android-native-ai";
-  public readonly name = "Android Native AI Provider (ML Kit & whisper.cpp)";
+  public readonly name = "Android Native AI Provider (Google ML Kit & whisper.cpp)";
   public readonly platform = "android" as const;
 
-  private plugin: NativeVireonAIPlugin | null;
+  private plugin: NativeVireonAIPlugin | null = null;
 
   constructor() {
     this.plugin = getVireonAIPlugin();
@@ -105,46 +129,105 @@ export class AndroidNativeAIProvider implements IAIProvider {
     if (!plug) {
       return {
         nativeAI: true,
+        platform: "android",
         arm64: true,
+        memory: { availableMB: 2048, totalMB: 4096 },
+        runtimes: {
+          whisperCpp: true,
+          mlkitSubjectSegmentation: true,
+          mlkitFaceDetection: true,
+          mediapipe: false,
+          onnx: false,
+        },
+        accelerators: {
+          nnapiApiAvailable: true,
+          gpuUsable: false,
+          xnnpackUsable: false,
+        },
+        availableMemoryMB: 2048,
+        totalMemoryMB: 4096,
         nnapi: true,
         gpuAcceleration: false,
-        xnnpack: true,
-        availableMemoryMB: 2048,
-        performanceTier: "medium",
-        backends: ["mlkit_subject_segmentation", "whisper_cpp"],
+        xnnpack: false,
+        performanceTier: "high",
+        backends: ["mlkit_subject_segmentation", "mlkit_face_detection", "whisper_cpp"],
         activeProvider: "android-native",
       };
     }
 
     try {
       const caps = await plug.getAICapabilities();
-      return {
-        ...caps,
-        activeProvider: "android-native",
-      };
-    } catch (e) {
+      const availMB = caps.memory?.availableMB ?? caps.availableMemoryMB ?? 2048;
+      const totalMB = caps.memory?.totalMB ?? caps.totalMemoryMB ?? 4096;
+      const hasNnapi = caps.accelerators?.nnapiApiAvailable ?? caps.nnapi ?? false;
+
       return {
         nativeAI: true,
+        platform: "android",
+        arm64: caps.arm64 ?? true,
+        memory: {
+          availableMB: availMB,
+          totalMB: totalMB,
+        },
+        runtimes: caps.runtimes || {
+          whisperCpp: true,
+          mlkitSubjectSegmentation: true,
+          mlkitFaceDetection: true,
+          mediapipe: false,
+          onnx: false,
+        },
+        accelerators: caps.accelerators || {
+          nnapiApiAvailable: hasNnapi,
+          gpuUsable: false,
+          xnnpackUsable: false,
+        },
+        performanceTier: caps.performanceTier || "medium",
+        backends: caps.backends || ["mlkit_subject_segmentation", "mlkit_face_detection", "whisper_cpp"],
+        activeProvider: "android-native",
+        availableMemoryMB: availMB,
+        totalMemoryMB: totalMB,
+        nnapi: hasNnapi,
+        gpuAcceleration: false,
+        xnnpack: false,
+      };
+    } catch {
+      return {
+        nativeAI: true,
+        platform: "android",
         arm64: true,
+        memory: { availableMB: 2048, totalMB: 4096 },
+        runtimes: {
+          whisperCpp: true,
+          mlkitSubjectSegmentation: true,
+          mlkitFaceDetection: true,
+          mediapipe: false,
+          onnx: false,
+        },
+        accelerators: {
+          nnapiApiAvailable: true,
+          gpuUsable: false,
+          xnnpackUsable: false,
+        },
+        availableMemoryMB: 2048,
+        totalMemoryMB: 4096,
         nnapi: true,
         gpuAcceleration: false,
-        xnnpack: true,
-        availableMemoryMB: 2048,
+        xnnpack: false,
         performanceTier: "high",
-        backends: ["mlkit_subject_segmentation", "whisper_cpp"],
+        backends: ["mlkit_subject_segmentation", "mlkit_face_detection", "whisper_cpp"],
         activeProvider: "android-native",
       };
     }
   }
 
   public async getModelStatus(modelId: string): Promise<AIModelStatus> {
-    if (this.plugin) {
+    const plug = this.getPlugin();
+    if (plug) {
       try {
-        const res = await this.plugin.getAIModelStatus({ modelId });
+        const res = await plug.getAIModelStatus({ modelId });
         return (res.status as AIModelStatus) || (res.available ? "AVAILABLE" : "NOT_DOWNLOADED");
       } catch {
-        // Fallback for models known to be dynamically on-device
-        if (modelId.includes("mlkit")) return "AVAILABLE";
+        if (modelId.includes("mlkit") || modelId.includes("segment")) return "AVAILABLE";
         return "NOT_DOWNLOADED";
       }
     }
@@ -164,7 +247,7 @@ export class AndroidNativeAIProvider implements IAIProvider {
       }
     }
 
-    // Zero-RAM file handle check from MediaPicker
+    // Native low-copy file handle check from MediaPicker
     if (typeof input === "object" && input !== null) {
       const nativePath = (input as any).nativePath;
       const nativeUri = (input as any).nativeUri;
@@ -172,7 +255,7 @@ export class AndroidNativeAIProvider implements IAIProvider {
       if (nativeUri) return { imageUri: nativeUri };
     }
 
-    // Convert memory Blob to cache file via Filesystem
+    // Convert memory Blob to cache file via Filesystem only as fallback
     onProgress?.(0.2, "Writing input to Android cache storage...");
     let blob: Blob;
     if (input instanceof Blob) {
@@ -216,9 +299,10 @@ export class AndroidNativeAIProvider implements IAIProvider {
 
     options?.onProgress?.(0.4, "Executing on-device Google ML Kit segmentation...");
 
-    // Try primary VireonAI plugin or fallback to AIImageProcessor
+    const plug = this.getPlugin();
+    const targetPlugin: any = plug || registerPlugin<any>("AIImageProcessor");
+
     try {
-      const targetPlugin: any = this.plugin || registerPlugin<any>("AIImageProcessor");
       const resp = await targetPlugin.removeBackground({
         filePath: resolved.filePath,
         imageUri: resolved.imageUri,
@@ -243,12 +327,19 @@ export class AndroidNativeAIProvider implements IAIProvider {
         width: resp.width,
         height: resp.height,
         processingTimeMs: resp.processingTime || Date.now() - startTime,
-        engine: resp.engine || "Google ML Kit (Android Native)",
-        accelerator: "NNAPI / GPU",
+        engine: resp.engine || "Google ML Kit Subject Segmentation (Android Native)",
+        accelerator: "NNAPI / Native CPU",
       };
     } catch (err: any) {
       if (err instanceof AIError) throw err;
-      throw new AIError("AI_INFERENCE_FAILED", `Native background removal failed: ${err?.message || err}`, err);
+      const message = err?.message || String(err);
+      if (message.includes("AI_CANCELLED") || options?.signal?.aborted) {
+        throw new AIError("AI_CANCELLED", "Operation cancelled by user", err);
+      }
+      if (message.includes("AI_OUT_OF_MEMORY")) {
+        throw new AIError("AI_OUT_OF_MEMORY", "Device ran out of memory during segmentation", err);
+      }
+      throw new AIError("AI_INFERENCE_FAILED", `Native background removal failed: ${message}`, err);
     }
   }
 
@@ -272,9 +363,10 @@ export class AndroidNativeAIProvider implements IAIProvider {
 
     const resolved = await this.resolveNativeInputPath(imageInput);
 
-    if (this.plugin && typeof this.plugin.detectFaces === "function") {
+    const plug = this.getPlugin();
+    if (plug && typeof plug.detectFaces === "function") {
       try {
-        const resp = await this.plugin.detectFaces({
+        const resp = await plug.detectFaces({
           filePath: resolved.filePath,
           imageUri: resolved.imageUri,
           operationId: opId,
@@ -285,14 +377,21 @@ export class AndroidNativeAIProvider implements IAIProvider {
           facesCount: resp.facesCount || (resp.faces ? resp.faces.length : 0),
           faces: resp.faces || [],
           processingTimeMs: resp.processingTime || Date.now() - startTime,
-          engine: resp.engine || "Google ML Kit Face Detection",
+          engine: resp.engine || "Google ML Kit Face Detection (Android Native)",
         };
       } catch (err: any) {
-        throw new AIError("AI_INFERENCE_FAILED", `Native face detection error: ${err.message}`, err);
+        const msg = err?.message || String(err);
+        if (msg.includes("AI_CANCELLED") || options?.signal?.aborted) {
+          throw new AIError("AI_CANCELLED", "Face detection cancelled", err);
+        }
+        if (msg.includes("AI_RUNTIME_UNAVAILABLE")) {
+          throw new AIError("AI_RUNTIME_UNAVAILABLE", "ML Kit Face Detection is unavailable", err);
+        }
+        throw new AIError("AI_INFERENCE_FAILED", `Native face detection error: ${msg}`, err);
       }
     }
 
-    throw new AIError("AI_UNSUPPORTED_OPERATION", "Native face detection API not available in current APK");
+    throw new AIError("AI_RUNTIME_UNAVAILABLE", "Native face detection API not available in current APK");
   }
 
   public async transcribe(
@@ -339,9 +438,10 @@ export class AndroidNativeAIProvider implements IAIProvider {
   }
 
   public async cancel(operationId: string): Promise<boolean> {
-    if (this.plugin) {
+    const plug = this.getPlugin();
+    if (plug) {
       try {
-        const res = await this.plugin.cancelAI({ operationId });
+        const res = await plug.cancelAI({ operationId });
         return res.cancelled;
       } catch {
         return false;

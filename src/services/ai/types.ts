@@ -1,8 +1,8 @@
 /**
- * Phase 7: Unified Native AI Engine & Performance Types
+ * Phase 7.1: Unified Native AI Engine & Performance Types
  */
 
-export type AIPerformanceTier = "low" | "medium" | "high" | "flagship";
+export type AIPerformanceTier = "low" | "medium" | "high" | "flagship" | "unknown";
 
 export type AIModelTier = "TIER_1_ESSENTIAL" | "TIER_2_OPTIONAL" | "TIER_3_EXPERIMENTAL";
 
@@ -12,7 +12,8 @@ export type AIModelStatus =
   | "AVAILABLE"
   | "LOADED"
   | "CORRUPTED"
-  | "FAILED";
+  | "FAILED"
+  | "NOT_SUPPORTED";
 
 export type AIErrorCode =
   | "AI_MODEL_NOT_FOUND"
@@ -38,15 +39,38 @@ export class AIError extends Error {
 
 export interface AICapabilities {
   nativeAI: boolean;
+  platform: "android" | "web";
   arm64: boolean;
-  nnapi: boolean;
-  gpuAcceleration: boolean;
-  xnnpack: boolean;
-  availableMemoryMB: number;
-  totalMemoryMB?: number;
+
+  memory: {
+    availableMB: number;
+    totalMB: number;
+  };
+
+  runtimes: {
+    whisperCpp: boolean;
+    mlkitSubjectSegmentation: boolean;
+    mlkitFaceDetection: boolean;
+    mediapipe: boolean;
+    onnx: boolean;
+  };
+
+  accelerators: {
+    nnapiApiAvailable: boolean;
+    gpuUsable: boolean;
+    xnnpackUsable: boolean;
+  };
+
   performanceTier: AIPerformanceTier;
   backends: string[];
   activeProvider: "android-native" | "web-worker" | "web-fallback";
+
+  // Flat backward-compatibility fields
+  availableMemoryMB: number;
+  totalMemoryMB?: number;
+  nnapi?: boolean;
+  gpuAcceleration?: boolean;
+  xnnpack?: boolean;
 }
 
 export interface AIModelSpec {
@@ -54,7 +78,7 @@ export interface AIModelSpec {
   name: string;
   version: string;
   tier: AIModelTier;
-  framework: "whisper.cpp" | "mlkit" | "mediapipe" | "onnx" | "tflite" | "dsp";
+  framework: "whisper.cpp" | "mlkit" | "mediapipe" | "onnx" | "tflite" | "dsp" | "unknown";
   sizeBytes: number;
   quantized: boolean;
   quantizationType?: "INT8" | "FP16" | "FP32";
@@ -75,7 +99,7 @@ export interface AIBenchmarkResult {
   peakMemoryMB: number;
   modelSizeMB: number;
   runtimeSizeMB: number;
-  status: "MEASURED" | "NOT_MEASURED" | "BLOCKED";
+  status: "MEASURED" | "NOT_MEASURED" | "FAILED";
 }
 
 export interface ImageSegmentationOptions {
@@ -99,14 +123,23 @@ export interface ImageSegmentationResult {
   accelerator?: string;
 }
 
+export interface FaceItem {
+  box: { x: number; y: number; width: number; height: number };
+  confidence?: number;
+  trackingId?: number;
+  headEulerAngleX?: number;
+  headEulerAngleY?: number;
+  headEulerAngleZ?: number;
+  smilingProbability?: number;
+  leftEyeOpenProbability?: number;
+  rightEyeOpenProbability?: number;
+  landmarks?: Array<{ x: number; y: number }>;
+}
+
 export interface FaceDetectionResult {
   success: boolean;
   facesCount: number;
-  faces: Array<{
-    box: { x: number; y: number; width: number; height: number };
-    confidence: number;
-    landmarks?: Array<{ x: number; y: number }>;
-  }>;
+  faces: FaceItem[];
   processingTimeMs: number;
   engine: string;
 }

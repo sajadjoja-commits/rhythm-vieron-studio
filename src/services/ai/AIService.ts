@@ -1,4 +1,3 @@
-import { IAIProvider } from "./AIProvider";
 import { AndroidNativeAIProvider } from "./AndroidNativeAIProvider";
 import { WebAIProvider } from "./WebAIProvider";
 import {
@@ -38,7 +37,7 @@ export class AIService {
   }
 
   private registerOfficialModels(): void {
-    // TIER 1: Essential (Small, core functionality, bundled or 0-byte dynamic system models)
+    // TIER 1: Essential (Small, core functionality, bundled or 0-byte dynamic Play Services models)
     this.modelCatalog.set("mlkit-subject-segmenter", {
       id: "mlkit-subject-segmenter",
       name: "Google ML Kit Subject Segmentation",
@@ -49,6 +48,18 @@ export class AIService {
       quantized: true,
       quantizationType: "INT8",
       description: "Hardware-accelerated on-device neural subject segmentation",
+    });
+
+    this.modelCatalog.set("mlkit-face-detector", {
+      id: "mlkit-face-detector",
+      name: "Google ML Kit Face Detection",
+      version: "17.1.0",
+      tier: "TIER_1_ESSENTIAL",
+      framework: "mlkit",
+      sizeBytes: 0, // Dynamically loaded by Google Play Services (0MB APK size impact)
+      quantized: true,
+      quantizationType: "INT8",
+      description: "Real-time on-device facial bounding box and orientation tracking",
     });
 
     this.modelCatalog.set("whisper-tiny-ggml", {
@@ -149,13 +160,17 @@ export class AIService {
     imageInput: string | Blob | File,
     options?: ImageSegmentationOptions
   ): Promise<ImageSegmentationResult> {
+    if (options?.signal?.aborted) {
+      throw new AIError("AI_CANCELLED", "Operation was cancelled before execution");
+    }
+
     const isNative = await this.nativeProvider.isAvailable();
 
     if (isNative) {
       try {
         return await this.nativeProvider.removeBackground(imageInput, options);
       } catch (nativeErr: any) {
-        if (options?.signal?.aborted) {
+        if (options?.signal?.aborted || nativeErr?.code === "AI_CANCELLED") {
           throw nativeErr;
         }
         console.warn("[AIService] Native segmentation failed, transparently falling back to Web:", nativeErr);
@@ -176,16 +191,20 @@ export class AIService {
     imageInput: string | Blob | File,
     options?: { signal?: AbortSignal }
   ): Promise<FaceDetectionResult> {
+    if (options?.signal?.aborted) {
+      throw new AIError("AI_CANCELLED", "Face detection cancelled before execution");
+    }
+
     const isNative = await this.nativeProvider.isAvailable();
 
     if (isNative) {
       try {
         return await this.nativeProvider.detectFaces(imageInput, options);
       } catch (nativeErr: any) {
-        if (options?.signal?.aborted) {
+        if (options?.signal?.aborted || nativeErr?.code === "AI_CANCELLED") {
           throw nativeErr;
         }
-        console.warn("[AIService] Native face detection failed, falling back to Web:", nativeErr);
+        console.warn("[AIService] Native face detection failed/unavailable, falling back to Web:", nativeErr);
       }
     }
 
@@ -196,13 +215,17 @@ export class AIService {
     audioInput: string | Blob | File,
     options?: AudioTranscriptionOptions
   ): Promise<AudioTranscriptionResult> {
+    if (options?.signal?.aborted) {
+      throw new AIError("AI_CANCELLED", "Transcription was cancelled before execution");
+    }
+
     const isNative = await this.nativeProvider.isAvailable();
 
     if (isNative) {
       try {
         return await this.nativeProvider.transcribe(audioInput, options);
       } catch (nativeErr: any) {
-        if (options?.signal?.aborted) {
+        if (options?.signal?.aborted || nativeErr?.code === "AI_CANCELLED") {
           throw nativeErr;
         }
         console.warn("[AIService] Native STT failed, falling back to Web:", nativeErr);

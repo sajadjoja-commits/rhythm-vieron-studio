@@ -15,7 +15,7 @@ import { WebCaptionProvider } from "@/services/caption/WebCaptionProvider";
 
 export class WebAIProvider implements IAIProvider {
   public readonly id = "web-ai-provider";
-  public readonly name = "Web AI Provider (MediaPipe Vision & WASM/WebGPU)";
+  public readonly name = "Web AI Provider (Google MediaPipe Vision & Transformers.js)";
   public readonly platform = "web" as const;
 
   private imageEngine: ImageInferenceEngine;
@@ -33,19 +33,50 @@ export class WebAIProvider implements IAIProvider {
   }
 
   public async getCapabilities(): Promise<AICapabilities> {
-    const webCaps = await this.capabilityDetector.detect();
+    let hasWebGPU = false;
+    let memoryGB = 4;
+    let tier = "medium";
+
+    try {
+      const webCaps = await this.capabilityDetector.detect();
+      hasWebGPU = webCaps.hasWebGPU;
+      memoryGB = webCaps.deviceMemoryGB;
+      tier = webCaps.tier;
+    } catch {
+      // Safe fallback if WebGL/Canvas context is mock or in headless environment
+    }
+
+    const availMB = memoryGB * 1024;
 
     return {
       nativeAI: false,
+      platform: "web",
       arm64: false,
+      memory: {
+        availableMB: availMB,
+        totalMB: availMB * 2,
+      },
+      runtimes: {
+        whisperCpp: false,
+        mlkitSubjectSegmentation: false,
+        mlkitFaceDetection: false,
+        mediapipe: true,
+        onnx: true,
+      },
+      accelerators: {
+        nnapiApiAvailable: false,
+        gpuUsable: hasWebGPU,
+        xnnpackUsable: false,
+      },
+      availableMemoryMB: availMB,
+      totalMemoryMB: availMB * 2,
       nnapi: false,
-      gpuAcceleration: webCaps.hasWebGPU,
+      gpuAcceleration: hasWebGPU,
       xnnpack: false,
-      availableMemoryMB: webCaps.deviceMemoryGB * 1024,
-      performanceTier: webCaps.tier as any,
+      performanceTier: tier as any,
       backends: [
         "mediapipe_vision_wasm",
-        webCaps.hasWebGPU ? "webgpu" : "wasm_simd",
+        hasWebGPU ? "webgpu" : "wasm_simd",
         "web_audio_dsp",
       ],
       activeProvider: "web-worker",
@@ -53,11 +84,16 @@ export class WebAIProvider implements IAIProvider {
   }
 
   public async getModelStatus(modelId: string): Promise<AIModelStatus> {
-    // MediaPipe models load on-demand or from cache
-    if (modelId.includes("mediapipe") || modelId.includes("selfie")) {
+    if (modelId.includes("mediapipe") || modelId.includes("selfie") || modelId.includes("face")) {
       return "AVAILABLE";
     }
-    return "AVAILABLE";
+    if (modelId === "rmbg-2.0") {
+      return "AVAILABLE";
+    }
+    if (modelId.includes("whisper")) {
+      return "AVAILABLE";
+    }
+    return "NOT_SUPPORTED";
   }
 
   public async removeBackground(
@@ -133,6 +169,9 @@ export class WebAIProvider implements IAIProvider {
         engine: "Google MediaPipe BlazeFace (WASM)",
       };
     } catch (err: any) {
+      if (options?.signal?.aborted) {
+        throw new AIError("AI_CANCELLED", "Face detection operation was aborted");
+      }
       throw new AIError("AI_INFERENCE_FAILED", `Web face detection error: ${err.message}`, err);
     }
   }
@@ -169,7 +208,6 @@ export class WebAIProvider implements IAIProvider {
   }
 
   public async cancel(_operationId: string): Promise<boolean> {
-    // Handled via AbortSignal or worker termination
     return true;
   }
 }
