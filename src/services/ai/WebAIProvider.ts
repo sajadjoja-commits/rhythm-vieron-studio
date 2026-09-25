@@ -117,6 +117,7 @@ export class WebAIProvider implements IAIProvider {
 
       return {
         success: res.success,
+        outputDataUrl: res.imageDataUrl,
         imageDataUrl: res.imageDataUrl,
         maskDataUrl: res.maskDataUrl,
         width: res.width,

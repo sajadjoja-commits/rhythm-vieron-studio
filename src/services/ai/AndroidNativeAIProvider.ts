@@ -237,13 +237,26 @@ export class AndroidNativeAIProvider implements IAIProvider {
   private async resolveNativeInputPath(
     input: string | Blob | File,
     onProgress?: (progress: number, stage: string) => void
-  ): Promise<{ filePath?: string; imageUri?: string }> {
+  ): Promise<{ filePath?: string; imageUri?: string; tempFileName?: string }> {
     if (typeof input === "string") {
       if (input.startsWith("file://") || input.startsWith("/")) {
         return { filePath: input };
       }
       if (input.startsWith("content://")) {
         return { imageUri: input };
+      }
+      if (input.startsWith("data:")) {
+        onProgress?.(0.2, "Preparing input image for native processing...");
+        const commaIdx = input.indexOf(",");
+        const base64 = commaIdx >= 0 ? input.substring(commaIdx + 1) : input;
+        const ext = input.includes("image/png") ? "png" : "jpg";
+        const tempFileName = `vieron_ai_input_${Date.now()}.${ext}`;
+        const writeResult = await Filesystem.writeFile({
+          path: tempFileName,
+          data: base64,
+          directory: Directory.Cache,
+        });
+        return { filePath: writeResult.uri, tempFileName };
       }
     }
 
@@ -275,7 +288,7 @@ export class AndroidNativeAIProvider implements IAIProvider {
       directory: Directory.Cache,
     });
 
-    return { filePath: writeResult.uri };
+    return { filePath: writeResult.uri, tempFileName };
   }
 
   public async removeBackground(
@@ -294,6 +307,9 @@ export class AndroidNativeAIProvider implements IAIProvider {
     const resolved = await this.resolveNativeInputPath(imageInput, options?.onProgress);
 
     if (options?.signal?.aborted) {
+      if (resolved.tempFileName) {
+        Filesystem.deleteFile({ path: resolved.tempFileName, directory: Directory.Cache }).catch(() => {});
+      }
       throw new AIError("AI_CANCELLED", "Operation cancelled after preparation");
     }
 
@@ -320,10 +336,17 @@ export class AndroidNativeAIProvider implements IAIProvider {
 
       options?.onProgress?.(1.0, "Completed on-device segmentation");
 
+      const webviewUrl =
+        typeof Capacitor.convertFileSrc === "function" && (resp.filePath || resp.outputUri)
+          ? Capacitor.convertFileSrc(resp.filePath || resp.outputUri)
+          : resp.outputUri || resp.filePath || "";
+
       return {
         success: true,
         outputUri: resp.outputUri,
         filePath: resp.filePath,
+        outputDataUrl: webviewUrl,
+        imageDataUrl: webviewUrl,
         width: resp.width,
         height: resp.height,
         processingTimeMs: resp.processingTime || Date.now() - startTime,
@@ -340,6 +363,10 @@ export class AndroidNativeAIProvider implements IAIProvider {
         throw new AIError("AI_OUT_OF_MEMORY", "Device ran out of memory during segmentation", err);
       }
       throw new AIError("AI_INFERENCE_FAILED", `Native background removal failed: ${message}`, err);
+    } finally {
+      if (resolved.tempFileName) {
+        Filesystem.deleteFile({ path: resolved.tempFileName, directory: Directory.Cache }).catch(() => {});
+      }
     }
   }
 
@@ -388,7 +415,15 @@ export class AndroidNativeAIProvider implements IAIProvider {
           throw new AIError("AI_RUNTIME_UNAVAILABLE", "ML Kit Face Detection is unavailable", err);
         }
         throw new AIError("AI_INFERENCE_FAILED", `Native face detection error: ${msg}`, err);
+      } finally {
+        if (resolved.tempFileName) {
+          Filesystem.deleteFile({ path: resolved.tempFileName, directory: Directory.Cache }).catch(() => {});
+        }
       }
+    }
+
+    if (resolved.tempFileName) {
+      Filesystem.deleteFile({ path: resolved.tempFileName, directory: Directory.Cache }).catch(() => {});
     }
 
     throw new AIError("AI_RUNTIME_UNAVAILABLE", "Native face detection API not available in current APK");

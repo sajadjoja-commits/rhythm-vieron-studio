@@ -114,6 +114,7 @@ export interface ImageSegmentationResult {
   success: boolean;
   outputUri?: string;
   filePath?: string;
+  outputDataUrl?: string;
   maskDataUrl?: string;
   imageDataUrl?: string;
   width: number;

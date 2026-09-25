@@ -184,6 +184,7 @@ if (distInfo.hash === androidInfo.hash && distInfo.count === androidInfo.count) 
   fs.writeFileSync(path.join(DIST_DIR, 'ota-manifest.json'), JSON.stringify(otaManifestProd, null, 2));
   fs.writeFileSync(path.join(DIST_DIR, 'ota-manifest-staging.json'), JSON.stringify(otaManifestStaging, null, 2));
   fs.writeFileSync(path.join(ANDROID_ASSETS_DIR, 'ota-manifest.json'), JSON.stringify(otaManifestProd, null, 2));
+  fs.writeFileSync(path.join(ANDROID_ASSETS_DIR, 'ota-manifest-staging.json'), JSON.stringify(otaManifestStaging, null, 2));
 
   console.log('\n=========================================');
   console.log('VIERON SYNC SUCCESS');
