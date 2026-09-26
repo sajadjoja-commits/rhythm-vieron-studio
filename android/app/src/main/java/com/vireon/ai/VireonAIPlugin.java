@@ -473,7 +473,7 @@ public class VireonAIPlugin extends Plugin {
                     }
                 }
 
-                boolean valid = expected.isEmpty() || expected.equalsIgnoreCase(computed);
+                boolean valid = !expected.isEmpty() && expected.equalsIgnoreCase(computed);
 
                 JSObject ret = new JSObject();
                 ret.put("success", true);

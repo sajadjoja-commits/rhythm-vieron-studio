@@ -43,7 +43,7 @@ describe("Phase 10: AI Model Runtime Adapters", () => {
     expect(adapter.id).toBe("test-onnx");
 
     const caps = adapter.getCapabilities();
-    expect(caps.framework).toBe("ONNX Runtime");
+    expect(caps.framework).toContain("ONNX Runtime");
     expect(caps.supportedInputTypes).toContain("Tensor");
   });
 

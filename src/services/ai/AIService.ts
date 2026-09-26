@@ -92,16 +92,15 @@ export class AIService {
 
     this.modelCatalog.set("vieron-upscaler-2x", {
       id: "vieron-upscaler-2x",
-      name: "Vieron Neural Image Upscaler (2x Super-Resolution)",
+      name: "Vieron Algorithmic Sub-Pixel & Laplacian Enhancer (2x)",
       version: "1.0.0",
       tier: "TIER_1_ESSENTIAL",
-      framework: "onnx",
-      sizeBytes: 154624,
-      quantized: true,
-      quantizationType: "FP32",
-      checksum: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      localPath: "/models/vieron-upscaler-2x.onnx",
-      description: "Real on-device 2x super-resolution upscaler with high-frequency sub-pixel edge restoration",
+      framework: "custom",
+      sizeBytes: 0,
+      quantized: false,
+      quantizationType: "NONE",
+      checksum: "",
+      description: "Classical algorithmic sub-pixel edge synthesis and directional Laplacian filter (Non-neural)",
     });
 
     // TIER 2: Optional (Large, downloaded on-demand and cached in app storage)

@@ -64,6 +64,8 @@ export class InstalledModelStore {
                 sizeBytes: m.sizeBytes || 0,
                 status: "installed",
                 localUri: `file://${m.path}`,
+                isPretrainedAIModel: true,
+                realInference: true,
               };
               this.memoryCache.set(m.id, installed);
               results.push(installed);

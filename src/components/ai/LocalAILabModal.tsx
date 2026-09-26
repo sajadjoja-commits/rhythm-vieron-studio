@@ -373,7 +373,7 @@ export const LocalAILabModal: React.FC<LocalAILabModalProps> = ({
                           <span className="bg-slate-900/60 px-2 py-0.5 rounded border border-slate-700/40">
                             {manifest.sizeBytes > 0
                               ? `${Math.round((manifest.sizeBytes / (1024 * 1024)) * 10) / 10} MB`
-                              : "0 MB (Play Services)"}
+                              : manifest.format === "native" ? "0 MB (Play Services)" : "0 MB (Algorithmic)"}
                           </span>
                           <span className="bg-slate-900/60 px-2 py-0.5 rounded border border-slate-700/40">
                             {manifest.runtime}
@@ -383,13 +383,33 @@ export const LocalAILabModal: React.FC<LocalAILabModalProps> = ({
                           </span>
                         </div>
 
+                        {/* Reality Audit Truth Badges */}
+                        <div className="grid grid-cols-2 gap-1.5 mt-2.5 text-[10px]">
+                          <div className="bg-slate-900/70 p-1.5 rounded border border-slate-800 flex items-center justify-between">
+                            <span className="text-slate-400">{en ? "Pretrained AI:" : "نموذج مدرب مسبقاً:"}</span>
+                            <span className={manifest.isPretrainedAIModel ? "text-emerald-400 font-bold" : "text-amber-400 font-bold"}>
+                              {manifest.isPretrainedAIModel ? "YES" : "NO (Algorithmic)"}
+                            </span>
+                          </div>
+                          <div className="bg-slate-900/70 p-1.5 rounded border border-slate-800 flex items-center justify-between">
+                            <span className="text-slate-400">{en ? "Real Inference:" : "استدلال حقيقي:"}</span>
+                            <span className={manifest.isPretrainedAIModel && isInstalled ? "text-emerald-400 font-bold" : "text-slate-400 font-bold"}>
+                              {manifest.isPretrainedAIModel && isInstalled ? "YES" : manifest.format === "algorithmic" ? "FILTER" : "NO"}
+                            </span>
+                          </div>
+                        </div>
+
                         {manifest.sha256 ? (
                           <div className="mt-2 text-[10px] font-mono text-slate-400 truncate bg-slate-950/50 p-1.5 rounded border border-slate-800">
                             SHA: {manifest.sha256.substring(0, 24)}...
                           </div>
                         ) : (
                           <div className="mt-2 text-[10px] text-amber-400/80 bg-amber-500/5 p-1 rounded border border-amber-500/20">
-                            {en ? "Dynamic module / unverified" : "وحدة ديناميكية / غير مفحوصة"}
+                            {manifest.format === "algorithmic"
+                              ? (en ? "Classical algorithmic filter (No weights)" : "فلتر خوارزمي كلاسيكي (بدون أوزان)")
+                              : manifest.format === "none"
+                              ? (en ? "Phase 11 reserved architecture" : "معمارية محجوزة للمرحلة 11")
+                              : (en ? "Dynamic module / unverified" : "وحدة ديناميكية / غير مفحوصة")}
                           </div>
                         )}
                       </div>
@@ -490,12 +510,12 @@ export const LocalAILabModal: React.FC<LocalAILabModalProps> = ({
                 <div>
                   <h3 className="text-sm font-bold text-white flex items-center gap-2">
                     <Sparkles className="w-4 h-4 text-purple-400" />
-                    {en ? "Vieron Neural Super-Resolution Engine (2x/4x)" : "محرك فيرون فائق الدقة (2x/4x)"}
+                    {en ? "Vieron Algorithmic Sub-Pixel & Laplacian Enhancer (2x/4x)" : "محرك فيرون الخوارزمي لتحسين وتكبير الصور (2x/4x)"}
                   </h3>
                   <p className="text-xs text-slate-400 mt-1">
                     {en
-                      ? "Executes sub-pixel convolutional inference on-device to restore sharp textures without cloud dependency."
-                      : "ينفذ استدلالاً عصبياً دون الحاجة للإنترنت لإعادة بناء التفاصيل والحواف الحادة."}
+                      ? "Executes high-frequency directional Laplacian edge synthesis and sub-pixel interpolation on-device (Classical algorithmic filter — zero cloud dependency, non-neural)."
+                      : "ينفذ خوارزمية لابلاسيان الموجهة لتوليد الحواف الدقيقة والتكبير البكسلي محلياً (معالجة خوارزمية تقليدية بدون أوزان عصبية وبدون سحابة)."}
                   </p>
                 </div>
 
@@ -640,7 +660,7 @@ export const LocalAILabModal: React.FC<LocalAILabModalProps> = ({
                         </div>
                       </div>
                       <div>
-                        <div className="text-[11px] text-slate-400">{en ? "Inference Kernel" : "زمن الاستدلال"}</div>
+                        <div className="text-[11px] text-slate-400">{en ? "Processing Kernel" : "زمن معالجة الفلتر"}</div>
                         <div className="text-base font-bold text-emerald-400 mt-0.5">
                           {upscaleResult.timings.inferenceMs} ms
                         </div>
@@ -673,8 +693,8 @@ export const LocalAILabModal: React.FC<LocalAILabModalProps> = ({
                         <Sparkles className="w-4 h-4" />
                       )}
                       {isUpscaling
-                        ? (en ? "Processing Tensor..." : "جارٍ معالجة التنسور...")
-                        : (en ? `Execute ${upscaleScale}x Super-Resolution` : `تنفيذ رفع الدقة (${upscaleScale}x)`)}
+                        ? (en ? "Processing Pixels..." : "جارٍ معالجة البكسلات...")
+                        : (en ? `Execute ${upscaleScale}x Enhancement` : `تنفيذ التكبير والتحسين (${upscaleScale}x)`)}
                     </button>
 
                     {upscaleResult && onOpenPhotoEditor && (

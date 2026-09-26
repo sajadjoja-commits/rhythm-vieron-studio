@@ -1,15 +1,16 @@
 /**
- * Phase 10: Model Manifest System Types
+ * Phase 10.1: Model Manifest System Types (Reality Audited)
  * 
- * Separates the official Model Catalogue (immutable specifications & metadata)
- * from the Installed Model State (device-local installation, verified hash, path).
+ * Strict integrity:
+ * - Separates real pretrained neural models from algorithmic/classical filters.
+ * - Separates official Model Catalogue from device Installed Model State.
  */
 
-export type ModelTask = "upscale" | "stt" | "segmentation" | "vision" | "audio";
-export type ModelFormat = "onnx" | "ggml" | "tflite" | "native";
-export type ModelRuntimeType = "onnx" | "whisper.cpp" | "mlkit" | "webgl";
+export type ModelTask = "upscale" | "stt" | "segmentation" | "vision" | "audio" | "generative_expand";
+export type ModelFormat = "onnx" | "ggml" | "tflite" | "native" | "algorithmic";
+export type ModelRuntimeType = "onnx" | "whisper.cpp" | "mlkit" | "webgl" | "algorithmic" | "none";
 export type ModelPlatform = "android" | "web" | "all";
-export type ModelAccelerator = "NNAPI" | "GPU" | "CPU" | "WebGPU" | "WASM";
+export type ModelAccelerator = "NNAPI" | "GPU" | "CPU" | "WebGPU" | "WASM" | "NONE";
 
 export type ModelPackStatus =
   | "missing"
@@ -20,7 +21,9 @@ export type ModelPackStatus =
   | "incompatible"
   | "failed"
   | "cancelled"
-  | "unverified";
+  | "unverified"
+  | "algorithmic"
+  | "not_available";
 
 export interface ModelManifest {
   id: string;
@@ -40,6 +43,9 @@ export interface ModelManifest {
   accelerators: ModelAccelerator[];
   offlineDefault: boolean;
   description: string;
+  // Reality Audit Attributes
+  isPretrainedAIModel: boolean;
+  engineType: "neural_weights" | "native_framework" | "algorithmic_filter" | "none";
 }
 
 export interface InstalledModel {
@@ -53,6 +59,8 @@ export interface InstalledModel {
   status: ModelPackStatus;
   localUri?: string;
   metadata?: Record<string, any>;
+  isPretrainedAIModel: boolean;
+  realInference: boolean;
 }
 
 export interface ModelVerificationResult {
@@ -60,7 +68,7 @@ export interface ModelVerificationResult {
   expectedSha256: string;
   computedSha256: string;
   error?: string;
-  errorCode?: "MODEL_CHECKSUM_MISMATCH" | "MODEL_NOT_FOUND" | "CORRUPT_MODEL";
+  errorCode?: "MODEL_CHECKSUM_MISMATCH" | "MODEL_NOT_FOUND" | "CORRUPT_MODEL" | "NON_NEURAL_ALGORITHMIC";
 }
 
 export interface ModelDownloadProgress {

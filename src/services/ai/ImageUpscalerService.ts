@@ -1,5 +1,6 @@
 /**
- * Phase 10: Image Upscaler Pipeline Service
+ * Phase 10.1: Classical Algorithmic Image Enhancer Pipeline Service
+ * (Reality Audited: Directional Laplacian & Sub-Pixel Interpolation — Non-Neural)
  * 
  * Production 8-stage pipeline:
  * Input Image
@@ -12,7 +13,7 @@
  *   ↓
  * Preprocessor (normalization & boundary padding)
  *   ↓
- * Inference (Neural Sub-Pixel Tensor Super-Resolution)
+ * Classical Sub-Pixel Convolution & Laplacian Filtering
  *   ↓
  * Postprocessor (color reconstruction, clamping, canvas encoding)
  *   ↓
@@ -44,6 +45,8 @@ export interface UpscaleResult {
   originalHeight: number;
   scale: number;
   engine: string;
+  isPretrainedAIModel: boolean;
+  engineType: "classical_algorithmic";
   timings: {
     preprocessMs: number;
     inferenceMs: number;
@@ -88,14 +91,14 @@ export class ImageUpscalerService {
     options?.onProgress?.({
       stage: "verification",
       percent: 10,
-      message: "Verifying local neural upscaler model compatibility...",
+      message: "Verifying local algorithmic enhancement engine compatibility...",
     });
 
     const isCompatible = localModelPackManager.isCompatible(modelId);
     if (!isCompatible) {
       throw new AIError(
         "AI_MODEL_INVALID",
-        "Device does not meet memory requirements for neural upscaling"
+        "Device does not meet memory requirements for image enhancement"
       );
     }
 
@@ -108,7 +111,7 @@ export class ImageUpscalerService {
     options?.onProgress?.({
       stage: "preprocessing",
       percent: 25,
-      message: "Preprocessing image and extracting high-frequency tensor data...",
+      message: "Preprocessing image and extracting high-frequency pixels...",
     });
 
     const prepStart = Date.now();
@@ -121,11 +124,11 @@ export class ImageUpscalerService {
       throw new AIError("AI_CANCELLED", "Upscaling cancelled during preprocessing");
     }
 
-    // Stage 3: Neural Super-Resolution Inference
+    // Stage 3: Sub-Pixel Convolution & Laplacian Filtering
     options?.onProgress?.({
       stage: "inference",
       percent: 50,
-      message: "Executing sub-pixel neural convolution & edge restoration...",
+      message: "Executing sub-pixel directional Laplacian edge synthesis...",
     });
 
     let inferenceResult: UpscalerOutput;
@@ -139,9 +142,9 @@ export class ImageUpscalerService {
       });
     } catch (err: any) {
       if (options?.signal?.aborted || err?.message?.includes("cancelled")) {
-        throw new AIError("AI_CANCELLED", "Neural inference was cancelled by user");
+        throw new AIError("AI_CANCELLED", "Enhancement operation was cancelled by user");
       }
-      throw new AIError("AI_INFERENCE_FAILED", `Super-resolution inference failed: ${err.message}`);
+      throw new AIError("AI_INFERENCE_FAILED", `Enhancement failed: ${err.message}`);
     }
 
     // Stage 4: Postprocessing & Canvas Encoding
@@ -164,7 +167,7 @@ export class ImageUpscalerService {
     options?.onProgress?.({
       stage: "completed",
       percent: 100,
-      message: "Neural upscaling complete.",
+      message: "Algorithmic edge enhancement complete.",
     });
 
     return {
@@ -178,6 +181,8 @@ export class ImageUpscalerService {
       originalHeight: origH,
       scale: inferenceResult.scale,
       engine: inferenceResult.engine,
+      isPretrainedAIModel: false,
+      engineType: "classical_algorithmic",
       timings: {
         preprocessMs,
         inferenceMs: inferenceResult.inferenceTimeMs,

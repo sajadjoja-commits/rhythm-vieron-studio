@@ -10,6 +10,7 @@ import { Capacitor } from "@capacitor/core";
 import { AIModelRuntime, ModelMemoryUsage, ModelCapabilities } from "../AIModelRuntime";
 import { NativeWhisperModelManager } from "@/services/caption/WhisperModelManager";
 import { WebCaptionProvider } from "@/services/caption/WebCaptionProvider";
+import { getVireonSTTPlugin } from "@/services/caption/AndroidCaptionProvider";
 
 export interface WhisperInferenceInput {
   audioInput: string | Blob | File;
@@ -67,19 +68,27 @@ export class WhisperCppAdapter implements AIModelRuntime<WhisperInferenceInput, 
 
     const start = Date.now();
 
-    // 1. Android Native STT
+    // 1. Android Native STT via real JNI whisper.cpp plugin
     if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android") {
       try {
-        const whisperMgr = NativeWhisperModelManager.getInstance();
-        const modelInfo = await whisperMgr.getModelInfo(input.modelId || "whisper-tiny");
-        if (modelInfo && modelInfo.storagePath) {
-          // In real production environment on Android, VireonSTT runs native inference
-          return {
-            text: "Offline transcription completed via whisper.cpp native engine.",
+        const plugin = getVireonSTTPlugin();
+        const avail = await plugin.isAvailable({ modelId: input.modelId });
+        if (avail?.available && typeof input.audioInput === "string") {
+          const res = await plugin.transcribe({
+            audioPath: input.audioInput,
             language: input.language || "auto",
-            executionTimeMs: Date.now() - start,
-            engine: "whisper.cpp (Android ARM64 Native)",
-          };
+            modelId: input.modelId || "whisper-tiny",
+          });
+          if (res?.success && Array.isArray(res.segments)) {
+            const fullText = res.segments.map((s) => s.text).join(" ").trim();
+            return {
+              text: fullText,
+              segments: res.segments,
+              language: input.language || "auto",
+              executionTimeMs: Date.now() - start,
+              engine: "whisper.cpp (Android ARM64 Native JNI)",
+            };
+          }
         }
       } catch (nativeErr) {
         console.warn("[WhisperCppAdapter] Native STT fallback:", nativeErr);

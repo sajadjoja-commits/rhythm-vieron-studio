@@ -1,38 +1,17 @@
 /**
- * Phase 10: Official Model Catalogue
+ * Phase 10.1: Official Model Catalogue (Reality Audited)
  * 
  * Strict integrity policy:
- * - NO fake placeholder hashes (a1b2c3..., c3d4e5...).
- * - Every production model has an audited, real cryptographic SHA-256 checksum.
- * - Models without verified release checksums are explicitly set to sha256: ""
- *   and handled as unverified.
+ * - NO fake placeholder hashes.
+ * - Clear distinction between real pretrained neural weights and algorithmic filters.
+ * - Models without verified release checksums are explicitly set to sha256: "" and marked unverified.
+ * - Future generative expand reserved with explicit "not available" status.
  */
 
 import { ModelManifest } from "./types";
 
 export const OFFICIAL_MODEL_CATALOGUE: ModelManifest[] = [
-  // 1. PRODUCTION REAL MODEL: Vieron Neural Image Upscaler (2x Super-Resolution)
-  {
-    id: "vieron-upscaler-2x",
-    name: "Vieron Neural Image Upscaler (2x Super-Resolution)",
-    version: "1.0.0",
-    format: "onnx",
-    task: "upscale",
-    sizeBytes: 154624, // ~150KB compact sub-pixel neural network
-    sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", // Verified lightweight model hash
-    downloadUrl: "/models/vieron-upscaler-2x.onnx",
-    license: "MIT / Apache-2.0",
-    sourceUrl: "https://github.com/vieron-studio/models/releases/tag/v1.0.0",
-    runtime: "onnx",
-    minRamMB: 1024,
-    recommendedRamMB: 2048,
-    supportedPlatforms: ["android", "web", "all"],
-    accelerators: ["WebGPU", "GPU", "WASM", "NNAPI"],
-    offlineDefault: true,
-    description: "Real on-device 2x super-resolution upscaler reconstructing high-frequency edges and micro-textures.",
-  },
-
-  // 2. WHISPER TINY (Multilingual GGML for Speech-to-Text)
+  // 1. WHISPER TINY (Multilingual GGML for Speech-to-Text - Real Neural Model)
   {
     id: "whisper-tiny",
     name: "Whisper Tiny (Multilingual GGML)",
@@ -51,9 +30,11 @@ export const OFFICIAL_MODEL_CATALOGUE: ModelManifest[] = [
     accelerators: ["CPU", "WASM"],
     offlineDefault: true,
     description: "Ultra-fast offline multilingual speech-to-text model for subtitles and captions.",
+    isPretrainedAIModel: true,
+    engineType: "neural_weights",
   },
 
-  // 3. WHISPER BASE (Multilingual GGML)
+  // 2. WHISPER BASE (Multilingual GGML - Real Neural Model)
   {
     id: "whisper-base",
     name: "Whisper Base (Multilingual GGML)",
@@ -72,9 +53,11 @@ export const OFFICIAL_MODEL_CATALOGUE: ModelManifest[] = [
     accelerators: ["CPU", "WASM"],
     offlineDefault: false,
     description: "Balanced multilingual speech-to-text with higher recognition accuracy.",
+    isPretrainedAIModel: true,
+    engineType: "neural_weights",
   },
 
-  // 4. WHISPER SMALL (Multilingual GGML)
+  // 3. WHISPER SMALL (Multilingual GGML - Real Neural Model)
   {
     id: "whisper-small",
     name: "Whisper Small (Multilingual GGML)",
@@ -93,9 +76,11 @@ export const OFFICIAL_MODEL_CATALOGUE: ModelManifest[] = [
     accelerators: ["CPU", "WASM"],
     offlineDefault: false,
     description: "High-accuracy multilingual speech-to-text for studio production.",
+    isPretrainedAIModel: true,
+    engineType: "neural_weights",
   },
 
-  // 5. GOOGLE ML KIT SUBJECT SEGMENTATION (Android Native)
+  // 4. GOOGLE ML KIT SUBJECT SEGMENTATION (Android Native Neural Framework)
   {
     id: "mlkit-subject-segmenter",
     name: "Google ML Kit Subject Segmentation",
@@ -114,9 +99,11 @@ export const OFFICIAL_MODEL_CATALOGUE: ModelManifest[] = [
     accelerators: ["NNAPI", "GPU"],
     offlineDefault: true,
     description: "Zero-download native Android hardware-accelerated subject segmentation.",
+    isPretrainedAIModel: true,
+    engineType: "native_framework",
   },
 
-  // 6. GOOGLE ML KIT FACE & LANDMARK DETECTOR (Android Native)
+  // 5. GOOGLE ML KIT FACE & LANDMARK DETECTOR (Android Native Neural Framework)
   {
     id: "mlkit-face-detector",
     name: "Google ML Kit Face & Landmark Detector",
@@ -135,9 +122,11 @@ export const OFFICIAL_MODEL_CATALOGUE: ModelManifest[] = [
     accelerators: ["NNAPI", "GPU"],
     offlineDefault: true,
     description: "Real-time 60fps face detection, bounding boxes, and head Euler angles.",
+    isPretrainedAIModel: true,
+    engineType: "native_framework",
   },
 
-  // 7. RMBG-2.0 (BiRefNet Neural Segmentation)
+  // 6. RMBG-2.0 (BiRefNet Neural Segmentation - Real ONNX Model)
   {
     id: "rmbg-2.0",
     name: "RMBG-2.0 (BiRefNet Segmentation)",
@@ -156,9 +145,11 @@ export const OFFICIAL_MODEL_CATALOGUE: ModelManifest[] = [
     accelerators: ["WebGPU", "NNAPI", "GPU", "WASM"],
     offlineDefault: false,
     description: "State-of-the-art background removal and subject matte generator.",
+    isPretrainedAIModel: true,
+    engineType: "neural_weights",
   },
 
-  // 8. DEEPFILTERNET AUDIO DENOISE (Audited: fake hash purged -> marked unverified)
+  // 7. DEEPFILTERNET AUDIO DENOISE (Audited: Real Model, Unverified Release Hash)
   {
     id: "deepfilter-audio-denoise",
     name: "DeepFilterNet Audio Denoise",
@@ -177,5 +168,53 @@ export const OFFICIAL_MODEL_CATALOGUE: ModelManifest[] = [
     accelerators: ["WASM", "CPU"],
     offlineDefault: false,
     description: "Neural noise suppression and voice isolation for noisy background audio.",
+    isPretrainedAIModel: true,
+    engineType: "neural_weights",
+  },
+
+  // 8. VIERON IMAGE UPSCALER (Reality Audited: Classical / Algorithmic Sub-Pixel Enhancement)
+  {
+    id: "vieron-upscaler-2x",
+    name: "Vieron Directional Laplacian & Sub-Pixel Enhancer (2x)",
+    version: "1.0.0",
+    format: "algorithmic",
+    task: "upscale",
+    sizeBytes: 0,
+    sha256: "",
+    downloadUrl: "",
+    license: "Proprietary / Built-in",
+    sourceUrl: "",
+    runtime: "algorithmic",
+    minRamMB: 512,
+    recommendedRamMB: 1024,
+    supportedPlatforms: ["android", "web", "all"],
+    accelerators: ["CPU", "WASM"],
+    offlineDefault: true,
+    description: "Classical algorithmic sub-pixel edge synthesis and Laplacian residual restoration (High-frequency edge enhancement without pretrained neural weights).",
+    isPretrainedAIModel: false,
+    engineType: "algorithmic_filter",
+  },
+
+  // 9. GENERATIVE EXPAND / OUTPAINTING (Reserved Architecture for Phase 11)
+  {
+    id: "generative-expand-future",
+    name: "AI Generative Expand / Outpainting (Phase 11 Reserved)",
+    version: "0.0.0",
+    format: "none",
+    task: "generative_expand",
+    sizeBytes: 0,
+    sha256: "",
+    downloadUrl: "",
+    license: "Pending Phase 11",
+    sourceUrl: "",
+    runtime: "none",
+    minRamMB: 4096,
+    recommendedRamMB: 8192,
+    supportedPlatforms: ["android", "web"],
+    accelerators: ["NONE"],
+    offlineDefault: false,
+    description: "Architecture reserved for Phase 11. No fake outpainting, stretching, or mirroring is permitted.",
+    isPretrainedAIModel: false,
+    engineType: "none",
   },
 ];

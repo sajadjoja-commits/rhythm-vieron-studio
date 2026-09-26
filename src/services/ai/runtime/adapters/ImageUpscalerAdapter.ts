@@ -1,9 +1,9 @@
 /**
- * Phase 10: Real Local AI Model — Image Upscaler Adapter
+ * Phase 10.1: Classical Algorithmic Image Enhancer Adapter
+ * (Reality Audited: Directional Laplacian & Sub-Pixel Interpolation — Non-Neural)
  * 
- * First production local AI execution runtime:
- * - Real 2x Neural Super-Resolution execution
- * - Convolutional feature extraction + Sub-pixel pixel-shuffling reconstruction
+ * - Classical 2x/4x Sub-Pixel convolution + Laplacian edge restoration
+ * - Algorithmic directional filtering without pretrained neural weights
  * - Operates 100% offline with zero cloud APIs, zero API keys
  * - Memory-safe bounded execution with deterministic cancellation
  */
@@ -34,7 +34,7 @@ export interface UpscalerOutput {
 
 export class ImageUpscalerAdapter implements AIModelRuntime<UpscalerInput, UpscalerOutput> {
   public readonly id = "vieron-upscaler-2x";
-  public readonly name = "Vieron Neural Super-Resolution Upscaler (2x)";
+  public readonly name = "Vieron Directional Laplacian & Sub-Pixel Enhancer (2x)";
 
   private loaded = false;
   private isCancelled = false;
@@ -73,12 +73,12 @@ export class ImageUpscalerAdapter implements AIModelRuntime<UpscalerInput, Upsca
     const denoise = input.denoiseStrength ?? 0.2;
     const sharpen = input.sharpenStrength ?? 0.35;
 
-    // Real Super-Resolution Tensor Processing Kernel:
+    // Classical Sub-Pixel Directional Laplacian Enhancement Kernel:
     // Sub-pixel convolutional reconstruction with directional edge preservation
     for (let y = 0; y < outH; y++) {
       if (this.isCancelled || input.signal?.aborted) {
         this.isCancelled = false;
-        throw new Error("[ImageUpscalerAdapter] Upscaling cancelled during neural inference");
+        throw new Error("[ImageUpscalerAdapter] Upscaling cancelled during algorithmic enhancement");
       }
 
       const srcY = y / scale;
@@ -151,7 +151,7 @@ export class ImageUpscalerAdapter implements AIModelRuntime<UpscalerInput, Upsca
       height: outH,
       scale,
       inferenceTimeMs: duration,
-      engine: "Vieron Neural Super-Resolution Sub-Pixel Tensor Engine",
+      engine: "Vieron Directional Laplacian & Sub-Pixel Algorithmic Filter (Classical / Non-Neural)",
       metrics: {
         inputPixels: inW * inH,
         outputPixels: outW * outH,
@@ -173,10 +173,13 @@ export class ImageUpscalerAdapter implements AIModelRuntime<UpscalerInput, Upsca
 
   public getCapabilities(): ModelCapabilities {
     return {
-      framework: "ONNX / Sub-Pixel Tensor Kernel",
-      accelerator: "WASM / WebGL SIMD",
+      framework: "Classical Algorithmic Filter (Directional Laplacian & Sub-Pixel Interpolation)",
+      accelerator: "CPU / WASM",
       precision: "FP32",
-      supportedInputTypes: ["ImageData", "HTMLCanvasElement", "Tensor"],
+      supportedInputTypes: ["ImageData", "HTMLCanvasElement"],
+      status: "ALGORITHMIC_ENHANCEMENT",
+      realInference: false,
+      isPretrainedModel: false,
     };
   }
 }

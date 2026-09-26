@@ -18,6 +18,9 @@ export interface ModelCapabilities {
   precision: string;
   maxBatchSize?: number;
   supportedInputTypes: string[];
+  status?: string;
+  realInference?: boolean;
+  isPretrainedModel?: boolean;
 }
 
 export interface AIModelRuntime<TInput = any, TOutput = any, TOptions = any> {

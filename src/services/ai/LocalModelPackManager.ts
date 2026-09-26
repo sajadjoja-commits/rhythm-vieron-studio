@@ -239,6 +239,42 @@ export class LocalModelPackManager {
       );
     }
 
+    // Reserved / Not Available
+    if (manifest.format === "none") {
+      throw new AIError(
+        "AI_UNSUPPORTED_OPERATION",
+        "GENERATIVE_EXPAND_NOT_AVAILABLE: Vieron Studio does not support fake generative outpainting. Real generative models will be introduced in Phase 11."
+      );
+    }
+
+    // Algorithmic built-in filters require no network download
+    if (manifest.format === "algorithmic") {
+      const algoInstalled: InstalledModel = {
+        id: manifest.id,
+        version: manifest.version,
+        path: `algorithmic://${manifest.id}`,
+        installedAt: Date.now(),
+        verifiedAt: Date.now(),
+        sha256: "N/A",
+        sizeBytes: 0,
+        status: "algorithmic",
+        isPretrainedAIModel: false,
+        realInference: false,
+      };
+      await installedModelStore.saveInstalledModel(algoInstalled);
+      options?.onProgress?.({
+        modelId,
+        status: "installed",
+        receivedBytes: 0,
+        totalBytes: 0,
+        percent: 100,
+        speedMBps: 0,
+        etaSeconds: 0,
+        stage: "installed",
+      });
+      return algoInstalled;
+    }
+
     // Native bundled models require no network download
     if (manifest.format === "native") {
       const nativeInstalled: InstalledModel = {
@@ -250,6 +286,8 @@ export class LocalModelPackManager {
         sha256: manifest.sha256,
         sizeBytes: 0,
         status: "installed",
+        isPretrainedAIModel: true,
+        realInference: true,
       };
       await installedModelStore.saveInstalledModel(nativeInstalled);
       options?.onProgress?.({
@@ -497,6 +535,8 @@ export class LocalModelPackManager {
       sha256: computedHash,
       sizeBytes,
       status: "installed",
+      isPretrainedAIModel: manifest.isPretrainedAIModel,
+      realInference: manifest.isPretrainedAIModel,
     };
 
     await installedModelStore.saveInstalledModel(installed);
@@ -528,6 +568,24 @@ export class LocalModelPackManager {
         computedSha256: "",
         error: `Model manifest not found: ${modelId}`,
         errorCode: "MODEL_NOT_FOUND",
+      };
+    }
+
+    if (manifest.format === "none") {
+      return {
+        isValid: false,
+        expectedSha256: "",
+        computedSha256: "",
+        error: "GENERATIVE_EXPAND_NOT_AVAILABLE: Architecture reserved for Phase 11.",
+        errorCode: "MODEL_NOT_FOUND",
+      };
+    }
+
+    if (manifest.format === "algorithmic") {
+      return {
+        isValid: true,
+        expectedSha256: "N/A",
+        computedSha256: "N/A (Classical Algorithmic Filter, No Neural Weights)",
       };
     }
 
@@ -563,7 +621,18 @@ export class LocalModelPackManager {
       hasher.init();
       hasher.update(new Uint8Array(buf));
       const computed = hasher.digest("hex");
-      const isValid = !manifest.sha256 || computed.toLowerCase() === manifest.sha256.toLowerCase();
+      const hasExpected = Boolean(manifest.sha256 && manifest.sha256.trim().length > 0);
+      if (!hasExpected) {
+        return {
+          isValid: false,
+          expectedSha256: "",
+          computedSha256: computed,
+          errorCode: "CORRUPT_MODEL",
+          error: "Model has no verified SHA-256 release checksum in catalogue (unverified).",
+        };
+      }
+
+      const isValid = computed.toLowerCase() === manifest.sha256.toLowerCase();
 
       return {
         isValid,
@@ -571,15 +640,6 @@ export class LocalModelPackManager {
         computedSha256: computed,
         errorCode: isValid ? undefined : "MODEL_CHECKSUM_MISMATCH",
         error: isValid ? undefined : `Expected ${manifest.sha256}, got ${computed}`,
-      };
-    }
-
-    // Uninstalled / offline default check
-    if (manifest.offlineDefault) {
-      return {
-        isValid: true,
-        expectedSha256: manifest.sha256,
-        computedSha256: manifest.sha256,
       };
     }
 
@@ -602,8 +662,13 @@ export class LocalModelPackManager {
     const manifest = this.manifests.get(modelId);
     if (!manifest) return false;
 
-    if (manifest.offlineDefault || manifest.format === "native") {
-      // Bundled offline models cannot be deleted
+    if (
+      manifest.offlineDefault ||
+      manifest.format === "native" ||
+      manifest.format === "algorithmic" ||
+      manifest.format === "none"
+    ) {
+      // Bundled offline models and built-in algorithmic filters cannot be deleted
       return false;
     }
 

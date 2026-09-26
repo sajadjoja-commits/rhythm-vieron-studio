@@ -112,10 +112,13 @@ export class ONNXRuntimeAdapter implements AIModelRuntime<Record<string, ort.Ten
 
   public getCapabilities(): ModelCapabilities {
     return {
-      framework: "ONNX Runtime",
+      framework: "ONNX Runtime (onnxruntime-web)",
       accelerator: this.backend,
       precision: "FP32 / FP16",
       supportedInputTypes: ["Float32Array", "Tensor"],
+      status: this.isLoaded() ? "READY" : "STRUCTURE_READY / NO_REAL_MODEL",
+      realInference: this.isLoaded(),
+      isPretrainedModel: this.isLoaded(),
     };
   }
 }

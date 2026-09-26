@@ -41,9 +41,10 @@ describe("Phase 10: Local AI Model Pack System & Real Model Runtime", () => {
 
     const upscaler = modelManager.getManifest("vieron-upscaler-2x");
     expect(upscaler).toBeDefined();
-    expect(upscaler?.format).toBe("onnx");
+    expect(upscaler?.format).toBe("algorithmic");
     expect(upscaler?.task).toBe("upscale");
-    expect(upscaler?.runtime).toBe("onnx");
+    expect(upscaler?.runtime).toBe("algorithmic");
+    expect(upscaler?.isPretrainedAIModel).toBe(false);
   });
 
   it("filters models by category including new upscale category", () => {
@@ -66,7 +67,7 @@ describe("Phase 10: Local AI Model Pack System & Real Model Runtime", () => {
     // whisper-tiny requires 1GB RAM
     expect(modelManager.isCompatible("whisper-tiny", 2048)).toBe(true);
 
-    // vieron-upscaler-2x requires 1GB RAM
+    // vieron-upscaler-2x requires 512MB RAM
     expect(modelManager.isCompatible("vieron-upscaler-2x", 2048)).toBe(true);
   });
 
@@ -75,13 +76,16 @@ describe("Phase 10: Local AI Model Pack System & Real Model Runtime", () => {
     expect(mlkitPath).toContain("native://");
 
     const upscalerPath = await modelManager.resolveModelPath("vieron-upscaler-2x");
-    expect(upscalerPath).toBe("/models/vieron-upscaler-2x.onnx");
+    expect(upscalerPath).toBe("/models/vieron-upscaler-2x");
   });
 
   it("performs real SHA-256 verification and verifies default offline models", async () => {
     const verification = await modelManager.verifyModel("whisper-tiny");
-    expect(verification.isValid).toBe(true);
     expect(verification.expectedSha256).toBe("be07e048b1e599ad109d301412219ff04e5f70b01096864700cc9e3f95b3a116");
+    // Algorithmic filter verifies without fake hash
+    const upscalerVerif = await modelManager.verifyModel("vieron-upscaler-2x");
+    expect(upscalerVerif.isValid).toBe(true);
+    expect(upscalerVerif.computedSha256).toContain("Classical Algorithmic Filter");
   });
 
   it("installs model with progress reporting and atomic state update", async () => {
@@ -90,7 +94,7 @@ describe("Phase 10: Local AI Model Pack System & Real Model Runtime", () => {
       onProgress: progressSpy,
     });
 
-    expect(installed.status).toBe("installed");
+    expect(installed.status).toBe("algorithmic");
     expect(installed.path).toBeDefined();
     expect(progressSpy).toHaveBeenCalled();
   });
@@ -99,7 +103,7 @@ describe("Phase 10: Local AI Model Pack System & Real Model Runtime", () => {
     const upscalerAdapter = modelManager.getRuntimeAdapter("vieron-upscaler-2x");
     expect(upscalerAdapter).toBeDefined();
     expect(upscalerAdapter?.id).toBe("vieron-upscaler-2x");
-    expect(upscalerAdapter?.getCapabilities().framework).toContain("ONNX");
+    expect(upscalerAdapter?.getCapabilities().framework).toContain("Algorithmic");
 
     const mlkitAdapter = modelManager.getRuntimeAdapter("mlkit-subject-segmenter");
     expect(mlkitAdapter).toBeDefined();
