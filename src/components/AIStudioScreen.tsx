@@ -45,6 +45,8 @@ import { AILoadingOverlay } from "@/components/ui/AILoadingOverlay";
 import { BackgroundRemovalResult } from "@/components/imageAi/BackgroundRemovalResult";
 import { VideoJobManager, VideoJobRecord } from "@/ai/video";
 import { VideoAIPreviewPlayer } from "@/components/video/VideoAIPreviewPlayer";
+import { LocalAILabModal } from "@/components/ai/LocalAILabModal";
+import { imageUpscalerService } from "@/services/ai/ImageUpscalerService";
 
 export interface AIToolConfig {
   id: string;
@@ -94,6 +96,22 @@ export const AI_STUDIO_TOOLS: AIToolConfig[] = [
     icon: Sparkles,
     color: "#8b5cf6",
     bg: "rgba(139, 92, 246, 0.12)",
+    executionModeLabel: "Local",
+    accept: "image",
+  },
+  {
+    id: "img-super-res",
+    category: "image",
+    pluginId: "plugin-image-enhancement",
+    actionName: "upscale",
+    taskType: "enhance-media",
+    nameAr: "مضاعفة الدقة الفائقة (Neural Super-Resolution)",
+    nameEn: "Neural Super-Resolution (2x/4x Upscale)",
+    descAr: "إعادة بناء التفاصيل المجهرية ومضاعفة دقة الصور بتقنية Sub-Pixel Convolutional العصبية",
+    descEn: "On-device sub-pixel neural convolution reconstructing high-frequency textures and micro-edges",
+    icon: Maximize2,
+    color: "#a855f7",
+    bg: "rgba(168, 85, 247, 0.12)",
     executionModeLabel: "Local",
     accept: "image",
   },
@@ -163,6 +181,7 @@ const AIStudioScreen: React.FC<AIStudioScreenProps> = ({ onBack, onOpenPhotoEdit
 
   const [activeTab, setActiveTab] = useState<"all" | "creator" | "image" | "video" | "audio">("all");
   const [showFluxCreator, setShowFluxCreator] = useState(false);
+  const [showLocalAILab, setShowLocalAILab] = useState(false);
   const [deviceProfile, setDeviceProfile] = useState<DeviceResourceProfile | null>(null);
 
   // Tool modal state
@@ -317,6 +336,36 @@ const AIStudioScreen: React.FC<AIStudioScreenProps> = ({ onBack, onOpenPhotoEdit
           throw new Error("No output generated");
         }
       } else {
+        if (selectedTool.actionName === "upscale") {
+          const upResult = await imageUpscalerService.upscaleImage(inputMedia.url, {
+            scale: (upscaleFactor as any) || 2,
+            denoiseStrength,
+            sharpenStrength: detailSharpen,
+            onProgress: (p) => {
+              setCurrentProgress({
+                jobId: "upscale",
+                percentage: p.percent,
+                currentStage: p.message,
+                status: "processing",
+              });
+            },
+          });
+
+          setResultData({
+            outputImageBase64OrUrl: upResult.outputDataUrl,
+            width: upResult.width,
+            height: upResult.height,
+            scale: upResult.scale,
+            appliedEngine: upResult.engine,
+            executionTimeMs: upResult.timings.totalMs,
+            success: true,
+          });
+
+          playSfx("success");
+          toast.success(en ? "Super-resolution upscaled successfully!" : "تمت مضاعفة الدقة بنجاح!");
+          return;
+        }
+
         const plugin = aiPlugins.getPlugin(selectedTool.pluginId);
         if (!plugin) {
           throw new Error(`Plugin ${selectedTool.pluginId} not registered in AI Runtime`);
@@ -517,6 +566,18 @@ const AIStudioScreen: React.FC<AIStudioScreenProps> = ({ onBack, onOpenPhotoEdit
             </p>
           </div>
         </div>
+
+        <button
+          onClick={() => {
+            playSfx("tap");
+            setShowLocalAILab(true);
+          }}
+          className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/40 text-purple-300 text-xs font-semibold shadow-sm transition-all"
+        >
+          <Cpu className="w-4 h-4 text-purple-400" />
+          <span>{en ? "Local AI Lab & Models" : "مختبر النماذج المحلية"}</span>
+          <span className="w-2 h-2 rounded-full bg-emerald-400" />
+        </button>
       </div>
 
       {/* Featured AI Image Creator (FLUX.1) Hero Banner */}
@@ -1304,6 +1365,13 @@ const AIStudioScreen: React.FC<AIStudioScreenProps> = ({ onBack, onOpenPhotoEdit
           </div>
         </div>
       )}
+
+      {/* Phase 10: Local AI Lab & Real Model Runtime Modal */}
+      <LocalAILabModal
+        isOpen={showLocalAILab}
+        onClose={() => setShowLocalAILab(false)}
+        onOpenPhotoEditor={onOpenPhotoEditor}
+      />
     </div>
   );
 };

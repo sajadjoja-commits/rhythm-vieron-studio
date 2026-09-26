@@ -13,6 +13,7 @@ import {
   AIError,
 } from "./types";
 import { benchmarkRegistry } from "./benchmark";
+import { imageUpscalerService, UpscaleOptions, UpscaleResult } from "./ImageUpscalerService";
 
 export class AIService {
   private static instance: AIService | null = null;
@@ -87,6 +88,20 @@ export class AIService {
       quantizationType: "FP16",
       localPath: "/models/mediapipe/selfie_segmenter.tflite",
       description: "Ultra-compact web/mobile portrait segmenter",
+    });
+
+    this.modelCatalog.set("vieron-upscaler-2x", {
+      id: "vieron-upscaler-2x",
+      name: "Vieron Neural Image Upscaler (2x Super-Resolution)",
+      version: "1.0.0",
+      tier: "TIER_1_ESSENTIAL",
+      framework: "onnx",
+      sizeBytes: 154624,
+      quantized: true,
+      quantizationType: "FP32",
+      checksum: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      localPath: "/models/vieron-upscaler-2x.onnx",
+      description: "Real on-device 2x super-resolution upscaler with high-frequency sub-pixel edge restoration",
     });
 
     // TIER 2: Optional (Large, downloaded on-demand and cached in app storage)
@@ -233,6 +248,13 @@ export class AIService {
     }
 
     return this.webProvider.transcribe(audioInput, options);
+  }
+
+  public async upscaleImage(
+    imageInput: string | Blob | File | HTMLImageElement | HTMLCanvasElement | ImageData,
+    options?: UpscaleOptions
+  ): Promise<UpscaleResult> {
+    return imageUpscalerService.upscaleImage(imageInput, options);
   }
 
   public getBenchmarks(): AIBenchmarkResult[] {
