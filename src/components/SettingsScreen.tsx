@@ -12,6 +12,7 @@ interface SettingsScreenProps {
 }
 
 import { applyThemeToDOM } from "@/lib/theme";
+import { Capacitor } from "@capacitor/core";
 import buildInfo from "@/build_info.json";
 
 const SettingsScreen = ({ session, isGuest, onLogout }: SettingsScreenProps) => {
@@ -201,6 +202,16 @@ const SettingsScreen = ({ session, isGuest, onLogout }: SettingsScreenProps) => 
 
         {showDebug && (
           <div className="mt-4 pt-4 border-t border-border space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="flex justify-between items-center text-[10px]">
+              <span className="text-muted-foreground">Runtime Engine</span>
+              <span className="font-mono text-primary font-bold">
+                {Capacitor.isNativePlatform() ? "Android Native (APK Bundled)" : "Web Browser (SPA)"}
+              </span>
+            </div>
+            <div className="flex justify-between items-center text-[10px]">
+              <span className="text-muted-foreground">Web Origin</span>
+              <span className="font-mono text-foreground">{typeof window !== "undefined" ? window.location.origin : "localhost"}</span>
+            </div>
             <div className="flex justify-between items-center text-[10px]">
               <span className="text-muted-foreground">Web Version</span>
               <span className="font-mono text-foreground">{buildInfo.web}</span>

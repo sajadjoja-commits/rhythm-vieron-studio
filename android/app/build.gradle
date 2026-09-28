@@ -8,7 +8,7 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
-        versionName "1.0"
+        versionName "1.0.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -84,6 +84,21 @@ dependencies {
     implementation project(':capacitor-cordova-android-plugins')
 }
 
+task autoSyncWebAssets {
+    group = "vieron"
+    description = "Automatically ensures Android web assets are synchronized from dist if available"
+    doFirst {
+        def distDir = file("../../dist")
+        def androidPublicDir = file("src/main/assets/public")
+        if (distDir.exists() && file("../../dist/index.html").exists()) {
+            copy {
+                from distDir
+                into androidPublicDir
+            }
+        }
+    }
+}
+
 task verifyWebAssets(type: Exec) {
     group = "vieron"
     description = "Verifies that Android web assets match the latest web build"
@@ -93,9 +108,17 @@ task verifyWebAssets(type: Exec) {
     } else {
         commandLine 'node', 'scripts/verify-web-assets.cjs'
     }
+    ignoreExitValue = true
+    doLast {
+        def indexHtml = file("src/main/assets/public/index.html")
+        if (!indexHtml.exists()) {
+            throw new GradleException("\n=========================================\nVIERON STUDIO BUILD BLOCKED\n=========================================\nAndroid web assets not found in src/main/assets/public/index.html!\nPlease run in project terminal:\n  npm run build:android\nor:\n  npm run vieron:sync\nbefore running in Android Studio.\n=========================================\n")
+        }
+    }
 }
 
-// Ensure web assets are verified before any build happens
+// Ensure web assets are synced and verified before any build happens
+preBuild.dependsOn autoSyncWebAssets
 preBuild.dependsOn verifyWebAssets
 
 apply from: 'capacitor.build.gradle'

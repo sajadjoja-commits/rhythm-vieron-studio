@@ -108,18 +108,29 @@ if (typeof window !== "undefined") {
   });
 }
 
-// Register PWA service worker in web browser environment (Production only, not in iframe)
+// Register PWA service worker in web browser environment (Production only, not in native app or iframe)
 if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
   const isIframe = typeof window !== "undefined" && window.self !== window.top;
-  const isRemoteNativeApp = Capacitor.isNativePlatform()
-    && window.location.hostname === "rhythm-vieron-studio.lovable.app";
+  const isNative = Capacitor.isNativePlatform();
 
-  if (import.meta.env.DEV || isIframe || (Capacitor.isNativePlatform() && !isRemoteNativeApp)) {
+  // In native Android/iOS APK, disable Service Worker completely to prevent stale bundle caching!
+  if (import.meta.env.DEV || isIframe || isNative) {
     navigator.serviceWorker.getRegistrations().then((registrations) => {
       for (const registration of registrations) {
         registration.unregister().catch(() => {});
       }
     }).catch(() => {});
+
+    // In native app, also purge stale web asset caches from previous remote webviews
+    if (isNative && typeof caches !== "undefined") {
+      caches.keys().then((keys) => {
+        for (const key of keys) {
+          if (key.includes("vireon") || key.includes("workbox") || key.includes("pwa")) {
+            caches.delete(key).catch(() => {});
+          }
+        }
+      }).catch(() => {});
+    }
   } else {
     const registerSW = () => {
       try {
