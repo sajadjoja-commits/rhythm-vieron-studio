@@ -31,7 +31,7 @@
         android:theme="@style/AppTheme"
         android:largeHeap="true"
         android:hardwareAccelerated="true"
-        android:usesCleartextTraffic="true">
+        android:usesCleartextTraffic="false">
 
         <!-- Google Play Services ML Kit Auto-download configuration -->
         <meta-data
