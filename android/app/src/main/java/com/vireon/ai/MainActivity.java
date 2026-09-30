@@ -1,6 +1,8 @@
 package com.vireon.ai;
 
+import android.app.Activity;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.util.Log;
 import android.webkit.WebResourceError;
@@ -17,11 +19,25 @@ import java.io.FileReader;
 import java.io.FileWriter;
 
 public class MainActivity extends BridgeActivity {
+    private static final String TAG = "MainActivity";
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         SplashScreen.installSplashScreen(this);
-        
+
+        // For DEBUG: clear any persisted serverBasePath from SharedPreferences BEFORE Bridge loads
+        if (BuildConfig.DEBUG) {
+            try {
+                SharedPreferences prefs = getSharedPreferences("CapWebViewSettings", Activity.MODE_PRIVATE);
+                if (prefs != null && prefs.contains("serverBasePath")) {
+                    prefs.edit().remove("serverBasePath").apply();
+                    Log.i(TAG, "[PACKAGING] DEBUG -> Cleared persisted serverBasePath preference");
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "[PACKAGING] Could not access CapWebViewSettings: " + e.getMessage());
+            }
+        }
+
         registerPlugin(AIImageProcessorPlugin.class);
         registerPlugin(VireonAIPlugin.class);
         registerPlugin(VireonMediaPlugin.class);
@@ -35,7 +51,11 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(com.capacitorjs.plugins.haptics.HapticsPlugin.class);
         super.onCreate(savedInstanceState);
 
-        setupOtaStartup();
+        if (BuildConfig.DEBUG) {
+            forceBundledAssets();
+        } else {
+            setupOtaStartup();
+        }
 
         WebView webView = getBridge().getWebView();
         if (webView != null) {
@@ -53,6 +73,13 @@ public class MainActivity extends BridgeActivity {
             }
             webView.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null);
             webView.setKeepScreenOn(true);
+        }
+    }
+
+    private void forceBundledAssets() {
+        Log.i(TAG, "[PACKAGING] DEBUG -> forcing APK bundled assets");
+        if (getBridge() != null) {
+            getBridge().setServerAssetPath("public");
         }
     }
 

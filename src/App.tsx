@@ -12,11 +12,17 @@ import InstallPrompt from "./components/InstallPrompt";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { useEffect } from "react";
 import { webUpdateService } from "@/services/ota";
+import buildInfo from "@/build_info.json";
 
 const queryClient = new QueryClient();
 
 function OtaLifecycleManager() {
   useEffect(() => {
+    // For deterministic APK packaging, OTA is strictly disabled in APK_BUNDLED mode
+    if ((buildInfo as any).packaging === "APK_BUNDLED" && (buildInfo as any).ota === false) {
+      return;
+    }
+
     // 1. Notify native engine that React has mounted and hydrated successfully
     webUpdateService.notifyStartupSuccess();
 

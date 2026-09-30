@@ -51,7 +51,11 @@ android {
             if (signingConfigs.release.storeFile != null && signingConfigs.release.storeFile.exists()) {
                 signingConfig signingConfigs.release
             } else {
-                signingConfig signingConfigs.debug // Fallback to debug signing for local testing until keystore is provided
+                gradle.taskGraph.whenReady { taskGraph ->
+                    if (taskGraph.hasTask(":app:assembleRelease") || taskGraph.hasTask(":app:bundleRelease")) {
+                        throw new GradleException("RELEASE BUILD FAILED: Release keystore is missing! Set RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS, RELEASE_KEY_PASSWORD in environment.")
+                    }
+                }
             }
         }
     }
@@ -84,41 +88,45 @@ dependencies {
     implementation project(':capacitor-cordova-android-plugins')
 }
 
-task autoSyncWebAssets {
+task verifyWebAssets {
     group = "vieron"
-    description = "Automatically ensures Android web assets are synchronized from dist if available"
-    doFirst {
-        def distDir = file("../../dist")
-        def androidPublicDir = file("src/main/assets/public")
-        if (distDir.exists() && file("../../dist/index.html").exists()) {
-            copy {
-                from distDir
-                into androidPublicDir
-            }
-        }
-    }
-}
-
-task verifyWebAssets(type: Exec) {
-    group = "vieron"
-    description = "Verifies that Android web assets match the latest web build"
-    workingDir "../../"
-    if (System.getProperty('os.name').toLowerCase().contains('windows')) {
-        commandLine 'cmd', '/c', 'node scripts/verify-web-assets.cjs'
-    } else {
-        commandLine 'node', 'scripts/verify-web-assets.cjs'
-    }
-    ignoreExitValue = true
+    description = "Strictly verifies that Android web assets are fresh, synchronized, and match dist"
     doLast {
-        def indexHtml = file("src/main/assets/public/index.html")
-        if (!indexHtml.exists()) {
-            throw new GradleException("\n=========================================\nVIERON STUDIO BUILD BLOCKED\n=========================================\nAndroid web assets not found in src/main/assets/public/index.html!\nPlease run in project terminal:\n  npm run build:android\nor:\n  npm run vieron:sync\nbefore running in Android Studio.\n=========================================\n")
+        def distIndex = file("../../dist/index.html")
+        def androidIndex = file("src/main/assets/public/index.html")
+        def distFingerprint = file("../../dist/fingerprint.txt")
+        def androidFingerprint = file("src/main/assets/public/fingerprint.txt")
+        def distBuildInfo = file("../../dist/build_info.json")
+        def androidBuildInfo = file("src/main/assets/public/build_info.json")
+
+        if (!distIndex.exists()) {
+            throw new GradleException("\n=========================================\nVIERON STUDIO BUILD BLOCKED\n=========================================\nMissing web build directory: dist/index.html does not exist!\nYou MUST run:\n  npm run build:android\nbefore building APK in Android Studio.\n=========================================\n")
         }
+
+        if (!androidIndex.exists()) {
+            throw new GradleException("\n=========================================\nVIERON STUDIO BUILD BLOCKED\n=========================================\nMissing Android web assets: android/app/src/main/assets/public/index.html does not exist!\nYou MUST run:\n  npm run build:android\nbefore building APK in Android Studio.\n=========================================\n")
+        }
+
+        if (!distFingerprint.exists() || !androidFingerprint.exists()) {
+            throw new GradleException("\n=========================================\nVIERON STUDIO BUILD BLOCKED\n=========================================\nMissing fingerprint.txt in dist or android assets!\nYou MUST run:\n  npm run build:android\nbefore building APK in Android Studio.\n=========================================\n")
+        }
+
+        if (!distBuildInfo.exists() || !androidBuildInfo.exists()) {
+            throw new GradleException("\n=========================================\nVIERON STUDIO BUILD BLOCKED\n=========================================\nMissing build_info.json in dist or android assets!\nYou MUST run:\n  npm run build:android\nbefore building APK in Android Studio.\n=========================================\n")
+        }
+
+        def distHash = distFingerprint.text.trim()
+        def androidHash = androidFingerprint.text.trim()
+
+        if (distHash.isEmpty() || androidHash.isEmpty() || distHash != androidHash) {
+            throw new GradleException("\n=========================================\nVIERON STUDIO BUILD BLOCKED: ASSET MISMATCH\n=========================================\nAndroid web assets are STALE or do not match dist!\nDist fingerprint:    " + distHash + "\nAndroid fingerprint: " + androidHash + "\n\nYou MUST run:\n  npm run build:android\nbefore building APK in Android Studio.\n=========================================\n")
+        }
+
+        println("\n[VIERON GRADLE GUARD] PASS: Android assets match dist perfectly (${distHash.take(12)}...)\n")
     }
 }
 
-// Ensure web assets are synced and verified before any build happens
-preBuild.dependsOn autoSyncWebAssets
+// Ensure web assets are strictly verified before any build happens
 preBuild.dependsOn verifyWebAssets
 
 apply from: 'capacitor.build.gradle'

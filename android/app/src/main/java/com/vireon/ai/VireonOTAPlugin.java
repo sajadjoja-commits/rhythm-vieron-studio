@@ -63,7 +63,9 @@ public class VireonOTAPlugin extends Plugin {
         caps.put("native_media_muxer");
         caps.put("native_media_metadata");
         caps.put("content_resolver_uri");
-        caps.put("atomic_ota_engine");
+        if (!BuildConfig.DEBUG) {
+            caps.put("atomic_ota_engine");
+        }
         ret.put("capabilities", caps);
 
         call.resolve(ret);
@@ -71,6 +73,18 @@ public class VireonOTAPlugin extends Plugin {
 
     @PluginMethod
     public void getCurrentActiveVersion(PluginCall call) {
+        if (BuildConfig.DEBUG) {
+            JSObject ret = new JSObject();
+            ret.put("version", "bundled");
+            ret.put("isBundled", true);
+            ret.put("channel", "debug");
+            ret.put("lastKnownGoodVersion", "bundled");
+            ret.put("status", "bundled_debug");
+            ret.put("otaDisabled", true);
+            call.resolve(ret);
+            return;
+        }
+
         JSObject state = readOtaState();
         String current = state.optString("currentVersion", "bundled");
         String channel = state.optString("channel", "production");
@@ -128,6 +142,12 @@ public class VireonOTAPlugin extends Plugin {
 
     @PluginMethod
     public void downloadAndInstallBundle(PluginCall call) {
+        if (BuildConfig.DEBUG) {
+            Log.w(TAG, "[PACKAGING] DEBUG -> download rejected (APK bundled only)");
+            call.reject("OTA_DISABLED_IN_DEBUG: Debug APKs only use bundled web assets");
+            return;
+        }
+
         String version = call.getString("version");
         String bundleUrl = call.getString("bundleUrl");
         String expectedChecksum = call.getString("checksum");
@@ -223,6 +243,12 @@ public class VireonOTAPlugin extends Plugin {
 
     @PluginMethod
     public void activateVersion(PluginCall call) {
+        if (BuildConfig.DEBUG) {
+            Log.w(TAG, "[PACKAGING] DEBUG -> activate rejected (APK bundled only)");
+            call.reject("OTA_DISABLED_IN_DEBUG: Debug APKs only use bundled web assets");
+            return;
+        }
+
         String version = call.getString("version");
         if (version == null || version.isEmpty()) {
             call.reject("Missing version parameter");
@@ -296,6 +322,11 @@ public class VireonOTAPlugin extends Plugin {
 
     @PluginMethod
     public void rollbackToLastKnownGood(PluginCall call) {
+        if (BuildConfig.DEBUG) {
+            call.reject("OTA_DISABLED_IN_DEBUG: Debug APKs only use bundled web assets");
+            return;
+        }
+
         try {
             JSObject state = readOtaState();
             String lastGood = state.optString("lastKnownGoodVersion", "bundled");

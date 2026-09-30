@@ -202,35 +202,46 @@ const SettingsScreen = ({ session, isGuest, onLogout }: SettingsScreenProps) => 
 
         {showDebug && (
           <div className="mt-4 pt-4 border-t border-border space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
+            {typeof window !== "undefined" && window.location.origin.includes("rhythm-vieron-studio.lovable.app") && (
+              <div className="p-2 bg-destructive/20 border border-destructive/50 rounded-lg text-destructive text-[10px] font-bold">
+                CRITICAL WARNING: Running remote URL instead of bundled APK assets!
+              </div>
+            )}
             <div className="flex justify-between items-center text-[10px]">
-              <span className="text-muted-foreground">Runtime Engine</span>
+              <span className="text-muted-foreground">Packaging</span>
+              <span className="font-mono text-emerald-400 font-bold">{(buildInfo as any).packaging || "APK_BUNDLED"}</span>
+            </div>
+            <div className="flex justify-between items-center text-[10px]">
+              <span className="text-muted-foreground">Web Build</span>
+              <span className="font-mono text-foreground font-bold">{buildInfo.web}</span>
+            </div>
+            <div className="flex justify-between items-center text-[10px]">
+              <span className="text-muted-foreground">Fingerprint</span>
+              <span className="font-mono text-foreground font-bold">{((buildInfo as any).fingerprint || "").slice(0, 12)}</span>
+            </div>
+            <div className="flex justify-between items-center text-[10px]">
+              <span className="text-muted-foreground">Runtime</span>
               <span className="font-mono text-primary font-bold">
-                {Capacitor.isNativePlatform() ? "Android Native (APK Bundled)" : "Web Browser (SPA)"}
+                {Capacitor.isNativePlatform() ? "ANDROID_BUNDLED" : "WEB_SPA"}
               </span>
             </div>
             <div className="flex justify-between items-center text-[10px]">
-              <span className="text-muted-foreground">Web Origin</span>
+              <span className="text-muted-foreground">Origin</span>
               <span className="font-mono text-foreground">{typeof window !== "undefined" ? window.location.origin : "localhost"}</span>
             </div>
             <div className="flex justify-between items-center text-[10px]">
-              <span className="text-muted-foreground">Web Version</span>
-              <span className="font-mono text-foreground">{buildInfo.web}</span>
+              <span className="text-muted-foreground">OTA</span>
+              <span className="font-mono text-muted-foreground">
+                {Capacitor.isNativePlatform() ? ((buildInfo as any).ota ? "ENABLED" : "DISABLED") : "DISABLED"}
+              </span>
             </div>
             <div className="flex justify-between items-center text-[10px]">
               <span className="text-muted-foreground">Git SHA</span>
               <span className="font-mono text-foreground">{buildInfo.git}</span>
             </div>
             <div className="flex justify-between items-center text-[10px]">
-              <span className="text-muted-foreground">Channel</span>
-              <span className="font-mono text-foreground">{buildInfo.channel}</span>
-            </div>
-            <div className="flex justify-between items-center text-[10px]">
               <span className="text-muted-foreground">Build Time</span>
-              <span className="text-foreground">{new Date(buildInfo.timestamp).toLocaleString()}</span>
-            </div>
-            <div className="mt-2 p-2 bg-secondary/50 rounded-lg">
-              <p className="text-[8px] text-muted-foreground mb-1">Asset Fingerprint</p>
-              <p className="text-[8px] font-mono text-foreground break-all leading-tight">{buildInfo.fingerprint}</p>
+              <span className="text-foreground">{new Date((buildInfo as any).timestamp || Date.now()).toLocaleString()}</span>
             </div>
           </div>
         )}
