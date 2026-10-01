@@ -102,6 +102,13 @@ public class VireonOTAPlugin extends Plugin {
 
     @PluginMethod
     public void getInstalledVersions(PluginCall call) {
+        if (BuildConfig.DEBUG) {
+            JSObject ret = new JSObject();
+            ret.put("versions", new JSArray());
+            call.resolve(ret);
+            return;
+        }
+
         File versionsDir = getVersionsDir();
         JSArray arr = new JSArray();
 

@@ -1,5 +1,19 @@
 apply plugin: 'com.android.application'
 
+def getBuildInfoVersionCode() {
+    try {
+        def buildInfoFile = file("../../src/build_info.json")
+        if (buildInfoFile.exists()) {
+            def parsed = new groovy.json.JsonSlurper().parseText(buildInfoFile.text)
+            if (parsed.build) {
+                return parsed.build.toInteger()
+            }
+        }
+    } catch (Exception ignored) {
+    }
+    return 1
+}
+
 android {
     namespace = "com.vireon.ai"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,7 +21,7 @@ android {
         applicationId "com.vireon.ai"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
+        versionCode getBuildInfoVersionCode()
         versionName "1.0.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {

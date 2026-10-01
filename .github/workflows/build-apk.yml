@@ -19,27 +19,19 @@ jobs:
       with:
         node-version: '20'
 
-    - name: Install Dependencies
-      run: npm ci || npm install
-
-    - name: Canonical Android Packaging Pipeline
-      run: npm run build:android
-
     - name: Setup Java JDK
       uses: actions/setup-java@v4
       with:
         distribution: 'temurin'
         java-version: '17'
 
-    - name: Build Debug APK
-      run: |
-        cd android
-        chmod +x gradlew
-        ./gradlew assembleDebug
+    - name: Install Dependencies
+      run: npm ci || npm install
 
-    - name: Verify APK Contents
+    - name: Canonical Full Android Packaging Pipeline
       run: |
-        node scripts/verify-apk-assets.cjs
+        chmod +x android/gradlew
+        npm run build:android
 
     - name: Upload Verified APK
       uses: actions/upload-artifact@v4

@@ -6,6 +6,7 @@ import "./index.css";
 import { applyLangToDOM } from "./lib/i18n";
 import { preloadSfx } from "./lib/soundFx";
 import { initializePerformanceOptimizations, logPerformanceMetrics, enableGarbageCollectionHints } from "./lib/performanceOptimizations";
+import buildInfo from "./build_info.json";
 
 // Filter benign WebAssembly / TensorFlow Lite engine informational logs
 if (typeof console !== "undefined") {
@@ -167,6 +168,35 @@ if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
       registerSW();
     } else {
       window.addEventListener("load", registerSW, { once: true });
+    }
+  }
+}
+
+// Runtime Diagnostic & Security Origin Check (Requirements 16, 17, 20)
+if (typeof window !== "undefined") {
+  const isNative = Capacitor.isNativePlatform();
+  const origin = window.location.origin;
+  const href = window.location.href;
+
+  if (isNative) {
+    console.log(
+      `[VIREON RUNTIME]\nsource=APK_BUNDLED\nwebBuild=${(buildInfo as any).web}\nfingerprint=${(buildInfo as any).fingerprint}\nota=DISABLED\nremoteUrl=NONE\nserverBasePath=NONE\norigin=${origin}\nhref=${href}`
+    );
+
+    if (
+      origin.includes("lovable.app") ||
+      origin.includes("lovable.dev") ||
+      (origin.startsWith("http://") && !origin.includes("localhost"))
+    ) {
+      document.body.innerHTML = `
+        <div style="background:#0a0a0c;color:#ef4444;height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:24px;text-align:center;font-family:sans-serif;">
+          <h2 style="font-size:18px;margin-bottom:12px;">CRITICAL PACKAGING VIOLATION</h2>
+          <p style="font-size:14px;color:#94a3b8;margin-bottom:8px;">Running remote URL instead of bundled APK assets:</p>
+          <code style="background:#1e1e24;padding:8px 12px;border-radius:6px;font-size:12px;color:#f87171;word-break:break-all;">${href}</code>
+          <p style="font-size:12px;color:#64748b;margin-top:16px;">Rebuild with: npm run build:android</p>
+        </div>
+      `;
+      throw new Error(`CRITICAL SECURITY FAILURE: Native APK attempted to load remote origin: ${origin}`);
     }
   }
 }

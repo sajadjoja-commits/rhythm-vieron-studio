@@ -12,6 +12,7 @@ import android.webkit.WebView;
 import androidx.core.splashscreen.SplashScreen;
 import com.getcapacitor.BridgeWebViewClient;
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.ServerPath;
 import org.json.JSONObject;
 import java.io.BufferedReader;
 import java.io.File;
@@ -22,21 +23,43 @@ public class MainActivity extends BridgeActivity {
     private static final String TAG = "MainActivity";
 
     @Override
-    public void onCreate(Bundle savedInstanceState) {
-        SplashScreen.installSplashScreen(this);
-
-        // For DEBUG: clear any persisted serverBasePath from SharedPreferences BEFORE Bridge loads
+    protected void load() {
         if (BuildConfig.DEBUG) {
+            // 1. Clean SharedPreferences to permanently prevent any old serverBasePath from being restored
             try {
                 SharedPreferences prefs = getSharedPreferences("CapWebViewSettings", Activity.MODE_PRIVATE);
-                if (prefs != null && prefs.contains("serverBasePath")) {
-                    prefs.edit().remove("serverBasePath").apply();
-                    Log.i(TAG, "[PACKAGING] DEBUG -> Cleared persisted serverBasePath preference");
+                if (prefs != null) {
+                    prefs.edit().clear().commit();
+                    Log.i(TAG, "[PACKAGING] DEBUG -> Pre-Bridge wipe of CapWebViewSettings committed");
                 }
             } catch (Exception e) {
-                Log.w(TAG, "[PACKAGING] Could not access CapWebViewSettings: " + e.getMessage());
+                Log.w(TAG, "[PACKAGING] CapWebViewSettings wipe notice: " + e.getMessage());
+            }
+
+            // 2. Pre-configure Bridge.Builder with explicit APK bundled asset path BEFORE Bridge is instantiated
+            // This guarantees the first URL loaded by Bridge is https://localhost/ from assets/public/
+            bridgeBuilder.setServerPath(new ServerPath(ServerPath.PathType.ASSET_PATH, "public"));
+            Log.i(TAG, "[PACKAGING] DEBUG -> Injected ServerPath(ASSET_PATH, 'public') into bridgeBuilder before load");
+        } else {
+            // Production: resolve any verified OTA path
+            ServerPath otaPath = resolveOtaServerPath();
+            if (otaPath != null) {
+                bridgeBuilder.setServerPath(otaPath);
             }
         }
+
+        // 3. Delegate to BridgeActivity to create Bridge and initialize WebView with our predetermined ServerPath
+        super.load();
+
+        if (BuildConfig.DEBUG) {
+            // Post-load proof of bundled runtime
+            Log.i("VIREON_RUNTIME", "[VIREON RUNTIME]\nsource=APK_BUNDLED\nserverAssetPath=public\nota=DISABLED\nremoteUrl=NONE\nserverBasePath=" + (getBridge() != null ? getBridge().getServerBasePath() : "NONE"));
+        }
+    }
+
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        SplashScreen.installSplashScreen(this);
 
         registerPlugin(AIImageProcessorPlugin.class);
         registerPlugin(VireonAIPlugin.class);
@@ -49,13 +72,9 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(com.capacitorjs.plugins.camera.CameraPlugin.class);
         registerPlugin(com.capacitorjs.plugins.filesystem.FilesystemPlugin.class);
         registerPlugin(com.capacitorjs.plugins.haptics.HapticsPlugin.class);
-        super.onCreate(savedInstanceState);
 
-        if (BuildConfig.DEBUG) {
-            forceBundledAssets();
-        } else {
-            setupOtaStartup();
-        }
+        // Calls this.load() internally which executes our load() override above
+        super.onCreate(savedInstanceState);
 
         WebView webView = getBridge().getWebView();
         if (webView != null) {
@@ -76,24 +95,17 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    private void forceBundledAssets() {
-        Log.i(TAG, "[PACKAGING] DEBUG -> forcing APK bundled assets");
-        if (getBridge() != null) {
-            getBridge().setServerAssetPath("public");
-        }
-    }
-
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
     }
 
-    private void setupOtaStartup() {
+    private ServerPath resolveOtaServerPath() {
         try {
             File otaDir = new File(getFilesDir(), "ota");
             File stateFile = new File(otaDir, "ota_state.json");
-            if (!stateFile.exists()) return;
+            if (!stateFile.exists()) return null;
 
             StringBuilder sb = new StringBuilder();
             try (BufferedReader reader = new BufferedReader(new FileReader(stateFile))) {
@@ -107,15 +119,10 @@ public class MainActivity extends BridgeActivity {
             String current = state.optString("currentVersion", "bundled");
             String lastKnownGood = state.optString("lastKnownGoodVersion", "bundled");
 
-            // Crash Watchdog: If previous launch crashed while pending verification
             if (pendingVerification) {
                 consecutiveCrashes++;
                 state.put("consecutiveCrashes", consecutiveCrashes);
-                Log.w("MainActivity", "[OTA Watchdog] Crash on startup detected for version: " + current + " (Count: " + consecutiveCrashes + ")");
-
                 if (consecutiveCrashes >= 1) {
-                    // Trigger automatic rollback to last known good version
-                    Log.w("MainActivity", "[OTA Watchdog] Automatic rollback triggered -> " + lastKnownGood);
                     current = lastKnownGood;
                     state.put("currentVersion", lastKnownGood);
                     state.put("status", "rolled_back_on_crash");
@@ -127,25 +134,19 @@ public class MainActivity extends BridgeActivity {
                 }
             }
 
-            // Determine directory to load
             if (!"bundled".equals(current) && !current.isEmpty()) {
                 File versionsDir = new File(otaDir, "versions");
                 File targetDir = new File(versionsDir, "web-" + current);
                 File indexHtml = new File(targetDir, "index.html");
 
                 if (targetDir.exists() && indexHtml.exists()) {
-                    Log.i("MainActivity", "[OTA Startup] Loading active OTA Web bundle: " + targetDir.getAbsolutePath());
-                    getBridge().setServerBasePath(targetDir.getAbsolutePath());
-                } else {
-                    Log.w("MainActivity", "[OTA Startup] Target OTA bundle missing index.html, falling back to APK bundled assets");
-                    getBridge().setServerAssetPath("public");
+                    Log.i(TAG, "[OTA Startup] Loading verified OTA Web bundle: " + targetDir.getAbsolutePath());
+                    return new ServerPath(ServerPath.PathType.BASE_PATH, targetDir.getAbsolutePath());
                 }
-            } else {
-                Log.i("MainActivity", "[OTA Startup] Loading APK bundled Web assets");
-                getBridge().setServerAssetPath("public");
             }
         } catch (Exception e) {
-            Log.e("MainActivity", "[OTA Startup] Error resolving startup bundle: " + e.getMessage(), e);
+            Log.e(TAG, "[OTA Startup] Error resolving startup bundle: " + e.getMessage(), e);
         }
+        return null;
     }
 }

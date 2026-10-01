@@ -1,10 +1,13 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const crypto = require('crypto');
+const os = require('os');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
-const SOURCE_FINGERPRINT_PATH = path.join(ROOT_DIR, 'android', 'app', 'src', 'main', 'assets', 'public', 'fingerprint.txt');
-const SOURCE_BUILD_INFO_PATH = path.join(ROOT_DIR, 'android', 'app', 'src', 'main', 'assets', 'public', 'build_info.json');
+const SOURCE_DIR = path.join(ROOT_DIR, 'android', 'app', 'src', 'main', 'assets', 'public');
+const DIST_DIR = path.join(ROOT_DIR, 'dist');
+const OUTPUT_APK_DIR = path.join(ROOT_DIR, 'android', 'app', 'build', 'outputs', 'apk', 'debug');
 
 function log(msg) {
   console.log(`[VERIFY APK] ${msg}`);
@@ -17,121 +20,211 @@ function error(msg) {
   process.exit(1);
 }
 
-// 1. Locate APK
+// 1. Locate APK deterministically
 let apkPath = process.argv[2];
 
 if (!apkPath) {
-  // Search common debug APK output directories
-  const searchDirs = [
-    path.join(ROOT_DIR, 'android', 'app', 'build', 'outputs', 'apk', 'debug'),
-    path.join(ROOT_DIR, 'android', 'app', 'build', 'outputs', 'apk', 'release')
-  ];
-
-  for (const sDir of searchDirs) {
-    if (fs.existsSync(sDir)) {
-      const apks = fs.readdirSync(sDir).filter(f => f.endsWith('.apk') && !f.includes('unaligned'));
-      if (apks.length > 0) {
-        // Pick the most recent
-        apks.sort((a, b) => fs.statSync(path.join(sDir, b)).mtimeMs - fs.statSync(path.join(sDir, a)).mtimeMs);
-        apkPath = path.join(sDir, apks[0]);
-        break;
-      }
+  if (!fs.existsSync(OUTPUT_APK_DIR)) {
+    // Check if Java is available in environment
+    try {
+      execSync('java -version', { stdio: 'ignore' });
+      error(`APK output directory not found: ${OUTPUT_APK_DIR}. Build APK first with: ./gradlew assembleDebug`);
+    } catch {
+      console.log('APK REAL BUILD: BLOCKED — Java/Android SDK unavailable in this environment');
+      error('Java/Android SDK is not installed in this environment to build or verify a native APK file.');
     }
   }
+
+  const apkFiles = fs.readdirSync(OUTPUT_APK_DIR).filter(f => f.endsWith('.apk') && !f.includes('unaligned'));
+  if (apkFiles.length === 0) {
+    error(`No APK files found in ${OUTPUT_APK_DIR}. Run: cd android && ./gradlew assembleDebug`);
+  }
+
+  if (apkFiles.length > 1) {
+    error(`Multiple APKs found in ${OUTPUT_APK_DIR} (${apkFiles.join(', ')}). Refusing to pick blindly. Clean old outputs with: ./gradlew clean`);
+  }
+
+  apkPath = path.join(OUTPUT_APK_DIR, apkFiles[0]);
 }
 
-if (!apkPath || !fs.existsSync(apkPath)) {
-  error(`APK file not found. Checked: ${apkPath || 'standard output paths'}.\nPlease specify path: node scripts/verify-apk-assets.cjs <path-to-apk>`);
+if (!fs.existsSync(apkPath)) {
+  error(`APK file does not exist at: ${apkPath}`);
 }
 
 log(`Inspecting APK: ${apkPath}`);
 
-// 2. Check unzip command
+// 2. Ensure unzip utility is present
 try {
   execSync('which unzip', { stdio: 'ignore' });
 } catch {
-  error('System command "unzip" is required for APK inspection.');
+  error('System command "unzip" is required for deep APK inspection.');
 }
 
-// 3. Inspect APK file listing
-let apkFiles = [];
+// 3. Extract assets/public/* into a clean temp directory
+const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vieron-apk-verify-'));
+log(`Extracting APK assets to temporary sandbox: ${tempDir}`);
+
 try {
-  const listing = execSync(`unzip -Z -1 "${apkPath}"`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString();
-  apkFiles = listing.split('\n').map(s => s.trim()).filter(Boolean);
+  execSync(`unzip -q "${apkPath}" "assets/public/*" -d "${tempDir}"`, { stdio: 'pipe' });
 } catch (e) {
-  error(`Failed to read APK zip directory: ${e.message}`);
+  fs.rmSync(tempDir, { recursive: true, force: true });
+  error(`Failed to extract assets/public/ from APK. The APK might not contain web assets: ${e.message}`);
 }
 
-// Verification requirement 1: assets/public/index.html
-const hasIndexHtml = apkFiles.includes('assets/public/index.html');
-log(`assets/public/index.html present in APK: ${hasIndexHtml ? 'YES' : 'NO'}`);
-if (!hasIndexHtml) {
-  error('APK does NOT contain assets/public/index.html! Stale or empty packaging detected.');
+const extractedPublicDir = path.join(tempDir, 'assets', 'public');
+if (!fs.existsSync(extractedPublicDir)) {
+  fs.rmSync(tempDir, { recursive: true, force: true });
+  error('APK does NOT contain assets/public/ directory! Invalid or empty packaging.');
 }
 
-// Verification requirement 2: assets/public/fingerprint.txt
-const hasFingerprintTxt = apkFiles.includes('assets/public/fingerprint.txt');
-log(`assets/public/fingerprint.txt present in APK: ${hasFingerprintTxt ? 'YES' : 'NO'}`);
-if (!hasFingerprintTxt) {
-  error('APK does NOT contain assets/public/fingerprint.txt!');
+// Helper: Calculate deterministic fingerprint over extracted files
+function calculateDeterministicFingerprint(dir) {
+  const files = getAllFiles(dir);
+  const hash = crypto.createHash('sha256');
+  let includedCount = 0;
+  const inspectedFiles = [];
+
+  files.sort((a, b) => {
+    const relA = path.relative(dir, a).replace(/\\/g, '/');
+    const relB = path.relative(dir, b).replace(/\\/g, '/');
+    return relA.localeCompare(relB);
+  });
+
+  for (const file of files) {
+    const relativePath = path.relative(dir, file).replace(/\\/g, '/');
+
+    if (
+      relativePath === 'build_info.json' ||
+      relativePath === 'fingerprint.txt' ||
+      relativePath === 'cordova.js' ||
+      relativePath === 'cordova_plugins.js' ||
+      relativePath.startsWith('plugins/') ||
+      relativePath === 'capacitor.js' ||
+      relativePath === 'electron-bridge.js' ||
+      relativePath === '.DS_Store' ||
+      relativePath.endsWith('.map')
+    ) {
+      continue;
+    }
+
+    const content = fs.readFileSync(file);
+    hash.update(relativePath + '\0');
+    hash.update(content);
+    includedCount++;
+    inspectedFiles.push({ path: relativePath, size: content.length, sha256: crypto.createHash('sha256').update(content).digest('hex') });
+  }
+
+  return { hash: hash.digest('hex'), count: includedCount, files: inspectedFiles };
 }
 
-// Verification requirement 3: assets/public/build_info.json
-const hasBuildInfoJson = apkFiles.includes('assets/public/build_info.json');
-log(`assets/public/build_info.json present in APK: ${hasBuildInfoJson ? 'YES' : 'NO'}`);
-if (!hasBuildInfoJson) {
-  error('APK does NOT contain assets/public/build_info.json!');
+function getAllFiles(dirPath, arrayOfFiles = []) {
+  if (!fs.existsSync(dirPath)) return [];
+  const files = fs.readdirSync(dirPath);
+  for (const file of files) {
+    const fullPath = path.join(dirPath, file);
+    if (fs.statSync(fullPath).isDirectory()) {
+      getAllFiles(fullPath, arrayOfFiles);
+    } else {
+      arrayOfFiles.push(fullPath);
+    }
+  }
+  return arrayOfFiles;
 }
 
-// Extract and verify fingerprint.txt
-let apkFingerprint = '';
 try {
-  apkFingerprint = execSync(`unzip -p "${apkPath}" assets/public/fingerprint.txt`).toString().trim();
-} catch (e) {
-  error(`Failed to extract assets/public/fingerprint.txt from APK: ${e.message}`);
+  // 4. CHECK INDEX.HTML BYTES (Requirement 11)
+  const apkIndexHtmlPath = path.join(extractedPublicDir, 'index.html');
+  const sourceIndexHtmlPath = path.join(SOURCE_DIR, 'index.html');
+
+  if (!fs.existsSync(apkIndexHtmlPath)) {
+    throw new Error('APK missing assets/public/index.html');
+  }
+  if (!fs.existsSync(sourceIndexHtmlPath)) {
+    throw new Error('Source missing android/app/src/main/assets/public/index.html');
+  }
+
+  const apkIndexBytes = fs.readFileSync(apkIndexHtmlPath);
+  const sourceIndexBytes = fs.readFileSync(sourceIndexHtmlPath);
+
+  if (!apkIndexBytes.equals(sourceIndexBytes)) {
+    throw new Error(`Byte mismatch in index.html! APK size=${apkIndexBytes.length}, Source size=${sourceIndexBytes.length}`);
+  }
+  log(`assets/public/index.html: 100% BYTE-FOR-BYTE MATCH (${apkIndexBytes.length} bytes)`);
+
+  // 5. CHECK BUILD_INFO.JSON (Requirement 12)
+  const apkBuildInfoPath = path.join(extractedPublicDir, 'build_info.json');
+  const sourceBuildInfoPath = path.join(SOURCE_DIR, 'build_info.json');
+
+  if (!fs.existsSync(apkBuildInfoPath)) {
+    throw new Error('APK missing assets/public/build_info.json');
+  }
+
+  const apkBuildInfo = JSON.parse(fs.readFileSync(apkBuildInfoPath, 'utf8'));
+  const sourceBuildInfo = JSON.parse(fs.readFileSync(sourceBuildInfoPath, 'utf8'));
+
+  const fieldsToCheck = ['web', 'git', 'build', 'packaging', 'ota', 'fingerprint'];
+  for (const field of fieldsToCheck) {
+    if (apkBuildInfo[field] !== sourceBuildInfo[field]) {
+      throw new Error(`build_info.json mismatch on '${field}': APK=${apkBuildInfo[field]} vs Source=${sourceBuildInfo[field]}`);
+    }
+  }
+  log(`assets/public/build_info.json: 100% METADATA MATCH (web=${apkBuildInfo.web}, build=${apkBuildInfo.build})`);
+
+  // 6. CHECK ALL JS CHUNKS FILE-BY-FILE (Requirement 10)
+  const sourceAssetsDir = path.join(SOURCE_DIR, 'assets');
+  const apkAssetsDir = path.join(extractedPublicDir, 'assets');
+
+  if (fs.existsSync(sourceAssetsDir)) {
+    const sourceJsFiles = fs.readdirSync(sourceAssetsDir).filter(f => f.endsWith('.js'));
+    log(`Verifying ${sourceJsFiles.length} JavaScript asset chunks byte-for-byte...`);
+
+    for (const jsFile of sourceJsFiles) {
+      const apkJsPath = path.join(apkAssetsDir, jsFile);
+      const srcJsPath = path.join(sourceAssetsDir, jsFile);
+
+      if (!fs.existsSync(apkJsPath)) {
+        throw new Error(`Missing JS chunk in APK: assets/${jsFile}`);
+      }
+
+      const srcBytes = fs.readFileSync(srcJsPath);
+      const apkBytes = fs.readFileSync(apkJsPath);
+
+      if (!srcBytes.equals(apkBytes)) {
+        throw new Error(`Byte content mismatch in JS chunk: assets/${jsFile}`);
+      }
+    }
+    log(`All ${sourceJsFiles.length} JS chunks: 100% BYTE-FOR-BYTE IDENTICAL`);
+  }
+
+  // 7. COMPUTE FULL DETERMINISTIC FINGERPRINT FROM APK BYTES (Requirement 9)
+  const apkFingerprint = calculateDeterministicFingerprint(extractedPublicDir);
+  const sourceFingerprint = calculateDeterministicFingerprint(SOURCE_DIR);
+
+  log(`APK computed content fingerprint:    ${apkFingerprint.hash} (${apkFingerprint.count} files)`);
+  log(`Source computed content fingerprint: ${sourceFingerprint.hash} (${sourceFingerprint.count} files)`);
+
+  if (apkFingerprint.hash !== sourceFingerprint.hash || apkFingerprint.count !== sourceFingerprint.count) {
+    throw new Error(`Content fingerprint mismatch between APK and Source!\nAPK:    ${apkFingerprint.hash} (${apkFingerprint.count})\nSource: ${sourceFingerprint.hash} (${sourceFingerprint.count})`);
+  }
+
+  console.log('\n=========================================');
+  console.log('REAL APK ASSET VERIFICATION: PASSED');
+  console.log('=========================================');
+  console.log(`APK:                  ${apkPath}`);
+  console.log(`Web Build:            ${apkBuildInfo.web}`);
+  console.log(`Build Number:         ${apkBuildInfo.build}`);
+  console.log(`Packaging:            ${apkBuildInfo.packaging}`);
+  console.log(`OTA:                  ${apkBuildInfo.ota ? 'ENABLED' : 'DISABLED'}`);
+  console.log(`Deterministic SHA256: ${apkFingerprint.hash}`);
+  console.log(`Files Verified:       ${apkFingerprint.count} (including index.html & all JS chunks)`);
+  console.log('Result:               APK matches source assets byte-for-byte.');
+  console.log('=========================================\n');
+
+} catch (err) {
+  fs.rmSync(tempDir, { recursive: true, force: true });
+  error(err.message);
 }
 
-// Extract and verify build_info.json
-let apkBuildInfo = null;
-try {
-  const rawInfo = execSync(`unzip -p "${apkPath}" assets/public/build_info.json`).toString().trim();
-  apkBuildInfo = JSON.parse(rawInfo);
-} catch (e) {
-  error(`Failed to extract or parse assets/public/build_info.json from APK: ${e.message}`);
-}
-
-log(`APK Fingerprint:    ${apkFingerprint}`);
-log(`APK Web Build:      ${apkBuildInfo?.web}`);
-log(`APK Packaging Mode: ${apkBuildInfo?.packaging}`);
-
-// Compare with source assets
-if (!fs.existsSync(SOURCE_FINGERPRINT_PATH)) {
-  error(`Source fingerprint file missing at: ${SOURCE_FINGERPRINT_PATH}`);
-}
-
-const expectedFingerprint = fs.readFileSync(SOURCE_FINGERPRINT_PATH, 'utf8').trim();
-log(`Source Fingerprint: ${expectedFingerprint}`);
-
-if (apkFingerprint !== expectedFingerprint) {
-  error(`FINGERPRINT MISMATCH!\nAPK contains:    ${apkFingerprint}\nSource requires: ${expectedFingerprint}\nThe APK was built with stale or outdated assets!`);
-}
-
-// Check JS assets presence
-const jsAssets = apkFiles.filter(f => f.startsWith('assets/public/assets/') && f.endsWith('.js'));
-log(`Total JS asset chunks in APK: ${jsAssets.length}`);
-if (jsAssets.length === 0) {
-  error('No compiled JS assets found inside APK assets/public/assets/!');
-}
-
-console.log('\n=========================================');
-console.log('APK ASSET VERIFICATION: PASSED');
-console.log('=========================================');
-console.log(`APK:          ${apkPath}`);
-console.log(`Web Build:    ${apkBuildInfo?.web}`);
-console.log(`Fingerprint:  ${apkFingerprint}`);
-console.log(`Packaging:    ${apkBuildInfo?.packaging}`);
-console.log(`Assets Verified: ${jsAssets.length} JS chunks + index.html`);
-console.log('Result: APK contains exact fresh build.');
-console.log('=========================================\n');
-
+// Clean up sandbox
+fs.rmSync(tempDir, { recursive: true, force: true });
 process.exit(0);

@@ -63,6 +63,32 @@ function ensureOrtWasmAssetsPlugin(): Plugin {
   };
 }
 
+/**
+ * Ensure build_info.json and fingerprint.txt are preserved in dist after build
+ */
+function writeDistMetadataPlugin(): Plugin {
+  return {
+    name: "write-dist-metadata",
+    closeBundle() {
+      try {
+        const buildInfoPath = path.resolve(__dirname, "src/build_info.json");
+        const distBuildInfoPath = path.resolve(__dirname, "dist/build_info.json");
+        const distFingerprintPath = path.resolve(__dirname, "dist/fingerprint.txt");
+        if (fs.existsSync(buildInfoPath)) {
+          const content = fs.readFileSync(buildInfoPath, "utf8");
+          fs.writeFileSync(distBuildInfoPath, content);
+          const parsed = JSON.parse(content);
+          if (parsed && parsed.fingerprint) {
+            fs.writeFileSync(distFingerprintPath, parsed.fingerprint);
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+    },
+  };
+}
+
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
   server: {
@@ -75,6 +101,7 @@ export default defineConfig(({ mode }) => ({
   plugins: [
     ensureOrtWasmAssetsPlugin(),
     missingStaticAssets404Plugin(),
+    writeDistMetadataPlugin(),
     react(),
     VitePWA({
       registerType: "autoUpdate",
