@@ -413,7 +413,7 @@ const CaptionOverlay = memo(({ currentTime }: Props) => {
         const letterSpacing = active.letterSpacing ?? captionStyle.letterSpacing;
         const lineHeight = active.lineHeight ?? captionStyle.lineHeight ?? 1.3;
         const textTransform = active.textTransform ?? captionStyle.textTransform ?? "none";
-        const badgeIcon = active.badgeIcon ?? captionStyle.badgeIcon;
+        const badgeIcon = (active as any).badgeIcon ?? (captionStyle as any).badgeIcon;
         
         // Keyframe calculations
         const localTime = currentTime - active.start;

@@ -15,7 +15,7 @@ export type AITaskType =
   | "translation"
   | "custom";
 
-export type ExecutionMode = "auto" | "remote" | "local";
+export type ExecutionMode = "auto" | "remote" | "local" | "cloud";
 
 export interface AIError {
   code: string;
@@ -42,6 +42,7 @@ export interface AITaskOptions {
   timeoutMs?: number;
   language?: string;
   signal?: AbortSignal;
+  abortSignal?: AbortSignal;
 }
 
 // ---------------- Task Payloads & Results ----------------
@@ -71,6 +72,7 @@ export interface BackgroundRemovalPayload {
   mediaUrlOrBase64: string;
   isVideo?: boolean;
   quality?: "fast" | "accurate";
+  inputMediaType?: string;
 }
 
 export interface BackgroundRemovalResult {
@@ -83,6 +85,7 @@ export interface AudioIsolationPayload {
   audioBase64OrUrl: string;
   mode: "remove-noise" | "isolate-vocals" | "remove-music";
   intensity?: number; // 0 to 1
+  inputMediaType?: string;
 }
 
 export interface AudioIsolationResult {
@@ -96,10 +99,24 @@ export interface EnhanceMediaPayload {
   mediaUrlOrBase64: string;
   isVideo?: boolean;
   scaleFactor?: 2 | 4;
+  inputMediaType?: string;
 }
 
 export interface EnhanceMediaResult {
   enhancedUrlOrBase64: string;
+  outputImageBase64OrUrl?: string;
+  outputVideoUrlOrBase64?: string;
+  width?: number;
+  height?: number;
+  scaleFactor?: number;
+  processingTimeMs?: number;
+  engine?: string;
+  mimeType?: string;
+  processingType?: string;
+  appliedEngine?: string;
+  executionTimeMs?: number;
+  requestId?: string;
+  qualityMetrics?: Record<string, unknown>;
 }
 
 // 5. Image Generation (FLUX.1 & AI Image Generators)

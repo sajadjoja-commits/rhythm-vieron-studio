@@ -104,9 +104,9 @@ export class MLKitAdapter implements AIModelRuntime<MLKitInferenceInput, MLKitIn
     } else {
       const res = await webEngine.detectFaces(input.imageInput);
       return {
-        success: res.success,
-        engine: res.engineName || "Google MediaPipe BlazeFace Web Detector",
-        processingTimeMs: res.executionTimeMs || (Date.now() - start),
+        success: true,
+        engine: "Google MediaPipe BlazeFace Web Detector",
+        processingTimeMs: Date.now() - start,
         data: res,
       };
     }

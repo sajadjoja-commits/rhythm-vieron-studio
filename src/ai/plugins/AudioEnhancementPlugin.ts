@@ -15,6 +15,7 @@ import { AIOutputVerifier } from "../utils/AIOutputVerifier";
 import { PayloadValidator } from "../utils/PayloadValidator";
 import { AIDebugLogger } from "../utils/AIDebugLogger";
 import { audioAIEngine } from "../audio/AudioAIEngine";
+import type { AudioAIJobOptions } from "../audio/types";
 
 export class AudioEnhancementPlugin extends BasePlugin {
   public id = "plugin-audio-enhancement";
@@ -327,9 +328,9 @@ export class AudioEnhancementPlugin extends BasePlugin {
     const blob = await resolveAudioSourceToBlob(audioBase64OrUrl);
 
     const denoiseResult = await audioAIEngine.reduceNoise(blob, {
-      ...options,
+      ...(options as Record<string, unknown>),
       denoiseStrength: Math.min(1.0, Math.max(0.2, intensity)),
-    });
+    } as AudioAIJobOptions);
 
     return await blobToDataUrl(denoiseResult.audioBlob);
   }
@@ -345,7 +346,7 @@ export class AudioEnhancementPlugin extends BasePlugin {
   ): Promise<string> {
     const blob = await resolveAudioSourceToBlob(audioBase64OrUrl);
 
-    const sepResult = await audioAIEngine.isolateVocals(blob, options);
+    const sepResult = await audioAIEngine.isolateVocals(blob, options as AudioAIJobOptions);
 
     const vocalsDataUrl = await blobToDataUrl(sepResult.vocals.blob);
     const instDataUrl = await blobToDataUrl(sepResult.instrumental.blob);

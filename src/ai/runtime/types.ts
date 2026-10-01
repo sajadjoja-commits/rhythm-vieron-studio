@@ -39,6 +39,13 @@ export interface AIJobProgress {
   estimatedTimeRemainingMs?: number;
   status: JobStatus;
   error?: AIError;
+  // Aliases used by task/plugin layers
+  taskId?: string;
+  taskType?: string;
+  stage?: string;
+  progress?: number;
+  message?: string;
+  metadata?: Record<string, any>;
 }
 
 export interface AIJobOptions {
@@ -48,6 +55,9 @@ export interface AIJobOptions {
   enableCache?: boolean;
   timeoutMs?: number;
   onProgress?: (progress: AIJobProgress) => void;
+  jobId?: string;
+  signal?: AbortSignal;
+  abortSignal?: AbortSignal;
 }
 
 export interface AIJobRecord<TPayload = any, TResult = any> {

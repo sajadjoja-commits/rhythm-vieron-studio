@@ -280,10 +280,7 @@ export class AndroidCaptionProvider implements CaptionTranscriptionProvider {
         confidence: s.confidence ?? 0.95,
       }));
 
-      const processed = processRawSegments(rawSegments, {
-        language: options?.language,
-        silenceGaps: [],
-      });
+      const processed = processRawSegments(rawSegments, []);
 
       return processed.map((p) => ({
         id: p.id,

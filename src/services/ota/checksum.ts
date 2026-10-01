@@ -17,7 +17,7 @@ export function bufferToHex(buffer: ArrayBuffer): string {
  * Uses standard Web Crypto API (browser & modern Node)
  */
 export async function calculateSha256(data: ArrayBuffer | Uint8Array): Promise<string> {
-  const buffer = data instanceof Uint8Array ? data.buffer : data;
+  const buffer = (data instanceof Uint8Array ? data.buffer : data) as ArrayBuffer;
 
   if (typeof crypto !== "undefined" && crypto.subtle && typeof crypto.subtle.digest === "function") {
     const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);

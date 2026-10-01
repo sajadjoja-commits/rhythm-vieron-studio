@@ -18,7 +18,7 @@ export class SpeechToTextTask extends BaseTask<SpeechToTextPayload, SpeechToText
       };
     }
 
-    const availableProviders = providers.filter((p) => p.supportsTask(this.taskType));
+    const availableProviders = providers.filter((p) => p.supportedTasks.includes(this.taskType));
 
     // Try providers in priority order (e.g. Groq -> SupabaseEdge -> Local)
     for (const provider of availableProviders) {

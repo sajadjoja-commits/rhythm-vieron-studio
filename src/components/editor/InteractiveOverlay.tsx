@@ -1,4 +1,4 @@
-import { useRef, memo, useCallback, useState } from "react";
+import { useRef, memo, useCallback, useState, useEffect } from "react";
 import { OverlayItem } from "@/context/MediaContext";
 import { RotateCw, Maximize2, Move } from "lucide-react";
 import { snapPreviewTransform } from "@/lib/timelineSnap";

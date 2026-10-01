@@ -475,7 +475,7 @@ const AudioBlock = ({ track, pxPerSec, containerW, currentTime, totalDuration, t
           <TimelineTrimHandle
             side="right"
             variant="cyan"
-            isMaxReached={track.duration > 0 && (track.end || (track.start + track.duration)) >= (track.start + track.duration - 0.05)}
+            isMaxReached={track.duration > 0 && (track.start + track.duration) >= (track.start + track.duration - 0.05)}
             onPointerDown={(e) => onPointerDown(e, "out")}
             className="absolute -right-3.5 sm:-right-4 top-0 bottom-0 z-20"
           />

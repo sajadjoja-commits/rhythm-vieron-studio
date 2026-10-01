@@ -239,7 +239,7 @@ const VoiceRecorderTab = ({ currentTime, addAudioTrack }: { currentTime: number;
 };
 
 const MusicPanel = ({ open, onClose, currentTime }: Props) => {
-  const { media, clips, updateClip, overlays, audioTracks, setClips, addFiles, addAudioTrack, updateAudioTrack, splitClipsAtBeats, audioBeats, setAudioBeats, selectedAudioTrackId, setSelectedAudioTrackId, videoMuted, setVideoMuted, videoVolume, setVideoVolume, videoAudioFx, setVideoAudioFx, totalDuration } = useMedia();
+  const { media, clips, overlays, audioTracks, setClips, addFiles, addAudioTrack, updateAudioTrack, splitClipsAtBeats, audioBeats, setAudioBeats, selectedAudioTrackId, setSelectedAudioTrackId, videoMuted, setVideoMuted, videoVolume, setVideoVolume, videoAudioFx, setVideoAudioFx, totalDuration } = useMedia();
   const [tab, setTab] = useState<"music" | "record" | "sfx" | "fx" | "beat" | "ai">("music");
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -248,6 +248,7 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
   const [beatDensity, setBeatDensity] = useState<1 | 2 | 4>(1);
   const [beatThreshold, setBeatThreshold] = useState<number>(3);
   const [beatMode, setBeatMode] = useState<"grid" | "raw">("grid");
+  const [pendingCoverUrl, setPendingCoverUrl] = useState<string | null>(null);
   const [beatDurationPreset, setBeatDurationPreset] = useState<"auto" | "15" | "30" | "60" | "custom">("auto");
   const [customBeatDuration, setCustomBeatDuration] = useState<number>(30);
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -697,7 +698,7 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
                 </span>
                 {activeAudioTrack && (
                   <span className="text-[10px] text-primary font-black px-1.5 py-0.2 rounded-md bg-primary/10 border border-primary/20 shrink-0 font-mono">
-                    {activeAudioTrack.title?.slice(0, 10)}...
+                    {activeAudioTrack.name?.slice(0, 10)}...
                   </span>
                 )}
               </div>
@@ -801,10 +802,7 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
                 } else if (resolvedSource?.type === "clip-video-audio" && resolvedSource.associatedClipId) {
                   const clipId = resolvedSource.associatedClipId;
                   // Update clip's processed audio and mute original audio to prevent doubling
-                  updateClip(clipId, {
-                    processedAudioUrl: newUrl,
-                    muteOriginalAudio: true,
-                  });
+                  setClips((prev) => prev.map((c) => c.id === clipId ? { ...c, processedAudioUrl: newUrl, muteOriginalAudio: true } : c));
 
                   // Add or update synchronized audio track
                   const existingLinkedTrack = audioTracks.find((t) => t.clipId === clipId);

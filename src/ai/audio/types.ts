@@ -64,6 +64,12 @@ export type AudioAIProgressCallback = (progress: AudioAIProgress) => void;
 export interface AudioAIJobOptions {
   jobId?: string;
   signal?: AbortSignal;
+  abortSignal?: AbortSignal;
+  priority?: string;
+  executionMode?: string;
+  preferredProviderId?: string;
+  enableCache?: boolean;
+  timeoutMs?: number;
   onProgress?: AudioAIProgressCallback;
   preferLocal?: boolean;
   sampleRate?: number;

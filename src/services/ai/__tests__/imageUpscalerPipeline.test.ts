@@ -4,7 +4,7 @@ import { ImageUpscalerAdapter } from "../runtime/adapters/ImageUpscalerAdapter";
 
 function makeImageData(pixels: Uint8ClampedArray, width: number, height: number): ImageData {
   if (typeof ImageData !== "undefined") {
-    return new ImageData(pixels, width, height);
+    return new ImageData(pixels as Uint8ClampedArray<ArrayBuffer>, width, height);
   }
   return {
     data: pixels,
