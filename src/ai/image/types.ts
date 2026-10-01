@@ -7,9 +7,10 @@ export type ImageAITaskType =
   | "remove-background"
   | "enhance"
   | "face-enhance"
-  | "object-remove";
+  | "object-remove"
+  | "upscale";
 
-export type DeviceTier = "LOW" | "MEDIUM" | "HIGH" | "ULTRA";
+export type DeviceTier = "LOW" | "MEDIUM" | "HIGH" | "ULTRA" | "low" | "medium" | "high" | "ultra";
 
 export type ExecutionProvider = "webgpu" | "webgl" | "wasm" | "cpu";
 
@@ -140,6 +141,8 @@ export interface ImageAIResult {
     scaleFactor?: number;
     facesDetected?: number;
     tilesProcessed?: number;
+    foregroundPixelCount?: number;
+    [key: string]: any;
   };
   error?: string;
 }
