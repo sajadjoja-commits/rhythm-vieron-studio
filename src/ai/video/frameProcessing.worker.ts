@@ -505,7 +505,7 @@ self.onmessage = (e: MessageEvent<WorkerMessageIn>) => {
           currentLuminanceBuffer: currentLuminance.buffer,
           metrics,
         },
-        transferList
+        transferList as Transferable[]
       );
     } else if (msg.type === "SEGMENTATION_COMPOSITION") {
       const data = new Uint8ClampedArray(msg.dataBuffer);
@@ -535,7 +535,7 @@ self.onmessage = (e: MessageEvent<WorkerMessageIn>) => {
           currentAlphaBuffer: currentAlpha.buffer,
           stats,
         },
-        transferList
+        transferList as Transferable[]
       );
     } else if (msg.type === "CALCULATE_METRICS") {
       const orig = new Uint8ClampedArray(msg.originalBuffer);
