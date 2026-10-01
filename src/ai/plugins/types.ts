@@ -71,6 +71,7 @@ export type ImageActionType =
   | "face-enhance"
   | "object-remove"
   | "denoise"
+  | "upscale"
   | "composite-enhance";
 
 export type ImageBgEngine = "RMBG-2.0" | "Bria-RMBG" | "Gemini-Vision";
@@ -88,6 +89,10 @@ export interface AIImagePayload {
   denoiseIntensity?: number; // 0.0 to 1.0
   enhanceFaceLevel?: number; // 0.0 to 1.0
   preferredEngine?: string;
+  contrastBoost?: number;
+  saturationBoost?: number;
+  sharpnessBoost?: number;
+  [key: string]: any;
 }
 
 export interface AIImageResult {
@@ -104,6 +109,9 @@ export interface AIImageResult {
     originalHeight?: number;
     isLocalExecution?: boolean;
     psnrEstimateDb?: number;
+    hasAlphaChannel?: boolean;
+    executionProvider?: string;
+    [key: string]: any;
   };
 }
 
@@ -140,6 +148,7 @@ export interface AudioStems {
 
 export interface AudioEnhancementResult {
   enhancedAudioUrlOrBase64: string;
+  processedAudioUrlOrBase64?: string;
   mimeType: string;
   stems?: AudioStems;
   appliedDenoiseEngine?: string;

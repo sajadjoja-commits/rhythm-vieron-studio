@@ -8,6 +8,7 @@ export type AgentIntentType =
   | "podcast-cleaner"
   | "short-video-enhancer"
   | "bg-remove-upscale"
+  | "bg-remove-enhance"
   | "auto-captioning"
   | "custom-workflow"
   | "unknown";
