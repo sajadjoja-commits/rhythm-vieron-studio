@@ -412,7 +412,7 @@ export class VideoProcessingEngine {
               const res = await this.segmentationEngine.processFrame(
                 processCanvas,
                 imageData,
-                { ...options, frameIndex: frameIdx },
+                { ...options, frameIndex: frameIdx } as typeof options & { frameIndex: number },
                 prevAlphaBuffer
               );
               prevAlphaBuffer = res.currentAlphaBuffer;

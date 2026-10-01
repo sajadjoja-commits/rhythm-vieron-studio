@@ -66,7 +66,7 @@ export const OFFICIAL_MODEL_PACKS: LocalModelPack[] = OFFICIAL_MODEL_CATALOGUE.m
   minRamMB: m.minRamMB,
   accelerators: m.accelerators,
   offlineDefault: m.offlineDefault,
-  status: m.offlineDefault ? ("downloaded" as ModelStatus) : ("missing" as ModelStatus),
+  status: m.offlineDefault ? ("installed" as ModelStatus) : ("missing" as ModelStatus),
   downloadUrl: m.downloadUrl,
   checksumSha256: m.sha256,
   description: m.description,
@@ -123,7 +123,7 @@ export class LocalModelPackManager {
         minRamMB: m.minRamMB,
         accelerators: m.accelerators,
         offlineDefault: m.offlineDefault,
-        status: isDownloaded ? "downloaded" : "missing",
+        status: isDownloaded ? "installed" : "missing",
         downloadUrl: m.downloadUrl,
         checksumSha256: m.sha256,
         description: m.description,
@@ -215,7 +215,7 @@ export class LocalModelPackManager {
     if (!pack) {
       throw new Error(`Model pack not found after install: ${modelId}`);
     }
-    pack.status = "downloaded";
+    pack.status = "installed";
     pack.storagePath = installed.path;
     return pack;
   }
@@ -240,7 +240,7 @@ export class LocalModelPackManager {
     }
 
     // Reserved / Not Available
-    if (manifest.format === "none") {
+    if (manifest.runtime === "none") {
       throw new AIError(
         "AI_UNSUPPORTED_OPERATION",
         "GENERATIVE_EXPAND_NOT_AVAILABLE: Vieron Studio does not support fake generative outpainting. Real generative models will be introduced in Phase 11."
@@ -345,6 +345,8 @@ export class LocalModelPackManager {
             sizeBytes: res.sizeBytes || manifest.sizeBytes,
             status: "installed",
             localUri: `file://${res.path}`,
+            isPretrainedAIModel: manifest.isPretrainedAIModel,
+            realInference: manifest.isPretrainedAIModel,
           };
 
           this.storageCache.set(manifest.id, res.path);
@@ -399,6 +401,8 @@ export class LocalModelPackManager {
           sha256: manifest.sha256,
           sizeBytes: manifest.sizeBytes,
           status: "installed",
+          isPretrainedAIModel: manifest.isPretrainedAIModel,
+          realInference: manifest.isPretrainedAIModel,
         };
         this.storageCache.set(manifest.id, manifest.downloadUrl);
         await installedModelStore.saveInstalledModel(installed);
@@ -571,7 +575,7 @@ export class LocalModelPackManager {
       };
     }
 
-    if (manifest.format === "none") {
+    if (manifest.runtime === "none") {
       return {
         isValid: false,
         expectedSha256: "",
@@ -665,8 +669,7 @@ export class LocalModelPackManager {
     if (
       manifest.offlineDefault ||
       manifest.format === "native" ||
-      manifest.format === "algorithmic" ||
-      manifest.format === "none"
+      manifest.format === "algorithmic"
     ) {
       // Bundled offline models and built-in algorithmic filters cannot be deleted
       return false;

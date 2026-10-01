@@ -111,6 +111,12 @@ export interface EnhanceMediaResult {
   scaleFactor?: number;
   processingTimeMs?: number;
   engine?: string;
+  mimeType?: string;
+  processingType?: string;
+  appliedEngine?: string;
+  executionTimeMs?: number;
+  requestId?: string;
+  qualityMetrics?: Record<string, unknown>;
 }
 
 // 5. Image Generation (FLUX.1 & AI Image Generators)

@@ -497,7 +497,7 @@ self.onmessage = (e: MessageEvent<WorkerMessageIn>) => {
 
       const transferList: Transferable[] = [data.buffer, currentLuminance.buffer];
 
-      self.postMessage(
+      (self as unknown as { postMessage: (msg: unknown, transfer: Transferable[]) => void }).postMessage(
         {
           type: "SUCCESS",
           id: msg.id,
@@ -505,7 +505,7 @@ self.onmessage = (e: MessageEvent<WorkerMessageIn>) => {
           currentLuminanceBuffer: currentLuminance.buffer,
           metrics,
         },
-        transferList as Transferable[]
+        transferList
       );
     } else if (msg.type === "SEGMENTATION_COMPOSITION") {
       const data = new Uint8ClampedArray(msg.dataBuffer);
@@ -527,7 +527,7 @@ self.onmessage = (e: MessageEvent<WorkerMessageIn>) => {
 
       const transferList: Transferable[] = [data.buffer, currentAlpha.buffer];
 
-      self.postMessage(
+      (self as unknown as { postMessage: (msg: unknown, transfer: Transferable[]) => void }).postMessage(
         {
           type: "SUCCESS",
           id: msg.id,
@@ -535,7 +535,7 @@ self.onmessage = (e: MessageEvent<WorkerMessageIn>) => {
           currentAlphaBuffer: currentAlpha.buffer,
           stats,
         },
-        transferList as Transferable[]
+        transferList
       );
     } else if (msg.type === "CALCULATE_METRICS") {
       const orig = new Uint8ClampedArray(msg.originalBuffer);

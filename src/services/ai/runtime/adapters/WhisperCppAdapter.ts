@@ -102,11 +102,11 @@ export class WhisperCppAdapter implements AIModelRuntime<WhisperInferenceInput, 
     });
 
     return {
-      text: webResult.text,
-      segments: webResult.segments,
-      language: webResult.language || "en",
-      executionTimeMs: webResult.executionTimeMs || (Date.now() - start),
-      engine: webResult.engine || "Transformers.js / Whisper Web WASM",
+      text: webResult.map((s) => s.text).join(" ").trim(),
+      segments: webResult.map((s) => ({ start: s.start, end: s.end, text: s.text })),
+      language: input.language || "en",
+      executionTimeMs: Date.now() - start,
+      engine: "Transformers.js / Whisper Web WASM",
     };
   }
 

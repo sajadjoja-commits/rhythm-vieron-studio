@@ -485,7 +485,7 @@ export default function PublishTemplateDialog({ open, onClose, previewRef, video
                             {idx + 1}
                           </span>
                           <span className="text-xs font-medium truncate">
-                            {mediaObj?.name || `Clip ${idx + 1}`} ({Math.round(clip.duration)}s)
+                            {mediaObj?.name || `Clip ${idx + 1}`} ({Math.round(clip.out - clip.in)}s)
                           </span>
                         </div>
                         <div className="shrink-0 flex items-center gap-1 text-[10px] font-bold">

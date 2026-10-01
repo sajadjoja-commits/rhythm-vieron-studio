@@ -134,6 +134,10 @@ export class VideoEnhancementPlugin extends BasePlugin {
           preserveAudio: vidPayload.preserveAudio ?? true,
           onProgress: (p) => {
             options?.onProgress?.({
+              jobId: options?.jobId || "vid_job",
+              percentage: p.percentage,
+              currentStage: p.stage,
+              status: "processing",
               taskId: options?.jobId || "vid_job",
               taskType: "background-removal",
               stage: p.stage as any,
@@ -159,6 +163,10 @@ export class VideoEnhancementPlugin extends BasePlugin {
           preserveAudio: vidPayload.preserveAudio ?? true,
           onProgress: (p) => {
             options?.onProgress?.({
+              jobId: options?.jobId || "vid_job",
+              percentage: p.percentage,
+              currentStage: p.stage,
+              status: "processing",
               taskId: options?.jobId || "vid_job",
               taskType: "noise-reduction",
               stage: p.stage as any,
@@ -184,6 +192,10 @@ export class VideoEnhancementPlugin extends BasePlugin {
           preserveAudio: vidPayload.preserveAudio ?? true,
           onProgress: (p) => {
             options?.onProgress?.({
+              jobId: options?.jobId || "vid_job",
+              percentage: p.percentage,
+              currentStage: p.stage,
+              status: "processing",
               taskId: options?.jobId || "vid_job",
               taskType: "enhance-media",
               stage: p.stage as any,

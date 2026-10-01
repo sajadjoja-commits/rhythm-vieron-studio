@@ -95,10 +95,10 @@ export class AIService {
       name: "Vieron Algorithmic Sub-Pixel & Laplacian Enhancer (2x)",
       version: "1.0.0",
       tier: "TIER_1_ESSENTIAL",
-      framework: "custom",
+      framework: "custom" as AIModelSpec["framework"],
       sizeBytes: 0,
       quantized: false,
-      quantizationType: "NONE",
+      quantizationType: "NONE" as AIModelSpec["quantizationType"],
       checksum: "",
       description: "Classical algorithmic sub-pixel edge synthesis and directional Laplacian filter (Non-neural)",
     });

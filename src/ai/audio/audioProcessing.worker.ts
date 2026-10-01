@@ -73,19 +73,19 @@ self.onmessage = async (e: MessageEvent<WorkerAudioTask>) => {
         sampleRate,
       };
 
-      stems.vocals.forEach((c) => transferableBuffers.push(c.buffer));
-      stems.instrumental.forEach((c) => transferableBuffers.push(c.buffer));
+      stems.vocals.forEach((c) => transferableBuffers.push(c.buffer as ArrayBuffer));
+      stems.instrumental.forEach((c) => transferableBuffers.push(c.buffer as ArrayBuffer));
 
       if (stems.additionalStems) {
         resultPayload.additionalStems = stems.additionalStems;
         if (stems.additionalStems.drums) {
-          stems.additionalStems.drums.forEach((c) => transferableBuffers.push(c.buffer));
+          stems.additionalStems.drums.forEach((c) => transferableBuffers.push(c.buffer as ArrayBuffer));
         }
         if (stems.additionalStems.bass) {
-          stems.additionalStems.bass.forEach((c) => transferableBuffers.push(c.buffer));
+          stems.additionalStems.bass.forEach((c) => transferableBuffers.push(c.buffer as ArrayBuffer));
         }
         if (stems.additionalStems.other) {
-          stems.additionalStems.other.forEach((c) => transferableBuffers.push(c.buffer));
+          stems.additionalStems.other.forEach((c) => transferableBuffers.push(c.buffer as ArrayBuffer));
         }
       }
 

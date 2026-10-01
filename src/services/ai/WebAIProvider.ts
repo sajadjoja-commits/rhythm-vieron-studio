@@ -40,8 +40,8 @@ export class WebAIProvider implements IAIProvider {
     try {
       const webCaps = await this.capabilityDetector.detect();
       hasWebGPU = webCaps.hasWebGPU;
-      memoryGB = webCaps.deviceMemoryGB;
-      tier = webCaps.tier;
+      memoryGB = webCaps.estimatedRamMB / 1024;
+      tier = webCaps.deviceTier;
     } catch {
       // Safe fallback if WebGL/Canvas context is mock or in headless environment
     }
@@ -117,12 +117,10 @@ export class WebAIProvider implements IAIProvider {
 
       return {
         success: res.success,
-        outputDataUrl: res.imageDataUrl,
-        imageDataUrl: res.imageDataUrl,
-        maskDataUrl: res.maskDataUrl,
+        outputDataUrl: res.outputDataUrl,
         width: res.width,
         height: res.height,
-        processingTimeMs: res.processingTime || Date.now() - startTime,
+        processingTimeMs: res.executionTimeMs || Date.now() - startTime,
         engine: "Google MediaPipe Vision (WASM / SIMD)",
         accelerator: "WASM SIMD",
       };
@@ -154,19 +152,19 @@ export class WebAIProvider implements IAIProvider {
     try {
       const res = await this.imageEngine.detectFaces(imageInput);
       return {
-        success: res.success,
-        facesCount: res.facesCount,
-        faces: res.faces.map((f) => ({
+        success: true,
+        facesCount: res.facesFound,
+        faces: res.boxes.map((b) => ({
           box: {
-            x: f.boundingBox.x,
-            y: f.boundingBox.y,
-            width: f.boundingBox.width,
-            height: f.boundingBox.height,
+            x: b.x,
+            y: b.y,
+            width: b.width,
+            height: b.height,
           },
-          confidence: f.confidence,
-          landmarks: f.landmarks,
+          confidence: b.confidence,
+          landmarks: b.landmarks,
         })),
-        processingTimeMs: res.processingTime || Date.now() - startTime,
+        processingTimeMs: Date.now() - startTime,
         engine: "Google MediaPipe BlazeFace (WASM)",
       };
     } catch (err: any) {
@@ -184,22 +182,23 @@ export class WebAIProvider implements IAIProvider {
     const startTime = Date.now();
 
     try {
-      const res = await this.captionProvider.transcribe({
-        audio: audioInput,
+      const segments = await this.captionProvider.transcribe(audioInput, {
         language: options?.language,
-        onProgress: options?.onProgress,
+        onProgress: options?.onProgress
+          ? (p) => options.onProgress!(p.progress)
+          : undefined,
       });
 
       return {
         success: true,
-        text: res.text,
-        segments: res.segments.map((s) => ({
+        text: segments.map((s) => s.text).join(" ").trim(),
+        segments: segments.map((s) => ({
           start: s.start,
           end: s.end,
           text: s.text,
           confidence: s.confidence,
         })),
-        duration: res.duration,
+        duration: segments.length > 0 ? segments[segments.length - 1].end : 0,
         processingTimeMs: Date.now() - startTime,
         engine: "Transformers.js / ONNX Web (WASM)",
       };

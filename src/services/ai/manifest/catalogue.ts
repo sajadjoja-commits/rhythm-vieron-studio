@@ -200,7 +200,7 @@ export const OFFICIAL_MODEL_CATALOGUE: ModelManifest[] = [
     id: "generative-expand-future",
     name: "AI Generative Expand / Outpainting (Phase 11 Reserved)",
     version: "0.0.0",
-    format: "none",
+    format: "native",
     task: "generative_expand",
     sizeBytes: 0,
     sha256: "",
