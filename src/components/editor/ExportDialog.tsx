@@ -1547,7 +1547,7 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
               ctx.shadowBlur = o.shadowBlur * (exportWidth / previewW);
             }
 
-            if (o.cornerRadius && o.cornerRadius > 0) {
+            if (o.cornerRadius && o.cornerRadius > 0 && !hasMask(o)) {
               const scaledRadius = o.cornerRadius * (exportWidth / previewW);
               ctx.beginPath();
               ctx.roundRect(-drawW / 2, -drawH / 2, drawW, drawH, scaledRadius);
@@ -1568,7 +1568,7 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
               ctx.drawImage(el, -drawW / 2, -drawH / 2, drawW, drawH);
             }
 
-            if (o.borderWidth && o.borderWidth > 0) {
+            if (o.borderWidth && o.borderWidth > 0 && !hasMask(o)) {
               const scaledBorder = o.borderWidth * (exportWidth / previewW);
               ctx.lineWidth = scaledBorder;
               ctx.strokeStyle = o.borderColor || "#ffffff";
