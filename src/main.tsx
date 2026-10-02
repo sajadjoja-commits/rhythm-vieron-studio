@@ -112,13 +112,20 @@ if (typeof window !== "undefined") {
 if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
   const isIframe = typeof window !== "undefined" && window.self !== window.top;
 
-  // Disable service worker in native platform to avoid conflict with local assets
+  // Disable service worker in native platform to avoid conflict with local assets and clear old caches
   if (import.meta.env.DEV || isIframe || Capacitor.isNativePlatform()) {
     navigator.serviceWorker.getRegistrations().then((registrations) => {
       for (const registration of registrations) {
         registration.unregister().catch(() => {});
       }
     }).catch(() => {});
+    if (typeof caches !== "undefined" && Capacitor.isNativePlatform()) {
+      caches.keys().then((names) => {
+        for (const name of names) {
+          caches.delete(name).catch(() => {});
+        }
+      }).catch(() => {});
+    }
   } else {
     const registerSW = () => {
       try {

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { execSync } = require('child_process');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const DIST_DIR = path.join(ROOT_DIR, 'dist');
@@ -13,6 +14,14 @@ const IGNORED_METADATA = new Set([
   'build_info.json',
   'fingerprint.txt'
 ]);
+
+function getGitSha() {
+  try {
+    return execSync('git rev-parse --short HEAD', { cwd: ROOT_DIR }).toString().trim();
+  } catch (e) {
+    return 'unknown';
+  }
+}
 
 function getCategory(relPath) {
   const lower = relPath.toLowerCase();
@@ -56,8 +65,6 @@ function getAllFiles(dirPath, relativeTo = dirPath) {
       results = results.concat(getAllFiles(fullPath, relativeTo));
     } else {
       const relPath = path.relative(relativeTo, fullPath).replace(/\\/g, '/');
-      // Ignore Capacitor/Cordova bridge files and web build metadata so they
-      // never cause a spurious difference between dist and Android assets.
       if (!IGNORED_METADATA.has(relPath) && !relPath.startsWith('plugins/')) {
         results.push({
           relPath,
@@ -82,6 +89,21 @@ const androidFiles = getAllFiles(ANDROID_ASSETS_DIR);
 
 const distFingerprint = computeFingerprint(distFiles);
 const androidFingerprint = computeFingerprint(androidFiles);
+
+const gitSha = getGitSha();
+const fingerprintContent = JSON.stringify({
+  gitSha,
+  timestamp: new Date().toISOString(),
+  distFilesCount: distFiles.length,
+  androidFilesCount: androidFiles.length,
+  distFingerprint,
+  androidFingerprint
+}, null, 2);
+
+fs.writeFileSync(path.join(DIST_DIR, 'fingerprint.txt'), fingerprintContent);
+if (fs.existsSync(ANDROID_ASSETS_DIR)) {
+  fs.writeFileSync(path.join(ANDROID_ASSETS_DIR, 'fingerprint.txt'), fingerprintContent);
+}
 
 const distMap = new Map(distFiles.map(f => [f.relPath, f]));
 const androidMap = new Map(androidFiles.map(f => [f.relPath, f]));
@@ -133,19 +155,20 @@ if (changed.length > 0) {
   changed.forEach(f => log(`- ${f}`));
 }
 
-if (missing === 0 && extra === 0 && changed.length === 0) {
+if (missing === 0 && extra === 0 && changed.length === 0 && distFingerprint === androidFingerprint) {
   console.log('');
   console.log('=========================================');
-  console.log('VIERON SYNC SUCCESS');
+  console.log('VIERON SYNC & VERIFICATION SUCCESS');
   console.log(`Dist files: ${distFiles.length}`);
   console.log(`Android assets files: ${androidFiles.length}`);
+  console.log(`Fingerprint: ${distFingerprint}`);
   console.log('Missing files: 0');
   console.log('Extra files: 0');
   console.log('Changed files: 0');
-  console.log('Web build and Android assets are identical.');
+  console.log('Web build and Android assets are 100% identical and deterministic.');
   console.log('=========================================');
   process.exit(0);
 } else {
-  log('Verification failed.');
+  log('Verification failed: fingerprint or file mismatch detected.');
   process.exit(1);
 }

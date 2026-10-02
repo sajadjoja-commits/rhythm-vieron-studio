@@ -40,17 +40,6 @@ log('Project root confirmed.');
 const gitSha = getGitSha();
 log(`Active Git SHA: ${gitSha}`);
 
-const buildInfo = {
-  native: '1.0.3',
-  build: Date.now().toString(),
-  web: `web-${gitSha}`,
-  git: gitSha,
-  timestamp: new Date().toISOString(),
-  localOnly: true
-};
-fs.writeFileSync(BUILD_INFO_PATH, JSON.stringify(buildInfo, null, 2));
-log('Build info written.');
-
 // Step 2: Clean the previous build.
 log('Step 2/8: Cleaning dist ...');
 cleanDir(DIST_DIR);
@@ -72,6 +61,29 @@ if (fs.readdirSync(DIST_DIR).length === 0) {
   error('dist/ is empty after build.');
 }
 log('Build verified (dist/index.html present).');
+
+// Read generated fingerprint.txt if verify-web-assets created it or compute it
+let fingerprint = 'unknown';
+const fingerprintPath = path.join(DIST_DIR, 'fingerprint.txt');
+if (fs.existsSync(fingerprintPath)) {
+  try {
+    const fpData = JSON.parse(fs.readFileSync(fingerprintPath, 'utf8'));
+    fingerprint = fpData.distFingerprint || 'unknown';
+  } catch {}
+}
+
+const buildInfo = {
+  native: '1.0.3',
+  build: Date.now().toString(),
+  web: `web-${gitSha}`,
+  git: gitSha,
+  channel: 'production-local',
+  timestamp: new Date().toISOString(),
+  localOnly: true,
+  fingerprint
+};
+fs.writeFileSync(BUILD_INFO_PATH, JSON.stringify(buildInfo, null, 2));
+log('Build info written with fingerprint: ' + fingerprint);
 
 // Step 5: Clean Android assets so no stale files survive.
 log('Step 5/8: Cleaning Android assets ...');

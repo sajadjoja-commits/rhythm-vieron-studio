@@ -1,8 +1,10 @@
 {
   "native": "1.0.3",
-  "build": "1790853230702",
-  "web": "web-3bd0d9b",
-  "git": "3bd0d9b",
-  "timestamp": "2026-10-01T11:13:50.702Z",
-  "localOnly": true
+  "build": "1790931001147",
+  "web": "web-bd24545",
+  "git": "bd24545",
+  "channel": "production-local",
+  "timestamp": "2026-10-02T08:50:01.147Z",
+  "localOnly": true,
+  "fingerprint": "unknown"
 }

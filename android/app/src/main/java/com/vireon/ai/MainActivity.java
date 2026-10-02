@@ -1,12 +1,17 @@
 package com.vireon.ai;
 
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import androidx.core.splashscreen.SplashScreen;
+
+import com.capacitorjs.plugins.app.AppPlugin;
+import com.capacitorjs.plugins.browser.BrowserPlugin;
+import com.capacitorjs.plugins.haptics.HapticsPlugin;
 import com.getcapacitor.BridgeActivity;
 
 import java.io.BufferedReader;
@@ -16,19 +21,23 @@ import org.json.JSONObject;
 
 public class MainActivity extends BridgeActivity {
 
+    private static final String PREF_NAME = "VireonAppPrefs";
+    private static final String KEY_LAST_VERSION_CODE = "last_version_code";
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         SplashScreen.installSplashScreen(this);
         
         registerPlugin(AIImageProcessorPlugin.class);
         registerPlugin(VireonMediaPlugin.class);
-        registerPlugin(com.capacitorjs.plugins.browser.BrowserPlugin.class);
-        registerPlugin(com.capacitorjs.plugins.app.AppPlugin.class);
+        registerPlugin(BrowserPlugin.class);
+        registerPlugin(AppPlugin.class);
         registerPlugin(com.capacitorjs.plugins.camera.CameraPlugin.class);
         registerPlugin(com.capacitorjs.plugins.filesystem.FilesystemPlugin.class);
-        registerPlugin(com.capacitorjs.plugins.haptics.HapticsPlugin.class);
+        registerPlugin(HapticsPlugin.class);
         super.onCreate(savedInstanceState);
 
+        checkVersionAndClearCacheIfNeeded();
         setupOtaStartup();
 
         WebView webView = getBridge().getWebView();
@@ -40,12 +49,56 @@ public class MainActivity extends BridgeActivity {
             settings.setAllowFileAccess(false);
             settings.setAllowContentAccess(false);
             settings.setJavaScriptEnabled(true);
-            settings.setCacheMode(WebSettings.LOAD_NO_CACHE); // إجبار أندرويد على قراءة التحديثات البرمجية الجديدة فوراً وعدم استخدام كاش قديم
+            settings.setCacheMode(WebSettings.LOAD_NO_CACHE); // Force immediate loading of new web code without stale cache
             settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-            // مسح الكاش المخزن تماماً لمنع بقاء أي إصدار قديم
+            
+            // Clear cache and storage completely to prevent stale versions
             webView.clearCache(true);
+            webView.clearHistory();
+            webView.clearFormData();
+            
             webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
             webView.setKeepScreenOn(true);
+            Log.i("MainActivity", "[WebView] Initialized successfully with NO_CACHE and hardware acceleration");
+        }
+    }
+
+    private void checkVersionAndClearCacheIfNeeded() {
+        try {
+            SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
+            int lastVersionCode = prefs.getInt(KEY_LAST_VERSION_CODE, -1);
+            int currentVersionCode = BuildConfig.VERSION_CODE;
+
+            if (lastVersionCode != currentVersionCode) {
+                Log.i("MainActivity", "[App Update] Version changed from " + lastVersionCode + " to " + currentVersionCode + ". Clearing WebView cache & local storage.");
+                
+                // Clear WebView cache & storage data
+                if (getBridge() != null && getBridge().getWebView() != null) {
+                    getBridge().getWebView().clearCache(true);
+                }
+                deleteApplicationData();
+
+                // Save current version code
+                prefs.edit().putInt(KEY_LAST_VERSION_CODE, currentVersionCode).apply();
+            }
+        } catch (Exception e) {
+            Log.e("MainActivity", "[App Update] Error checking version / clearing cache: " + e.getMessage(), e);
+        }
+    }
+
+    private void deleteApplicationData() {
+        try {
+            File cacheDir = getCacheDir();
+            if (cacheDir != null && cacheDir.exists()) {
+                deleteRecursively(cacheDir);
+            }
+            File otaDir = new File(getFilesDir(), "ota");
+            if (otaDir.exists()) {
+                deleteRecursively(otaDir);
+            }
+            Log.i("MainActivity", "[App Update] Cleared cache and OTA directories on version update.");
+        } catch (Exception e) {
+            Log.w("MainActivity", "[App Update] Failed to clear app data: " + e.getMessage());
         }
     }
 
@@ -141,6 +194,8 @@ public class MainActivity extends BridgeActivity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        setIntent(intent);
+        if (intent != null) {
+            setIntent(intent);
+        }
     }
 }
