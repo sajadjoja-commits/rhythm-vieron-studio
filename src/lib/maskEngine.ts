@@ -86,14 +86,8 @@ export function traceMaskPath(ctx: CanvasRenderingContext2D | OffscreenCanvasRen
     }
     case "custom-path":
       if (c.maskPath && typeof Path2D !== "undefined") {
-        ctx.save();
-        ctx.translate(cx - sw / 2, cy - sh / 2);
-        ctx.scale(sw / 100, sh / 100);
-        const p = new Path2D(c.maskPath);
-        ctx.restore();
-        ctx.beginPath();
         const m = new DOMMatrix().translate(cx - sw / 2, cy - sh / 2).scale(sw / 100, sh / 100);
-        const p2 = new Path2D(); p2.addPath(p, m);
+        const p2 = new Path2D(); p2.addPath(new Path2D(c.maskPath), m);
         return p2;
       }
       ctx.rect(cx - sw / 2, cy - sh / 2, sw, sh);
