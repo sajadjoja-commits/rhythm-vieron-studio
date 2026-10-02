@@ -45,7 +45,7 @@ interface EditorScreenProps {
   onBack: () => void;
 }
 
-type Tool = "transition" | "caption" | "music" | "filter" | "vfx" | "ratio" | "overlay" | "speed" | "cover" | "ai" | null;
+type Tool = "transition" | "caption" | "music" | "filter" | "vfx" | "ratio" | "overlay" | "speed" | "cover" | "ai" | "keyframe" | null;
 
 // Which timeline track is focused — determines which handles are visible
 type FocusedTrack = "video" | "caption" | "audio" | "filter" | "vfx" | "overlay" | null;

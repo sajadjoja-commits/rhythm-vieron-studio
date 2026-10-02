@@ -1,4 +1,5 @@
 import { Caption, CaptionAnimation, Keyframe } from "@/context/MediaContext";
+export type { TextTemplate, TextTemplateCategory } from "@/types/textTemplate";
 import {
   TextTemplate,
   TextTemplateCategory,
