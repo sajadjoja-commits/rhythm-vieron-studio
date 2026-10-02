@@ -4,8 +4,9 @@ import {
   X, Layers, Plus, Upload, Check, Eye, EyeOff, 
   Settings, Scissors, Trash2, ArrowUp, ArrowDown, 
   ChevronsUp, ChevronsDown, Image as ImageIcon, Video as VideoIcon,
-  Clock, Sliders
+  Clock, Sliders, Circle, Square, Star, Heart, Ban, Diamond
 } from "lucide-react";
+import type { MaskShape, MaskKeyframe } from "@/lib/maskEngine";
 import { getLang } from "@/lib/i18n";
 import { playSfx } from "@/lib/soundFx";
 import { toast } from "sonner";
@@ -16,7 +17,7 @@ interface Props {
   currentTime: number;
 }
 
-type TabType = "layers" | "adjust" | "trim";
+type TabType = "layers" | "adjust" | "trim" | "mask";
 
 const OverlayPanel = ({ open, onClose, currentTime }: Props) => {
   const { 
@@ -287,7 +288,7 @@ const OverlayPanel = ({ open, onClose, currentTime }: Props) => {
 
         {/* Tabs Bar */}
         <div className="px-3.5 pt-2 pb-1.5 border-b border-border/40 shrink-0 bg-background/40">
-          <div className="grid grid-cols-3 gap-1 bg-secondary/40 p-1 rounded-xl border border-border/30">
+          <div className="grid grid-cols-4 gap-1 bg-secondary/40 p-1 rounded-xl border border-border/30">
             <button
               onClick={() => { playSfx("click"); setActiveTab("layers"); }}
               className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-bold transition-all ${
@@ -342,6 +343,27 @@ const OverlayPanel = ({ open, onClose, currentTime }: Props) => {
             >
               <Scissors className="w-3 h-3" />
               <span>{en ? "Trim" : "القص"}</span>
+            </button>
+            <button
+              onClick={() => {
+                if (overlays.length === 0) {
+                  toast.error(en ? "Please add an overlay first" : "يرجى إضافة تراكب أولاً");
+                  return;
+                }
+                playSfx("click");
+                setActiveTab("mask");
+              }}
+              disabled={overlays.length === 0}
+              className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-bold transition-all ${
+                overlays.length === 0 ? "opacity-40 cursor-not-allowed" : ""
+              } ${
+                activeTab === "mask"
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Circle className="w-3 h-3" />
+              <span>{en ? "Mask" : "قناع"}</span>
             </button>
           </div>
         </div>
@@ -766,6 +788,94 @@ const OverlayPanel = ({ open, onClose, currentTime }: Props) => {
           )}
 
           {/* TAB 3: TRIM & TIMING */}
+          {activeTab === "mask" && selectedOverlay && (() => {
+            const o = selectedOverlay;
+            const shape = o.maskShape ?? "none";
+            const local = Math.max(0, currentTime - o.start);
+            const kfs = o.maskKeyframes || [];
+            const kfAtNow = kfs.find(k => Math.abs(k.time - local) < 0.05);
+            const shapes: { id: MaskShape; icon: any; label: string }[] = [
+              { id: "none", icon: Ban, label: en ? "None" : "بدون" },
+              { id: "circle", icon: Circle, label: en ? "Circle" : "دائرة" },
+              { id: "rectangle", icon: Square, label: en ? "Rect" : "مستطيل" },
+              { id: "rounded-rectangle", icon: Diamond, label: en ? "Rounded" : "حواف دائرية" },
+              { id: "star", icon: Star, label: en ? "Star" : "نجمة" },
+              { id: "heart", icon: Heart, label: en ? "Heart" : "قلب" },
+            ];
+            const slider = (label: string, key: "maskX" | "maskY" | "maskSize" | "maskWidth" | "maskHeight" | "maskFeather", min: number, max: number, def: number, unit: string) => (
+              <div className="space-y-1.5" key={key}>
+                <div className="flex items-center justify-between text-xs font-bold text-foreground">
+                  <span>{label}</span>
+                  <span className="text-primary text-[10px] bg-primary/10 px-1.5 py-0.5 rounded-full font-mono">{Math.round((o[key] as number | undefined) ?? def)}{unit}</span>
+                </div>
+                <input type="range" min={min} max={max} step={1} value={(o[key] as number | undefined) ?? def}
+                  onChange={(e) => updateOverlay(o.id, { [key]: Number(e.target.value) } as any)}
+                  className="w-full h-2 rounded-lg accent-primary bg-secondary cursor-pointer" />
+              </div>
+            );
+            const addKf = () => {
+              playSfx("click");
+              const k: MaskKeyframe = { time: local, x: o.maskX ?? 50, y: o.maskY ?? 50, size: o.maskSize ?? 100 };
+              const next = [...kfs.filter(x => Math.abs(x.time - local) >= 0.05), k].sort((a, b) => a.time - b.time);
+              updateOverlay(o.id, { maskKeyframes: next });
+              toast.success(en ? "Mask keyframe added" : "تمت إضافة إطار مفتاحي للقناع");
+            };
+            return (
+              <div className="space-y-3">
+                <div className="grid grid-cols-6 gap-1.5">
+                  {shapes.map(s => {
+                    const Icon = s.icon;
+                    return (
+                      <button key={s.id} type="button"
+                        onClick={() => { playSfx("click"); updateOverlay(o.id, { maskShape: s.id }); }}
+                        className={`flex flex-col items-center gap-1 py-2 rounded-xl border text-[9px] font-bold transition-all active:scale-95 ${shape === s.id ? "border-primary bg-primary/10 text-primary" : "border-border/40 bg-background text-muted-foreground"}`}>
+                        <Icon className="w-4 h-4" />
+                        <span className="truncate max-w-full">{s.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {shape !== "none" && (
+                  <>
+                    {slider(en ? "Mask Size" : "حجم القناع", "maskSize", 10, 200, 100, "%")}
+                    {slider(en ? "Horizontal Position" : "الموضع الأفقي", "maskX", 0, 100, 50, "%")}
+                    {slider(en ? "Vertical Position" : "الموضع العمودي", "maskY", 0, 100, 50, "%")}
+                    {slider(en ? "Width Stretch" : "تمديد العرض", "maskWidth", 20, 200, 100, "%")}
+                    {slider(en ? "Height Stretch" : "تمديد الارتفاع", "maskHeight", 20, 200, 100, "%")}
+                    {slider(en ? "Feather / Softness" : "نعومة الحواف", "maskFeather", 0, 50, 0, "px")}
+                    <label className="flex items-center justify-between text-xs font-bold text-foreground bg-background border border-border/40 rounded-xl px-3 py-2">
+                      <span>{en ? "Invert mask" : "عكس القناع"}</span>
+                      <input type="checkbox" checked={!!o.maskInverted} onChange={(e) => updateOverlay(o.id, { maskInverted: e.target.checked })} className="w-4 h-4 accent-primary" />
+                    </label>
+                    <div className="space-y-2 pt-2 border-t border-border/30">
+                      <div className="flex gap-2">
+                        <button type="button" onClick={addKf} className="flex-1 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold active:scale-95">
+                          {kfAtNow ? (en ? "Update keyframe" : "تحديث الإطار المفتاحي") : (en ? "Add keyframe at playhead" : "إضافة إطار مفتاحي عند المؤشر")}
+                        </button>
+                        {kfs.length > 0 && (
+                          <button type="button" onClick={() => { playSfx("click"); updateOverlay(o.id, { maskKeyframes: [] }); }} className="px-3 py-2 rounded-xl bg-secondary text-foreground text-xs font-bold active:scale-95">
+                            {en ? "Clear" : "مسح"}
+                          </button>
+                        )}
+                      </div>
+                      {kfs.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {kfs.map((k, i) => (
+                            <button key={i} type="button" onClick={() => updateOverlay(o.id, { maskKeyframes: kfs.filter((_, j) => j !== i) })}
+                              className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/30">
+                              {k.time.toFixed(2)}s ✕
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      <p className="text-[10px] text-muted-foreground">{en ? "Move the playhead, adjust position/size, then add a keyframe to animate the mask." : "حرّك المؤشر، عدّل الموضع والحجم، ثم أضف إطاراً مفتاحياً لتحريك القناع."}</p>
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })()}
+
           {activeTab === "trim" && (
             <div className="space-y-4">
               {!selectedOverlay ? (
