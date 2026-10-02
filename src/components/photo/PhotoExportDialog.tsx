@@ -46,6 +46,15 @@ export interface PhotoExportLayer {
   visible: boolean;
 }
 
+export interface PhotoFrameConfig {
+  type: "none" | "polaroid" | "film" | "minimal" | "neon" | "gold-double" | "stamp" | "float-shadow" | "blur-bg";
+  color: string;
+  width: number;
+  radius: number;
+  glowColor?: string;
+  polaroidCaption?: string;
+}
+
 export interface PhotoExportProps {
   isOpen: boolean;
   onClose: () => void;
@@ -71,6 +80,8 @@ export interface PhotoExportProps {
   layers: PhotoExportLayer[];
   previewContainerWidth: number;
   previewContainerHeight: number;
+  frameConfig?: PhotoFrameConfig;
+  drawingCanvas?: HTMLCanvasElement | null;
 }
 
 const QUALITY_PRESETS = [
@@ -111,16 +122,20 @@ export default function PhotoExportDialog({
   vfxIntensity,
   layers,
   previewContainerWidth,
-  previewContainerHeight
+  previewContainerHeight,
+  frameConfig,
+  drawingCanvas
 }: PhotoExportProps) {
   const [selectedQuality, setSelectedQuality] = useState<number>(0);
   const [selectedFormat, setSelectedFormat] = useState<number>(0);
   const [exporting, setExporting] = useState<boolean>(false);
   const [progress, setProgress] = useState<number>(0);
+  const [progressStage, setProgressStage] = useState<string>("");
   const [exportedUrl, setExportedUrl] = useState<string | null>(null);
   const [exportedBlob, setExportedBlob] = useState<Blob | null>(null);
   const [exportInfo, setExportInfo] = useState<{ width: number; height: number; sizeFormatted: string } | null>(null);
   const [savedToGallery, setSavedToGallery] = useState<boolean>(false);
+  const [includeWatermark, setIncludeWatermark] = useState<boolean>(false);
 
   const previewBoxRef = useRef<HTMLDivElement>(null);
   const [boxDimensions, setBoxDimensions] = useState<{ w: number; h: number }>({ w: 320, h: 220 });
@@ -202,6 +217,7 @@ export default function PhotoExportDialog({
 
     setExporting(true);
     setProgress(0.1);
+    setProgressStage(en ? "Preparing image & dimensions..." : "تحضير الصورة ومقاسات الإطار...");
 
     try {
       const { width: exportW, height: exportH } = getComputedDimensions();
@@ -214,6 +230,7 @@ export default function PhotoExportDialog({
       if (!ctx) throw new Error("Could not initialize canvas context");
 
       setProgress(0.25);
+      setProgressStage(en ? "Applying filters & color tuning..." : "تطبيق الفلاتر والضبط اللوني...");
 
       // 1. Fill solid background
       ctx.fillStyle = "#000000";
@@ -433,9 +450,157 @@ export default function PhotoExportDialog({
         ctx.restore();
       }
 
-      setProgress(0.9);
+      // 5. Render User Doodle/Drawing Canvas if present
+      if (drawingCanvas) {
+        ctx.save();
+        ctx.drawImage(drawingCanvas, 0, 0, exportW, exportH);
+        ctx.restore();
+      }
 
-      // 5. Convert canvas to output blob
+      // 6. Render Frame / Artistic Border if specified
+      if (frameConfig && frameConfig.type !== "none") {
+        ctx.save();
+        const fWidth = Math.max(4, (frameConfig.width || 16) * unifiedScaleFactor);
+        const fRadius = (frameConfig.radius || 8) * unifiedScaleFactor;
+        const fColor = frameConfig.color || "#ffffff";
+
+        if (frameConfig.type === "polaroid") {
+          // Polaroid white background with extended bottom caption area
+          const bottomPad = fWidth * 3.6;
+          ctx.fillStyle = fColor;
+          ctx.fillRect(0, 0, exportW, fWidth); // top
+          ctx.fillRect(0, 0, fWidth, exportH); // left
+          ctx.fillRect(exportW - fWidth, 0, fWidth, exportH); // right
+          ctx.fillRect(0, exportH - bottomPad, exportW, bottomPad); // bottom
+
+          // Inner photo subtle inset border
+          ctx.strokeStyle = "rgba(0,0,0,0.12)";
+          ctx.lineWidth = Math.max(1, 1.5 * unifiedScaleFactor);
+          ctx.strokeRect(fWidth, fWidth, exportW - fWidth * 2, exportH - fWidth - bottomPad);
+
+          // Caption text if provided
+          const caption = frameConfig.polaroidCaption?.trim() || "VIREON MEMORIES ✨";
+          ctx.fillStyle = "#1e293b";
+          const captionFontSize = Math.max(14, fWidth * 0.85);
+          ctx.font = `600 ${captionFontSize}px "Cairo", cursive, sans-serif`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(caption, exportW / 2, exportH - bottomPad / 2);
+        } else if (frameConfig.type === "film") {
+          // 35mm Film Strip frame with sprocket holes
+          const filmBarH = Math.max(26 * unifiedScaleFactor, fWidth * 1.4);
+          ctx.fillStyle = "#0c0d12";
+          ctx.fillRect(0, 0, exportW, filmBarH);
+          ctx.fillRect(0, exportH - filmBarH, exportW, filmBarH);
+          ctx.fillRect(0, 0, fWidth, exportH);
+          ctx.fillRect(exportW - fWidth, 0, fWidth, exportH);
+
+          // Draw sprocket holes
+          const holeW = 12 * unifiedScaleFactor;
+          const holeH = 15 * unifiedScaleFactor;
+          const holeR = 2.5 * unifiedScaleFactor;
+          const holeStep = 28 * unifiedScaleFactor;
+          const numHoles = Math.floor(exportW / holeStep);
+          ctx.fillStyle = "#ffffff";
+          for (let i = 0; i < numHoles; i++) {
+            const hx = i * holeStep + (holeStep - holeW) / 2;
+            const hyTop = (filmBarH - holeH) / 2;
+            const hyBot = exportH - filmBarH + (filmBarH - holeH) / 2;
+            if (ctx.roundRect) {
+              ctx.beginPath();
+              ctx.roundRect(hx, hyTop, holeW, holeH, holeR);
+              ctx.fill();
+              ctx.beginPath();
+              ctx.roundRect(hx, hyBot, holeW, holeH, holeR);
+              ctx.fill();
+            } else {
+              ctx.fillRect(hx, hyTop, holeW, holeH);
+              ctx.fillRect(hx, hyBot, holeW, holeH);
+            }
+          }
+
+          // Film brand text
+          ctx.fillStyle = "#f59e0b";
+          ctx.font = `bold ${Math.max(9, 10 * unifiedScaleFactor)}px monospace`;
+          ctx.textAlign = "left";
+          ctx.fillText("KODAK PORTRA 400 • 35MM", fWidth + 12 * unifiedScaleFactor, filmBarH / 2 + 3 * unifiedScaleFactor);
+          ctx.textAlign = "right";
+          ctx.fillText("SAFETY FILM • 24A", exportW - fWidth - 12 * unifiedScaleFactor, exportH - filmBarH / 2 + 3 * unifiedScaleFactor);
+        } else if (frameConfig.type === "minimal") {
+          // Clean solid border with customizable color & radius
+          ctx.strokeStyle = fColor;
+          ctx.lineWidth = fWidth * 2;
+          ctx.beginPath();
+          if (ctx.roundRect) {
+            ctx.roundRect(0, 0, exportW, exportH, fRadius);
+          } else {
+            ctx.rect(0, 0, exportW, exportH);
+          }
+          ctx.stroke();
+        } else if (frameConfig.type === "neon") {
+          // Neon glow border
+          const glowColor = frameConfig.glowColor || "#3b82f6";
+          ctx.strokeStyle = fColor;
+          ctx.lineWidth = Math.max(3, fWidth * 0.4);
+          ctx.shadowColor = glowColor;
+          ctx.shadowBlur = 24 * unifiedScaleFactor;
+          ctx.strokeRect(fWidth / 2, fWidth / 2, exportW - fWidth, exportH - fWidth);
+          ctx.shadowBlur = 10 * unifiedScaleFactor;
+          ctx.strokeRect(fWidth / 2, fWidth / 2, exportW - fWidth, exportH - fWidth);
+        } else if (frameConfig.type === "gold-double") {
+          // Double Luxury Gold Border
+          const gold = fColor || "#f59e0b";
+          ctx.strokeStyle = gold;
+          ctx.lineWidth = Math.max(2, 3 * unifiedScaleFactor);
+          ctx.strokeRect(fWidth, fWidth, exportW - fWidth * 2, exportH - fWidth * 2);
+
+          const innerOffset = fWidth + 6 * unifiedScaleFactor;
+          ctx.lineWidth = Math.max(1, 1.5 * unifiedScaleFactor);
+          ctx.strokeRect(innerOffset, innerOffset, exportW - innerOffset * 2, exportH - innerOffset * 2);
+        } else if (frameConfig.type === "stamp") {
+          // Scalloped postage stamp edge
+          ctx.fillStyle = fColor || "#ffffff";
+          const scallopRadius = Math.max(5, 7 * unifiedScaleFactor);
+          const step = scallopRadius * 2.6;
+          for (let x = 0; x < exportW; x += step) {
+            ctx.beginPath();
+            ctx.arc(x + step / 2, 0, scallopRadius, 0, Math.PI);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(x + step / 2, exportH, scallopRadius, Math.PI, 0);
+            ctx.fill();
+          }
+          for (let y = 0; y < exportH; y += step) {
+            ctx.beginPath();
+            ctx.arc(0, y + step / 2, scallopRadius, -Math.PI / 2, Math.PI / 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(exportW, y + step / 2, scallopRadius, Math.PI / 2, (3 * Math.PI) / 2);
+            ctx.fill();
+          }
+        }
+        ctx.restore();
+      }
+
+      // 7. Optional Watermark
+      if (includeWatermark) {
+        ctx.save();
+        ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+        ctx.shadowColor = "rgba(0,0,0,0.9)";
+        ctx.shadowBlur = 5 * unifiedScaleFactor;
+        const wmFontSize = Math.max(11, 13 * unifiedScaleFactor);
+        ctx.font = `bold ${wmFontSize}px "Cairo", sans-serif`;
+        ctx.textAlign = en ? "right" : "left";
+        const wmx = en ? exportW - 20 * unifiedScaleFactor : 20 * unifiedScaleFactor;
+        const wmy = exportH - 18 * unifiedScaleFactor;
+        ctx.fillText("✦ VIREON STUDIO PRO", wmx, wmy);
+        ctx.restore();
+      }
+
+      setProgress(0.88);
+      setProgressStage(en ? "Encoding image file..." : "ترميز الصورة وتوليد الملف النهائي...");
+
+      // 8. Convert canvas to output blob
       canvas.toBlob(
         async (blob) => {
           if (!blob) {
@@ -725,6 +890,35 @@ export default function PhotoExportDialog({
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* Optional Settings: Watermark and Active Frame Indicator */}
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-3 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-amber-400" />
+                    <div>
+                      <span className="text-xs font-bold text-gray-200 block">
+                        {en ? "Vireon Studio Watermark" : "علامة Vireon Studio المائية"}
+                      </span>
+                      <span className="text-[10px] text-gray-400 block">
+                        {en ? "Add subtle signature badge at bottom corner" : "إضافة توقيع مائي جمالي خفيف في زاوية الصورة"}
+                      </span>
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={includeWatermark}
+                    onChange={(e) => setIncludeWatermark(e.target.checked)}
+                    className="w-4 h-4 accent-blue-500 rounded cursor-pointer"
+                  />
+                </div>
+                {frameConfig && frameConfig.type !== "none" && (
+                  <div className="text-[11px] text-blue-300 bg-blue-500/10 border border-blue-500/20 rounded-xl p-2 flex items-center justify-between">
+                    <span>{en ? "Artistic Frame:" : "الإطار الفني المطبق:"}</span>
+                    <span className="font-bold">{frameConfig.type.toUpperCase()} ({frameConfig.width}px)</span>
+                  </div>
+                )}
               </div>
 
               {/* Start Export Button */}
