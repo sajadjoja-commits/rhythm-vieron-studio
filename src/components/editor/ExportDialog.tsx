@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect, useRef } from "react";
 import { X, Download, Share2, Check, Sparkles, Film, Music, Languages, Sliders, Volume2, Loader2, Wifi, WifiOff, Globe, AlertTriangle } from "lucide-react";
 import { useMedia, interpolateKeyframes } from "@/context/MediaContext";
 import { toast } from "sonner";
+import { hasMask, applyMaskToContext } from "@/lib/maskEngine";
 import { t, isRTL, getLang } from "@/lib/i18n";
 import { applyOfflineFxChain } from "@/lib/audioFx";
 import { registerPlugin, Capacitor } from '@capacitor/core';
