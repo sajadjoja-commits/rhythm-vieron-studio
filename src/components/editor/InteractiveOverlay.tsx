@@ -1,7 +1,8 @@
-import { useRef, memo, useCallback, useState, useEffect } from "react";
+import { useRef, memo, useCallback, useState, useEffect, useMemo } from "react";
 import { OverlayItem } from "@/context/MediaContext";
 import { RotateCw, Maximize2, Move } from "lucide-react";
 import { snapPreviewTransform } from "@/lib/timelineSnap";
+import { hasMask, maskDataUrl } from "@/lib/maskEngine";
 
 interface Props {
   overlay: OverlayItem;
@@ -214,6 +215,28 @@ const InteractiveOverlay = memo(({ overlay, selected, containerRef, currentTime 
     }
   }, [currentTime, isPlaying, overlay.type, overlay.start, overlay.muted, overlay.volume]);
 
+  const contentRef = useRef<HTMLElement | null>(null);
+  const [box, setBox] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    const upd = () => setBox({ w: el.offsetWidth, h: el.offsetHeight });
+    upd();
+    const ro = new ResizeObserver(upd);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [overlay.url]);
+  const masked = hasMask(overlay);
+  const maskTime = masked && overlay.maskKeyframes?.length ? Math.round((currentTime - overlay.start) * 30) / 30 : 0;
+  const maskUrl = useMemo(
+    () => (masked ? maskDataUrl(overlay, maskTime, box.w, box.h) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [masked, overlay.maskShape, overlay.maskX, overlay.maskY, overlay.maskSize, overlay.maskWidth, overlay.maskHeight, overlay.maskFeather, overlay.maskInverted, overlay.maskKeyframes, overlay.maskPath, maskTime, box.w, box.h]
+  );
+  const maskStyle: React.CSSProperties = maskUrl
+    ? { WebkitMaskImage: `url(${maskUrl})`, maskImage: `url(${maskUrl})`, WebkitMaskSize: "100% 100%", maskSize: "100% 100%", WebkitMaskRepeat: "no-repeat", maskRepeat: "no-repeat" }
+    : {};
+
   const cornerRadiusPx = overlay.cornerRadius !== undefined ? overlay.cornerRadius : 8;
   const borderStyle = overlay.borderWidth && overlay.borderWidth > 0
     ? `${overlay.borderWidth}px solid ${overlay.borderColor || "#ffffff"}`
@@ -245,6 +268,8 @@ const InteractiveOverlay = memo(({ overlay, selected, containerRef, currentTime 
       {/* Content */}
       {overlay.type === "image" ? (
         <img
+          ref={(el) => { contentRef.current = el; }}
+          onLoad={(e) => setBox({ w: e.currentTarget.offsetWidth, h: e.currentTarget.offsetHeight })}
           src={overlay.url}
           alt=""
           className="max-w-[200px] max-h-[200px] pointer-events-none object-contain"
@@ -254,12 +279,15 @@ const InteractiveOverlay = memo(({ overlay, selected, containerRef, currentTime 
             boxShadow: shadowStyle,
             width: overlay.width ? `${overlay.width}px` : undefined,
             height: overlay.height ? `${overlay.height}px` : undefined,
+            ...(masked ? { borderRadius: 0, border: "none" } : {}),
+            ...maskStyle,
           }}
           draggable={false}
         />
       ) : (
         <video
-          ref={videoRef}
+          ref={(el) => { (videoRef as React.MutableRefObject<HTMLVideoElement | null>).current = el; contentRef.current = el; }}
+          onLoadedMetadata={(e) => setBox({ w: e.currentTarget.offsetWidth, h: e.currentTarget.offsetHeight })}
           src={overlay.url}
           className="max-w-[200px] max-h-[200px] pointer-events-none object-contain"
           style={{
@@ -268,6 +296,8 @@ const InteractiveOverlay = memo(({ overlay, selected, containerRef, currentTime 
             boxShadow: shadowStyle,
             width: overlay.width ? `${overlay.width}px` : undefined,
             height: overlay.height ? `${overlay.height}px` : undefined,
+            ...(masked ? { borderRadius: 0, border: "none" } : {}),
+            ...maskStyle,
           }}
           muted={overlay.muted ?? true}
           playsInline

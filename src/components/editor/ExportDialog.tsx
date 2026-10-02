@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect, useRef } from "react";
 import { X, Download, Share2, Check, Sparkles, Film, Music, Languages, Sliders, Volume2, Loader2, Wifi, WifiOff, Globe, AlertTriangle } from "lucide-react";
 import { useMedia, interpolateKeyframes } from "@/context/MediaContext";
 import { toast } from "sonner";
+import { hasMask, applyMaskToContext } from "@/lib/maskEngine";
 import { t, isRTL, getLang } from "@/lib/i18n";
 import { applyOfflineFxChain } from "@/lib/audioFx";
 import { registerPlugin, Capacitor } from '@capacitor/core';
@@ -1546,16 +1547,28 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
               ctx.shadowBlur = o.shadowBlur * (exportWidth / previewW);
             }
 
-            if (o.cornerRadius && o.cornerRadius > 0) {
+            if (o.cornerRadius && o.cornerRadius > 0 && !hasMask(o)) {
               const scaledRadius = o.cornerRadius * (exportWidth / previewW);
               ctx.beginPath();
               ctx.roundRect(-drawW / 2, -drawH / 2, drawW, drawH, scaledRadius);
               ctx.clip();
             }
 
-            ctx.drawImage(el, -drawW / 2, -drawH / 2, drawW, drawH);
+            if (hasMask(o)) {
+              // Offscreen layer → mask (same engine as preview) → composite
+              const lw = Math.max(1, Math.round(drawW)), lh = Math.max(1, Math.round(drawH));
+              const layer = document.createElement("canvas");
+              layer.width = lw; layer.height = lh;
+              const lctx = layer.getContext("2d")!;
+              lctx.drawImage(el, 0, 0, lw, lh);
+              const pxRatio = drawW / previewBaseW;
+              applyMaskToContext(lctx, o, elapsed - o.start, lw, lh, (o.maskFeather ?? 0) * pxRatio);
+              ctx.drawImage(layer, -drawW / 2, -drawH / 2, drawW, drawH);
+            } else {
+              ctx.drawImage(el, -drawW / 2, -drawH / 2, drawW, drawH);
+            }
 
-            if (o.borderWidth && o.borderWidth > 0) {
+            if (o.borderWidth && o.borderWidth > 0 && !hasMask(o)) {
               const scaledBorder = o.borderWidth * (exportWidth / previewW);
               ctx.lineWidth = scaledBorder;
               ctx.strokeStyle = o.borderColor || "#ffffff";

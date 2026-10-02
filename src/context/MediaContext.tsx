@@ -26,6 +26,8 @@ export interface MediaItem {
   hasAlpha?: boolean;
   nativePath?: string;
   nativeUri?: string;
+  width?: number;
+  height?: number;
 }
 
 export type TransitionType = 
@@ -79,7 +81,7 @@ export interface Keyframe {
   time: number; // relative to item start in seconds
   property: string;
   value: number;
-  easing?: "linear" | "easeIn" | "easeOut" | "easeInOut";
+  easing?: "linear" | "easeIn" | "easeOut" | "easeInOut" | (string & {});
 }
 
 export interface Clip {
@@ -112,6 +114,8 @@ export interface Clip {
   previewBgColor?: string;
   processedAudioUrl?: string;
   muteOriginalAudio?: boolean;
+  editable?: boolean;
+  duration?: number;
 }
 
 export function interpolateKeyframes(
@@ -188,6 +192,7 @@ export interface Caption {
   flipV?: boolean;
   animation?: CaptionAnimation;
   keyframes?: Keyframe[];
+  editable?: boolean;
   isMultiLine?: boolean;
   customWidth?: number;
   // Enhanced text styling & template features
@@ -232,6 +237,7 @@ export interface CaptionTemplate {
   badgePosition?: "left" | "right" | "top";
   sampleText?: string;
   sampleTextAr?: string;
+  sampleTextEn?: string;
 }
 
 export interface CaptionStyle {
@@ -251,6 +257,11 @@ export interface CaptionStyle {
   textTransform?: "none" | "uppercase" | "lowercase" | "capitalize";
   bgRadius?: number;
   bgPadding?: number;
+  badgeIcon?: string;
+  badgePosition?: "left" | "right" | "top";
+  isMultiLine?: boolean;
+  flipH?: boolean;
+  flipV?: boolean;
 }
 
 export type AudioFxType =
@@ -290,6 +301,7 @@ export interface AudioTrackItem {
   keyframes?: Keyframe[];
   beats?: number[];
   bpm?: number;
+  end?: number;
 }
 
 export type FilterType = 
@@ -359,6 +371,17 @@ export interface OverlayItem {
   flipH?: boolean;
   flipV?: boolean;
   keyframes?: Keyframe[];
+  // Mask (قناع)
+  maskShape?: import("@/lib/maskEngine").MaskShape;
+  maskX?: number;
+  maskY?: number;
+  maskSize?: number;
+  maskWidth?: number;
+  maskHeight?: number;
+  maskFeather?: number;
+  maskInverted?: boolean;
+  maskKeyframes?: import("@/lib/maskEngine").MaskKeyframe[];
+  maskPath?: string;
 }
 
 export type ExportPreset = "reels-15" | "reels-30" | "reels-60" | "story-60" | "full";
@@ -367,6 +390,7 @@ export interface ProjectMeta { id: string; name: string; updatedAt: number; dura
 
 interface MediaContextType {
   filters: FilterItem[]; vfx: VfxItem[]; overlays: OverlayItem[];
+  selectedClipId?: string | null; selectedOverlayId?: string | null; currentTime?: number;
   addFilter: (f: Omit<FilterItem, "id">) => void;
   updateFilter: (id: string, patch: Partial<FilterItem>) => void;
   removeFilter: (id: string) => void;
@@ -741,9 +765,9 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
         if (session?.user) {
           supabase.from("projects").upsert({
             id: projectId, name: projectName, export_preset: exportPreset,
-            clips_json: clips, captions_json: captions, caption_style_json: captionStyle,
+            clips_json: clips as any, captions_json: captions as any, caption_style_json: captionStyle as any,
             audio_tracks_json: audioTracks.map((a) => ({ id: a.id, name: a.name, start: a.start, offset: a.offset, duration: a.duration, sourceDuration: a.sourceDuration, volume: a.volume, muted: a.muted, fx: a.fx, color: a.color, kind: a.kind, url: a.file ? null : a.url })),
-            filters_json: filters, vfx_json: vfx, cover_image: effectiveCover,
+            filters_json: filters as any, vfx_json: vfx as any, cover_image: effectiveCover,
             duration: totalDuration, updated_at: new Date().toISOString(),
           }).then(({ error }) => { if (error) console.warn("cloud sync failed", error.message); });
         }
@@ -914,6 +938,7 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
       file: new File([], `freeze_frame_${Math.round(time)}s.png`, { type: "image/png" }),
       url: frameDataUrl,
       type: "image",
+      size: 0,
       duration: duration,
       name: `توقف عند ${time.toFixed(1)}s`,
     };
