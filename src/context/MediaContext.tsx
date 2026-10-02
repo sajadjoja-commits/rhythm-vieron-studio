@@ -359,6 +359,17 @@ export interface OverlayItem {
   flipH?: boolean;
   flipV?: boolean;
   keyframes?: Keyframe[];
+  // Mask (قناع)
+  maskShape?: import("@/lib/maskEngine").MaskShape;
+  maskX?: number;
+  maskY?: number;
+  maskSize?: number;
+  maskWidth?: number;
+  maskHeight?: number;
+  maskFeather?: number;
+  maskInverted?: boolean;
+  maskKeyframes?: import("@/lib/maskEngine").MaskKeyframe[];
+  maskPath?: string;
 }
 
 export type ExportPreset = "reels-15" | "reels-30" | "reels-60" | "story-60" | "full";
