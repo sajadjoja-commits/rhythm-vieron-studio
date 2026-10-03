@@ -5,7 +5,7 @@ import {
   Gauge, Zap, Clapperboard, Undo2, Redo2, Eye, EyeOff, RotateCw, Diamond, Minus, Trash2, Maximize2, Minimize2,
   ChevronLeft, X, Volume2, VolumeX,
 } from "lucide-react";
-import { useMedia, TransitionType, Clip, interpolateKeyframes } from "@/context/MediaContext";
+import { useMedia, TransitionType, Clip, interpolateKeyframes, OverlayItem, MediaItem } from "@/context/MediaContext";
 import { computeVfxState } from "@/lib/vfxEngine";
 import MediaPicker from "@/components/MediaPicker";
 import Timeline from "@/components/editor/Timeline";
