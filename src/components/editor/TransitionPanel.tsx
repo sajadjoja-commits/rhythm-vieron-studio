@@ -1,3 +1,4 @@
+import type { TransitionMetadata } from "@/data/transitionsData";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useMedia, TransitionType } from "@/context/MediaContext";
 import { 
