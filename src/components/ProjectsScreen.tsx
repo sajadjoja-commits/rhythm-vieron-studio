@@ -80,7 +80,7 @@ const getProjectCover = (project: ProjectMeta) => {
 
 const ProjectsScreen = ({ onStartEditor }: ProjectsScreenProps) => {
   const en = getLang() === "en";
-  const { listProjects, loadProject, newProject, deleteProject, projectId } = useMedia();
+  const { listProjects, loadProject, newProject, deleteProject, projectId, media, clips } = useMedia();
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
   const [trash, setTrashState] = useState<TrashedProject[]>([]);
   const [showTrash, setShowTrash] = useState(false);
