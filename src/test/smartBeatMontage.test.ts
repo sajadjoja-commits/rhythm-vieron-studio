@@ -147,7 +147,7 @@ describe("Comprehensive Smart Cut & Rhythm Engine Test Suite", () => {
         url: "blob:short",
         duration: 3.2,
         width: 1080,
-        height: 1920,
+        height: 1920, size: 0, file: undefined as any,
       },
     ];
 
@@ -175,7 +175,7 @@ describe("Comprehensive Smart Cut & Rhythm Engine Test Suite", () => {
       url: `blob:vid-${i + 1}`,
       duration: 10,
       width: 1920,
-      height: 1080,
+      height: 1080, size: 0, file: undefined as any,
     }));
 
     const result = await runSmartBeatMontage({
@@ -268,7 +268,7 @@ describe("Comprehensive Smart Cut & Rhythm Engine Test Suite", () => {
         url: "blob:action",
         duration: 10,
         width: 1920,
-        height: 1080,
+        height: 1080, size: 0, file: undefined as any,
       },
     ];
 

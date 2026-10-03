@@ -54,7 +54,7 @@ export async function publishTemplateToSupabase(
     } else if (data) {
       return {
         ...newTemplate,
-        ...data,
+        ...(data as any),
       };
     }
   } catch (err) {
@@ -116,8 +116,9 @@ export async function fetchTemplateById(id: string): Promise<PublishedTemplate |
       .single();
 
     if (!error && data) {
+      const d = data as any;
       const remoteTemplate: PublishedTemplate = {
-        id: data.id,
+        id: d.id,
         user_id: data.user_id,
         title: data.title,
         hashtags: data.hashtags || [],
