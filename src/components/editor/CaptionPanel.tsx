@@ -1215,9 +1215,9 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
         letterSpacing: tpl.typography.letterSpacing,
         lineHeight: tpl.typography.lineHeight,
         textTransform: tpl.typography.textTransform,
-        animation: tpl.entrance?.animation || "fade",
+        animation: (tpl.entrance?.animation || "fade") as any,
         badgeIcon: tpl.badgeIcon,
-      }));
+      } as CaptionStyle));
 
       // Apply to all existing captions with keyframes and animations
       setCaptions((prev) =>
