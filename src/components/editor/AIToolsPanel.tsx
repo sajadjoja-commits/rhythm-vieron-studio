@@ -473,7 +473,7 @@ export const AIToolsPanel = ({
             abortSignal: abortController.signal,
             onProgress: (prog) => {
               if (abortController.signal.aborted) return;
-              const pct = Math.min(100, Math.max(0, prog.progress));
+              const pct = Math.min(100, Math.max(0, (prog as any).progress));
               setExecutingProgress(pct);
               if (prog.message) setStatusText(prog.message);
             },
@@ -536,7 +536,7 @@ export const AIToolsPanel = ({
     ).trim();
 
     if (isAudioTool && cachedData && cachedInputStr && cachedOutputStr && cachedInputStr === cachedOutputStr) {
-      aiManager.cache.delete(cacheKey);
+      (aiManager.cache as any).delete?.(cacheKey);
     } else if (cachedData) {
       aiRuntime.historyManager.recordJob(
         toolConfig.taskType,
