@@ -194,7 +194,7 @@ export default function SmartTemplateQuickEditor({ initialTemplate, onBack, onOp
           volume: musicVolume,
           audioIn: 0,
           audioOut: res.totalDuration
-        }]);
+        } as any]);
       } else {
         setAudioTracks([]);
       }

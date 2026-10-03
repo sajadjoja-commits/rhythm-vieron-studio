@@ -189,7 +189,7 @@ export async function removeBackgroundAndroidNative(
       message: "Background removed successfully via Google ML Kit Native!",
     });
 
-    return {
+    return <any>{
       outputDataUrl,
       width: nativeResponse.width,
       height: nativeResponse.height,
