@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useMedia, Caption, CaptionAnimation, CaptionTemplate } from "@/context/MediaContext";
+import { useMedia, Caption, CaptionAnimation, CaptionTemplate, CaptionStyle } from "@/context/MediaContext";
 import { useAdGate } from "@/context/AdGateContext";
 import { X, Plus, Trash2, Type, Languages, Sparkles, Loader2, Palette, Eye, EyeOff, Check, Music, AlertTriangle, CheckCircle2, RotateCw, RefreshCw, Search, Layers, Sliders, Zap, BookOpen, Radio, Youtube, Instagram, MapPin, Quote, Star, Flame, Award, WrapText, FlipHorizontal, FlipVertical, Upload, FileText } from "lucide-react";
 import { toast } from "sonner";
