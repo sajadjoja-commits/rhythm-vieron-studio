@@ -119,16 +119,16 @@ export async function fetchTemplateById(id: string): Promise<PublishedTemplate |
       const d = data as any;
       const remoteTemplate: PublishedTemplate = {
         id: d.id,
-        user_id: data.user_id,
-        title: data.title,
-        hashtags: data.hashtags || [],
-        cover_url: data.cover_url,
-        creator_name: data.creator_name || "Creator",
-        creator_email: data.creator_email || "",
-        created_at: data.created_at,
-        views_count: data.views_count || 0,
-        uses_count: data.uses_count || 0,
-        project_data: data.project_data,
+        user_id: d.user_id,
+        title: d.title,
+        hashtags: d.hashtags || [],
+        cover_url: d.cover_url,
+        creator_name: d.creator_name || "Creator",
+        creator_email: d.creator_email || "",
+        created_at: d.created_at,
+        views_count: d.views_count || 0,
+        uses_count: d.uses_count || 0,
+        project_data: d.project_data,
       };
       saveTemplateLocally(remoteTemplate);
       return remoteTemplate;

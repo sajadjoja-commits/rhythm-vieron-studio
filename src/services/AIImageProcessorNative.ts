@@ -203,8 +203,7 @@ export async function removeBackgroundAndroidNative(
         backgroundPixelCount: nativeResponse.metrics?.transparentPixels || 0,
         alphaMattingApplied: true,
         hasAlphaChannel: nativeResponse.metrics?.hasAlphaChannel ?? true,
-      } as any as {
-      },
+      } as any,
       timings: {
         preprocessMs: 15,
         modelLoadMs: 25,
