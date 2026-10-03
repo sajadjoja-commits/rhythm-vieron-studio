@@ -199,9 +199,9 @@ describe("Comprehensive Smart Cut & Rhythm Engine Test Suite", () => {
   // 3. Videos of Mixed Durations (Short, Medium, Long)
   it("Scenario 3: Mixed video lengths (2s, 12s, 45s) properly sliced without boundary overflow", async () => {
     const media: MediaItem[] = [
-      { id: "vid-short", name: "v1.mp4", type: "video", url: "blob:v1", duration: 2.2, width: 1920, height: 1080 },
-      { id: "vid-med", name: "v2.mp4", type: "video", url: "blob:v2", duration: 12.0, width: 1920, height: 1080 },
-      { id: "vid-long", name: "v3.mp4", type: "video", url: "blob:v3", duration: 45.0, width: 1920, height: 1080 },
+      { id: "vid-short", name: "v1.mp4", type: "video", url: "blob:v1", duration: 2.2, width: 1920, height: 1080, size: 0, file: undefined as any },
+      { id: "vid-med", name: "v2.mp4", type: "video", url: "blob:v2", duration: 12.0, width: 1920, height: 1080, size: 0, file: undefined as any },
+      { id: "vid-long", name: "v3.mp4", type: "video", url: "blob:v3", duration: 45.0, width: 1920, height: 1080, size: 0, file: undefined as any },
     ];
 
     const result = await runSmartBeatMontage({
@@ -319,8 +319,8 @@ describe("Comprehensive Smart Cut & Rhythm Engine Test Suite", () => {
     // Video 1 is blurry (low Laplacian sharpness -> heavy blur penalty)
     // Video 2 is sharp
     const media: MediaItem[] = [
-      { id: "vid-blurry", name: "blurry.mp4", type: "video", url: "blob:blurry", duration: 8, width: 1920, height: 1080 },
-      { id: "vid-sharp", name: "sharp.mp4", type: "video", url: "blob:sharp", duration: 8, width: 1920, height: 1080 },
+      { id: "vid-blurry", name: "blurry.mp4", type: "video", url: "blob:blurry", duration: 8, width: 1920, height: 1080, size: 0, file: undefined as any },
+      { id: "vid-sharp", name: "sharp.mp4", type: "video", url: "blob:sharp", duration: 8, width: 1920, height: 1080, size: 0, file: undefined as any },
     ];
 
     mockWorkerAnalyzeFrames.mockImplementation(async (_frames: any[], segments: Array<{ in: number; out: number }>) => {
@@ -360,7 +360,7 @@ describe("Comprehensive Smart Cut & Rhythm Engine Test Suite", () => {
   // 9. Quality Penalty: Pitch Black / Overexposed Rejection
   it("Scenario 9: Penalizes pitch black or overexposed video frames", async () => {
     const media: MediaItem[] = [
-      { id: "vid-dark", name: "dark.mp4", type: "video", url: "blob:dark", duration: 6, width: 1920, height: 1080 },
+      { id: "vid-dark", name: "dark.mp4", type: "video", url: "blob:dark", duration: 6, width: 1920, height: 1080, size: 0, file: undefined as any },
     ];
 
     mockWorkerAnalyzeFrames.mockImplementation(async (_frames: any[], segments: Array<{ in: number; out: number }>) => {
@@ -395,7 +395,7 @@ describe("Comprehensive Smart Cut & Rhythm Engine Test Suite", () => {
   // 10. Intelligent Caching: Changing Music Skips Video Analysis
   it("Scenario 10: Changing music or beat settings reuses video analysis cache with 0 re-analyses", async () => {
     const media: MediaItem[] = [
-      { id: "vid-cached", name: "cached.mp4", type: "video", url: "blob:cached", duration: 10, width: 1920, height: 1080 },
+      { id: "vid-cached", name: "cached.mp4", type: "video", url: "blob:cached", duration: 10, width: 1920, height: 1080, size: 0, file: undefined as any },
     ];
 
     mockWorkerAnalyzeFrames.mockClear();
@@ -428,8 +428,8 @@ describe("Comprehensive Smart Cut & Rhythm Engine Test Suite", () => {
   // 11. Timeline Integrity: Gap-Free & Overlap-Free Continuity
   it("Scenario 11: Timeline clips are valid, positive duration, and non-overlapping in sequence", async () => {
     const media: MediaItem[] = [
-      { id: "v1", name: "v1.mp4", type: "video", url: "blob:v1", duration: 15, width: 1920, height: 1080 },
-      { id: "v2", name: "v2.mp4", type: "video", url: "blob:v2", duration: 15, width: 1920, height: 1080 },
+      { id: "v1", name: "v1.mp4", type: "video", url: "blob:v1", duration: 15, width: 1920, height: 1080, size: 0, file: undefined as any },
+      { id: "v2", name: "v2.mp4", type: "video", url: "blob:v2", duration: 15, width: 1920, height: 1080, size: 0, file: undefined as any },
     ];
 
     const result = await runSmartBeatMontage({
@@ -454,7 +454,7 @@ describe("Comprehensive Smart Cut & Rhythm Engine Test Suite", () => {
   // 12. Cancellation Support (AbortSignal)
   it("Scenario 12: Aborting analysis cleanly stops execution with AbortError", async () => {
     const media: MediaItem[] = [
-      { id: "v-abort", name: "v.mp4", type: "video", url: "blob:abort", duration: 10, width: 1920, height: 1080 },
+      { id: "v-abort", name: "v.mp4", type: "video", url: "blob:abort", duration: 10, width: 1920, height: 1080, size: 0, file: undefined as any },
     ];
 
     const abortController = new AbortController();

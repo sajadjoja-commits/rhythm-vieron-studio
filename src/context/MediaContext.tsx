@@ -304,7 +304,6 @@ export interface AudioTrackItem {
   end?: number;
   audioIn?: number;
   audioOut?: number;
-  [key: string]: any;
 }
 
 export type FilterType = 
