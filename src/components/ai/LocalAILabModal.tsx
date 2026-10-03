@@ -407,7 +407,7 @@ export const LocalAILabModal: React.FC<LocalAILabModalProps> = ({
                           <div className="mt-2 text-[10px] text-amber-400/80 bg-amber-500/5 p-1 rounded border border-amber-500/20">
                             {manifest.format === "algorithmic"
                               ? (en ? "Classical algorithmic filter (No weights)" : "فلتر خوارزمي كلاسيكي (بدون أوزان)")
-                              : manifest.format === "none"
+                              : (manifest.format as string) === "none"
                               ? (en ? "Phase 11 reserved architecture" : "معمارية محجوزة للمرحلة 11")
                               : (en ? "Dynamic module / unverified" : "وحدة ديناميكية / غير مفحوصة")}
                           </div>

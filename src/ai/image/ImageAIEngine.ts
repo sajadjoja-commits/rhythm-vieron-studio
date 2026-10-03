@@ -247,56 +247,6 @@ export class ImageAIEngine {
     }
   }
 
-  public async upscaleImage(
-    imageInput: string | Blob | File,
-    scaleFactor: 2 | 4 = 2,
-    options?: ImageAIOptions
-  ): Promise<ImageAIResult> {
-    const startTime = Date.now();
-    const upRes = await aiService.upscaleImage(imageInput, {
-      scale: scaleFactor,
-      format: options?.format,
-      quality: options?.quality,
-      signal: options?.signal,
-      onProgress: (p) => {
-        options?.onProgress?.({
-          taskId: `upscale_${Date.now()}`,
-          taskType: "upscale",
-          stage: p.stage as any,
-          progress: p.percent / 100,
-          message: p.message,
-        });
-      },
-    });
-
-    return {
-      success: upRes.success,
-      outputDataUrl: upRes.outputDataUrl,
-      outputBlob: upRes.outputBlob,
-      mimeType: options?.format || "image/png",
-      width: upRes.width,
-      height: upRes.height,
-      originalWidth: upRes.originalWidth,
-      originalHeight: upRes.originalHeight,
-      taskType: "upscale",
-      engineName: upRes.engine,
-      executionProvider: "wasm",
-      executionTimeMs: upRes.timings.totalMs,
-      timings: {
-        modelLoadMs: 0,
-        preprocessMs: upRes.timings.preprocessMs,
-        inferenceMs: upRes.timings.inferenceMs,
-        postprocessMs: upRes.timings.postprocessMs,
-        totalMs: upRes.timings.totalMs,
-      },
-      metrics: {
-        deviceTier: "high",
-        isLocal: true,
-        hasAlphaChannel: false,
-      },
-    };
-  }
-
   /**
    * Preload AI model weights for a specific task
    */

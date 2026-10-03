@@ -302,6 +302,8 @@ export interface AudioTrackItem {
   beats?: number[];
   bpm?: number;
   end?: number;
+  audioIn?: number;
+  audioOut?: number;
 }
 
 export type FilterType = 
@@ -371,6 +373,7 @@ export interface OverlayItem {
   flipH?: boolean;
   flipV?: boolean;
   keyframes?: Keyframe[];
+  duration?: number;
   // Mask (قناع)
   maskShape?: import("@/lib/maskEngine").MaskShape;
   maskX?: number;

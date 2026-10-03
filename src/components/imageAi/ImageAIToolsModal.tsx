@@ -73,9 +73,9 @@ interface ToolTab {
 const TOOLS_CONFIG: ToolTab[] = [
   {
     id: "remove-background",
-    titleAr: "إزالة وتفريغ الخلفية",
+    titleAr: "إزالة الخلفية",
     titleEn: "Remove BG",
-    descAr: "عزل وتفريغ الخلفيات بنقاء عالي مع معالجة حواف الشعر والملابس والظلال",
+    descAr: "عزل وتفريغ الخلفيات بنقاء عالي مع معالجة حواف الشعر والملابس",
     descEn: "Neural foreground cutout & edge-refined transparent alpha",
     icon: Scissors,
     badge: "Smart Cutout",
@@ -83,43 +83,13 @@ const TOOLS_CONFIG: ToolTab[] = [
   },
   {
     id: "enhance",
-    titleAr: "تحسين وتوضيح الألوان",
+    titleAr: "تحسين وتوضيح",
     titleEn: "AI Enhance",
-    descAr: "إزالة التشويش والتحبيب مع تحسين التباين الديناميكي ووضوح التفاصيل",
-    descEn: "Bilateral denoise, dynamic HDR contrast & clarity restoration",
+    descAr: "إزالة التشويش والتحبيب مع تحسين التباين وترميم تفاصيل الوجوه",
+    descEn: "Bilateral denoise, dynamic HDR contrast & BlazeFace feature restoration",
     icon: Sparkles,
     badge: "Neural Enhance",
     accentColor: "#8b5cf6",
-  },
-  {
-    id: "face-enhance",
-    titleAr: "ترميم وتجميل الوجوه",
-    titleEn: "Face Restore",
-    descAr: "كشف تلقائي عن الوجوه وترميم ملامح العيون والابتسامة ونقاء البشرة",
-    descEn: "MediaPipe BlazeFace detection & high-frequency facial feature restoration",
-    icon: Smile,
-    badge: "Face Beauty",
-    accentColor: "#ec4899",
-  },
-  {
-    id: "upscale",
-    titleAr: "تكبير فائق للدقة 2X/4X",
-    titleEn: "Super Resolution",
-    descAr: "مضاعفة دقة وبكسلات الصورة دون تشويش بواسطة خوارزميات الاستيفاء الفائقة",
-    descEn: "Sub-pixel directional Laplacian interpolation & 2X/4X resolution boost",
-    icon: Maximize2,
-    badge: "Super Res",
-    accentColor: "#10b981",
-  },
-  {
-    id: "object-remove",
-    titleAr: "الممحاة السحرية الذكية",
-    titleEn: "Object Eraser",
-    descAr: "تحديد أي عنصر أو شخص غير مرغوب فيه بالفرشاة لمسحه وتوليد خلفية متناغمة",
-    descEn: "Harmonic inpainting & seamless object removal with interactive brush",
-    icon: Trash2,
-    badge: "Magic Inpaint",
-    accentColor: "#f59e0b",
   },
 ];
 
@@ -303,9 +273,6 @@ export const ImageAIToolsModal: React.FC<ImageAIToolsModalProps> = ({
           break;
         case "enhance":
           aiResult = await imageAIEngine.enhanceImage(imageUrl, options);
-          break;
-        case "upscale":
-          aiResult = await imageAIEngine.upscaleImage(imageUrl, scaleFactor, options);
           break;
         case "face-enhance":
           aiResult = await imageAIEngine.enhanceFace(imageUrl, options);

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useMedia, Caption, CaptionAnimation, CaptionTemplate } from "@/context/MediaContext";
+import { useMedia, Caption, CaptionAnimation, CaptionTemplate, CaptionStyle } from "@/context/MediaContext";
 import { useAdGate } from "@/context/AdGateContext";
 import { X, Plus, Trash2, Type, Languages, Sparkles, Loader2, Palette, Eye, EyeOff, Check, Music, AlertTriangle, CheckCircle2, RotateCw, RefreshCw, Search, Layers, Sliders, Zap, BookOpen, Radio, Youtube, Instagram, MapPin, Quote, Star, Flame, Award, WrapText, FlipHorizontal, FlipVertical, Upload, FileText } from "lucide-react";
 import { toast } from "sonner";
@@ -909,7 +909,7 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
       currentTime,
     });
 
-    const fallbackMediaItem = media.find((m) => m.type === "video" || m.type === "audio");
+    const fallbackMediaItem = media.find((m) => m.type === "video" || (m.type as string) === "audio");
     const targetSource = resolved?.file || resolved?.url || fallbackMediaItem?.file || fallbackMediaItem?.url;
 
     if (!targetSource) {
@@ -1003,7 +1003,7 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
       currentTime: start,
     });
 
-    const fallbackMediaItem = media.find((m) => m.type === "video" || m.type === "audio");
+    const fallbackMediaItem = media.find((m) => m.type === "video" || (m.type as string) === "audio");
     const targetSource = resolved?.file || resolved?.url || fallbackMediaItem?.file || fallbackMediaItem?.url;
 
     if (!targetSource) {
@@ -1184,7 +1184,7 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
     if (addAsNew) {
       const textToAdd = en ? (tpl.sampleTextEn || tpl.nameEn || tpl.name) : (tpl.sampleTextAr || tpl.name);
       const start = currentTime;
-      const end = Math.min(totalDuration || 10, currentTime + (tpl.timing?.defaultDuration || 3.0));
+      const end = Math.min(totalDuration || 10, currentTime + ((tpl.timing as any)?.defaultDuration || 3.0));
       const duration = end - start;
 
       const baseCap: Partial<Caption> = {
@@ -1215,9 +1215,9 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
         letterSpacing: tpl.typography.letterSpacing,
         lineHeight: tpl.typography.lineHeight,
         textTransform: tpl.typography.textTransform,
-        animation: tpl.entrance?.animation || "fade",
+        animation: (tpl.entrance?.animation || "fade") as any,
         badgeIcon: tpl.badgeIcon,
-      }));
+      } as CaptionStyle));
 
       // Apply to all existing captions with keyframes and animations
       setCaptions((prev) =>
@@ -1237,7 +1237,7 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
       id: `custom_${Date.now()}`,
       name,
       nameEn: name,
-      category: "custom",
+      category: "custom" as any,
       version: 1,
       typography: {
         fontFamily: captionStyle.font || "Cairo",
@@ -1627,12 +1627,12 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
                           <span>{t.typography.fontFamily}</span>
                           {t.wordAnimation && (
                             <span className="text-cyan-400 bg-cyan-400/10 px-1 rounded">
-                              {t.wordAnimation.type}
+                              {(t.wordAnimation as any).type}
                             </span>
                           )}
                           {t.characterAnimation && (
                             <span className="text-purple-400 bg-purple-400/10 px-1 rounded">
-                              {t.characterAnimation.type}
+                              {(t.characterAnimation as any).type}
                             </span>
                           )}
                         </div>
@@ -1675,7 +1675,7 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
           </div>
         )}
 
-        {tab === "motion" && (
+        {(tab as string) === "motion" && (
           <div className="space-y-3">
             <div className="p-2 bg-primary/10 border border-primary/20 rounded-xl text-center">
               <span className="text-xs font-bold text-foreground">

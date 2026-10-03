@@ -124,7 +124,7 @@ export default function SmartTemplateQuickEditor({ initialTemplate, onBack, onOp
     const files = e.target.files;
     if (!files || files.length === 0) return;
     try {
-      const newIds = await addFiles(Array.from(files));
+      const newIds = (await addFiles(Array.from(files))).map((m) => m.id);
       if (newIds && newIds.length > 0) {
         setSelectedMediaIds((prev) => [...prev, ...newIds]);
         toast.success(isRTL() ? `تم إضافة ${newIds.length} ملفات` : `Added ${newIds.length} files`);
@@ -181,7 +181,7 @@ export default function SmartTemplateQuickEditor({ initialTemplate, onBack, onOp
       setFilters(res.filters);
       setVfx(res.vfx);
       setCaptions(res.captions);
-      if (res.captionStyle) setCaptionStyle(res.captionStyle);
+      if (res.captionStyle) setCaptionStyle((prev) => ({ ...prev, ...res.captionStyle }));
 
       // Add Music Track
       if (selectedTrack) {
@@ -194,7 +194,7 @@ export default function SmartTemplateQuickEditor({ initialTemplate, onBack, onOp
           volume: musicVolume,
           audioIn: 0,
           audioOut: res.totalDuration
-        }]);
+        } as any]);
       } else {
         setAudioTracks([]);
       }
@@ -221,7 +221,7 @@ export default function SmartTemplateQuickEditor({ initialTemplate, onBack, onOp
     if (!file || !replacingClipId) return;
 
     try {
-      const mediaIds = await addFiles([file]);
+      const mediaIds = (await addFiles([file])).map((m) => m.id);
       if (mediaIds && mediaIds.length > 0) {
         const newMediaId = mediaIds[0];
         setClips((prev) =>

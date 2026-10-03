@@ -13,7 +13,6 @@ import {
 } from "./types";
 import { ImageCapabilityDetector } from "./ImageCapabilityDetector";
 import { ImageInferenceEngine } from "./ImageInferenceEngine";
-import { aiService } from "@/services/ai";
 
 export class ImageWorkerManager {
   private static instance: ImageWorkerManager;
@@ -166,49 +165,8 @@ export class ImageWorkerManager {
     switch (taskType) {
       case "remove-background":
         return engine.removeBackground(imageDataUrl, options);
-      case "upscale": {
-        const upRes = await aiService.upscaleImage(imageDataUrl, {
-          scale: options?.scaleFactor || 2,
-          format: options?.format,
-          quality: options?.quality,
-          signal: options?.signal,
-          onProgress: (p) => {
-            options?.onProgress?.({
-              taskId: `upscale_${Date.now()}`,
-              taskType: "upscale",
-              stage: p.stage as any,
-              progress: p.percent / 100,
-              message: p.message,
-            });
-          },
-        });
-        return {
-          success: upRes.success,
-          outputDataUrl: upRes.outputDataUrl,
-          outputBlob: upRes.outputBlob,
-          mimeType: options?.format || "image/png",
-          width: upRes.width,
-          height: upRes.height,
-          originalWidth: upRes.originalWidth,
-          originalHeight: upRes.originalHeight,
-          taskType: "upscale",
-          engineName: upRes.engine,
-          executionProvider: "wasm",
-          executionTimeMs: upRes.timings.totalMs,
-          timings: {
-            modelLoadMs: 0,
-            preprocessMs: upRes.timings.preprocessMs,
-            inferenceMs: upRes.timings.inferenceMs,
-            postprocessMs: upRes.timings.postprocessMs,
-            totalMs: upRes.timings.totalMs,
-          },
-          metrics: {
-            deviceTier: "high",
-            isLocal: true,
-            hasAlphaChannel: false,
-          },
-        };
-      }
+      case "upscale":
+        return (engine as any).upscaleImage(imageDataUrl, options?.scaleFactor || 2, options);
       case "face-enhance":
         return engine.enhanceFace(imageDataUrl, options);
       case "enhance":

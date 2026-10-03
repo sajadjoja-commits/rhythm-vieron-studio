@@ -148,7 +148,7 @@ export default function TemplateUseScreen({ templateId, templateObj, onBack }: P
     if (!file || !replacingClipId) return;
 
     try {
-      const mediaIds = await addFiles([file]);
+      const mediaIds = (await addFiles([file])).map((m) => m.id);
       if (mediaIds && mediaIds.length > 0) {
         const newMediaId = mediaIds[0];
         setClips((prevClips) =>

@@ -192,6 +192,7 @@ const TemplatesScreen = ({ onStartEditor, onSelectPublishedTemplate, onSelectSma
 
     setAnalysisTemplate(customizedTpl);
     setAnalyzing(true);
+    const progressInterval: ReturnType<typeof setInterval> | undefined = undefined;
     setAnalysisProgress(0.05);
     
     try {
