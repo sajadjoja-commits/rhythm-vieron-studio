@@ -499,7 +499,7 @@ const ProjectsScreen = ({ onStartEditor }: ProjectsScreenProps) => {
 
                   {/* Resolution / Preset Tag */}
                   <div className="absolute bottom-2 left-2 px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-md border border-white/10 z-10 text-[9px] font-semibold text-white/80">
-                    {p.preset?.name || "HD 1080p"}
+                    {(p.preset as any)?.name || "HD 1080p"}
                   </div>
                 </div>
 

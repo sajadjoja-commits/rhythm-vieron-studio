@@ -346,7 +346,7 @@ export class AudioEnhancementPlugin extends BasePlugin {
   ): Promise<string> {
     const blob = await resolveAudioSourceToBlob(audioBase64OrUrl);
 
-    const sepResult = await audioAIEngine.isolateVocals(blob, options as AudioAIJobOptions);
+    const sepResult = await audioAIEngine.isolateVocals(blob, options as unknown as AudioAIJobOptions);
 
     const vocalsDataUrl = await blobToDataUrl(sepResult.vocals.blob);
     const instDataUrl = await blobToDataUrl(sepResult.instrumental.blob);

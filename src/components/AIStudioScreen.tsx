@@ -339,7 +339,7 @@ const AIStudioScreen: React.FC<AIStudioScreenProps> = ({ onBack, onOpenPhotoEdit
         if (selectedTool.actionName === "upscale") {
           const upResult = await imageUpscalerService.upscaleImage(inputMedia.url, {
             scale: (upscaleFactor as any) || 2,
-            denoiseStrength,
+            denoiseStrength: detailSharpen,
             sharpenStrength: detailSharpen,
             onProgress: (p) => {
               setCurrentProgress({
@@ -1092,6 +1092,7 @@ const AIStudioScreen: React.FC<AIStudioScreenProps> = ({ onBack, onOpenPhotoEdit
                     {inputMedia?.url ? (
                       <div className="h-72 rounded-2xl overflow-hidden border border-border">
                         <ImagePreviewEngine
+                          {...({} as any)}
                           originalUrl={inputMedia.url}
                           processedUrl={resultData.outputImageBase64OrUrl}
                           isTransparent={selectedTool.actionName === "remove-background"}
