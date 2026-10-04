@@ -8,6 +8,7 @@ import { Muxer as Mp4Muxer, ArrayBufferTarget as Mp4ArrayBufferTarget } from "mp
 import { Muxer as WebmMuxer, ArrayBufferTarget as WebmArrayBufferTarget } from "webm-muxer";
 import { VideoAIOptions, VideoCapabilityProfile } from "./types";
 import { VideoMemoryManager } from "./VideoMemoryManager";
+import { createSoftwareVideoSession } from "./SoftwareVideoEncoder";
 
 export enum EncoderState {
   CREATED = "CREATED",
@@ -64,6 +65,11 @@ export class VideoEncoderEngine {
     const bitrate = params.bitrate || (width >= 1920 ? 8_000_000 : width >= 1280 ? 4_500_000 : 2_500_000);
     const preserveAudio = options?.preserveAudio ?? true;
 
+    // Browser WebCodecs currently discards alpha; use an actual alpha-capable encoder.
+    if (format === "webm" && options?.backgroundColor === "transparent") {
+      return createSoftwareVideoSession({ width, height, fps, format, audioBuffer: preserveAudio ? audioBuffer : null, options });
+    }
+
     // If WebCodecs is supported, use hardware WebCodecs streaming encoder
     if (profile.hasWebCodecs && typeof VideoEncoder !== "undefined") {
       try {
@@ -81,8 +87,8 @@ export class VideoEncoderEngine {
       }
     }
 
-    // Fallback: Canvas MediaRecorder stream encoder
-    return this.createMediaRecorderSession({
+    // A wall-clock MediaRecorder stretches video by processing time and desynchronizes audio.
+    return createSoftwareVideoSession({
       width,
       height,
       fps,
@@ -90,7 +96,7 @@ export class VideoEncoderEngine {
       format,
       audioBuffer: preserveAudio ? audioBuffer : null,
       options,
-    } as any);
+    });
   }
 
   /**
@@ -115,9 +121,10 @@ export class VideoEncoderEngine {
     let mp4Muxer: any = null;
     let webmMuxer: any = null;
     const isWebm = format === "webm";
-    const hasAudio = Boolean(params.audioBuffer && params.audioBuffer.length > 0);
-    const audioChannels = hasAudio ? Math.min(2, params.audioBuffer!.numberOfChannels) : 0;
-    const audioSampleRate = hasAudio ? params.audioBuffer!.sampleRate : 0;
+    const sourceAudio = params.audioBuffer;
+    const hasAudio = Boolean(sourceAudio && sourceAudio.length > 0);
+    const audioChannels = sourceAudio ? Math.min(2, sourceAudio.numberOfChannels) : 0;
+    const audioSampleRate = sourceAudio?.sampleRate || 0;
 
     let audioEncoder: any = null;
     let audioEncoderReady = false;
@@ -170,6 +177,11 @@ export class VideoEncoderEngine {
       }
     }
 
+    if (hasAudio && !audioEncoderReady) {
+      try { audioEncoder?.close(); } catch {}
+      throw new Error("Audio codec unavailable; switching to audio-safe software encoding.");
+    }
+
     // Candidate codecs for negotiation
     const candidateCodecs = isWebm
       ? ["vp09.00.10.08", "vp8"]
@@ -212,6 +224,7 @@ export class VideoEncoderEngine {
     }
 
     if (!isSupported) {
+      try { audioEncoder?.close(); } catch {}
       throw new Error(`[VideoEncoderEngine] WebCodecs does not support codecs for ${format}`);
     }
 
@@ -455,11 +468,8 @@ export class VideoEncoderEngine {
           // Flush any remaining audio interleaved
           encodeAudioUpTo(Infinity);
           if (audioEncoderReady && audioEncoder) {
-            try {
-              await audioEncoder.flush();
-            } catch (audioFlushErr) {
-              console.warn("[VideoEncoderEngine] Audio flush warning:", audioFlushErr);
-            }
+            await audioEncoder.flush();
+            if (audioEncoderError) throw audioEncoderError;
             try {
               audioEncoder.close();
             } catch {}
@@ -504,6 +514,7 @@ export class VideoEncoderEngine {
           try {
             videoEncoder.close();
           } catch {}
+          try { audioEncoder?.close(); } catch {}
           throw lastError;
         }
       })();
@@ -517,6 +528,7 @@ export class VideoEncoderEngine {
       try {
         videoEncoder.close();
       } catch {}
+      try { audioEncoder?.close(); } catch {}
     };
 
     const getError = () => lastError;
