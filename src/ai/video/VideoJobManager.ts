@@ -280,8 +280,9 @@ export class VideoJobManager {
     const job = this.jobs.get(jobId);
     if (!job) return;
 
-    job.status = p.stage;
-    job.progress = Math.min(100, Math.max(0, p.percentage));
+    // Engine completion precedes preview attachment; reserve 96–100% for the UI.
+    job.status = p.stage === "COMPLETED" ? "VERIFYING" : p.stage;
+    job.progress = Math.max(job.progress, Math.min(95, Math.max(0, p.percentage)));
     job.currentFrame = p.currentFrame;
     job.totalFrames = p.totalFrames;
     job.sourceFps = p.sourceFps || p.fps;

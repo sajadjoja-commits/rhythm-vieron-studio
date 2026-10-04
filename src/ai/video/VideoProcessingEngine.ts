@@ -25,6 +25,7 @@ import { VideoEncoderEngine } from "./VideoEncoderEngine";
 import { VideoOutputVerifier, VideoSampleFrame } from "./VideoOutputVerifier";
 import { VideoWorkerManager } from "./VideoWorkerManager";
 import { WebCodecsVideoDecoder } from "./WebCodecsVideoDecoder";
+import { processingDimensions } from "./videoProcessingPolicy";
 
 export class VideoProcessingEngine {
   private static instance: VideoProcessingEngine;
@@ -88,6 +89,7 @@ export class VideoProcessingEngine {
   ): Promise<VideoAIResult> {
     return this.executeVideoPipeline("remove-video-background", videoInput, {
       ...options,
+      backgroundColor: options?.backgroundColor || "transparent",
       outputFormat: options?.outputFormat || (options?.backgroundColor && options.backgroundColor !== "transparent" ? "mp4" : "webm"),
     });
   }
@@ -105,11 +107,12 @@ export class VideoProcessingEngine {
     const abortController = new AbortController();
     this.activeJobs.set(jobId, { abortController });
 
-    if (options?.abortSignal) {
-      options.abortSignal.addEventListener("abort", () => {
-        abortController.abort();
-      }, { once: true });
-    }
+    const abortFromCaller = () => abortController.abort();
+    options?.abortSignal?.addEventListener("abort", abortFromCaller, { once: true });
+    if (options?.abortSignal?.aborted) abortController.abort();
+    const cleanupTasks: (() => void)[] = [];
+    let progressHighWater = 0;
+    let processingStartedAt = 0;
 
     const logStage = (stage: string, meta?: Record<string, any>) => {
       console.log(`[VIDEO-AI] [${stage}] jobId: ${jobId} | task: ${taskType}`, meta ? JSON.stringify(meta) : "");
@@ -130,16 +133,18 @@ export class VideoProcessingEngine {
 
       const elapsedMs = Date.now() - startTime;
       const framesDone = Math.max(1, currentFrame);
-      const msPerFrame = elapsedMs / framesDone;
+      const processingMs = processingStartedAt ? Date.now() - processingStartedAt : 0;
+      const msPerFrame = processingMs / framesDone;
       const remainingFrames = Math.max(0, totalFrames - currentFrame);
       const etaSeconds = Math.round((remainingFrames * msPerFrame) / 1000);
-      const processingFps = elapsedMs > 500 ? Number((framesDone / (elapsedMs / 1000)).toFixed(1)) : 0;
+      const processingFps = processingMs > 0 && currentFrame > 0 ? Number((currentFrame / (processingMs / 1000)).toFixed(1)) : 0;
+      progressHighWater = Math.max(progressHighWater, Math.min(100, Math.max(0, Math.round(percentage))));
 
       options?.onProgress?.({
         jobId,
         taskType,
         stage,
-        percentage: Math.min(100, Math.max(0, Math.round(percentage))),
+        percentage: progressHighWater,
         currentFrame,
         totalFrames,
         sourceFps: sourceVideoFps,
@@ -170,6 +175,7 @@ export class VideoProcessingEngine {
         videoInput,
         targetFps
       );
+      cleanupTasks.push(cleanupSourceVideo);
 
       let width = meta.width;
       let height = meta.height;
@@ -185,6 +191,7 @@ export class VideoProcessingEngine {
           const decoder = new WebCodecsVideoDecoder();
           const decMeta = await decoder.prepare(videoInput);
           webCodecsDecoder = decoder;
+          cleanupTasks.push(() => decoder.close());
           // Prefer exact hardware demuxer metadata if available
           if (decMeta.width > 0 && decMeta.height > 0) {
             width = decMeta.width;
@@ -216,8 +223,11 @@ export class VideoProcessingEngine {
 
       logStage("DECODER_READY", { width, height, durationSeconds, fps, totalFrames, hasAudio: meta.hasAudio, useWebCodecs: !!webCodecsDecoder });
 
+      ({ width, height } = processingDimensions(width, height, profile, options));
+
       // 3. Setup Processing Canvas & Buffers
       const processCanvas = this.memoryManager.createCanvas(width, height);
+      cleanupTasks.push(() => this.memoryManager.disposeCanvas(processCanvas));
       const ctx = processCanvas.getContext("2d", { willReadFrequently: true }) as CanvasRenderingContext2D;
 
       if (!ctx) {
@@ -248,6 +258,7 @@ export class VideoProcessingEngine {
         profile,
         options,
       });
+      cleanupTasks.push(() => encoderSession.cancel());
 
       logStage("ENCODER_READY", { format: outputFormat, width, height, fps });
       emitProgress("PROCESSING", 10, 0, totalFrames, "بدء معالجة الإطارات بدقة الذكاء الاصطناعي...");
@@ -296,6 +307,7 @@ export class VideoProcessingEngine {
         logStage("PROCESSING", { totalFrames, engine: webCodecsDecoder ? "WebCodecs Hardware" : "Sequential Extractor" });
         let lastFrameTimestamp = Date.now();
         let movingAvgFps = fps;
+        processingStartedAt = Date.now();
 
         for (let frameIdx = 0; frameIdx < totalFrames; frameIdx++) {
           // Abort / Cancellation check
@@ -330,6 +342,7 @@ export class VideoProcessingEngine {
             sourceImage = video;
           }
 
+          try {
           // Draw current frame into processing canvas
           ctx.clearRect(0, 0, width, height);
           ctx.drawImage(sourceImage, 0, 0, width, height);
@@ -376,7 +389,7 @@ export class VideoProcessingEngine {
               // 1. High-speed 256x256 segmentation (runs in ~6ms)
               const maskInfo = await this.segmentationEngine.segmentImageSource(
                 sourceImage,
-                orientationPolicy!,
+                orientationPolicy || undefined,
                 frameIdx
               );
 
@@ -430,11 +443,8 @@ export class VideoProcessingEngine {
           }
 
           // Release active hardware VideoFrame immediately to guarantee zero memory accumulation
-          if (activeVideoFrame) {
-            try {
-              activeVideoFrame.close();
-            } catch {}
-            activeVideoFrame = null;
+          } finally {
+            try { activeVideoFrame?.close(); } catch {}
           }
 
           // Quick canvas verification for sample frames
@@ -458,7 +468,7 @@ export class VideoProcessingEngine {
           }
 
           // Update Progress
-          const percent = 10 + Math.round((frameIdx / totalFrames) * 75);
+          const percent = 10 + Math.round(((frameIdx + 1) / totalFrames) * 78);
           if (frameIdx % Math.max(1, Math.floor(fps / 3)) === 0 || frameIdx === totalFrames - 1) {
             emitProgress(
               "PROCESSING",
@@ -489,6 +499,7 @@ export class VideoProcessingEngine {
         logStage("FINALIZING");
         emitProgress("ENCODING", 90, totalFrames, totalFrames, "جاري إتمام ترميز وضغط الفيديو النهائي...");
         const outputBlob = await encoderSession.finish();
+        if (abortController.signal.aborted) throw new Error("تم إلغاء معالجة الفيديو.");
 
         // Clean source resources
         if (webCodecsDecoder) {
@@ -506,6 +517,7 @@ export class VideoProcessingEngine {
           expectedWidth: width,
           expectedHeight: height,
           taskType: taskType as any,
+          expectedAlpha: taskType === "remove-video-background" && options?.backgroundColor === "transparent",
           inputSampleFrames,
         });
 
@@ -553,6 +565,8 @@ export class VideoProcessingEngine {
       emitProgress("FAILED", 0, 0, 0, `خطأ في المعالجة: ${err?.message || String(err)}`);
       throw err;
     } finally {
+      options?.abortSignal?.removeEventListener("abort", abortFromCaller);
+      for (const cleanup of cleanupTasks.reverse()) { try { cleanup(); } catch {} }
       this.activeJobs.delete(jobId);
     }
   }
