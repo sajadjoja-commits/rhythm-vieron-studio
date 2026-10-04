@@ -14,14 +14,26 @@ function missingStaticAssets404Plugin(): Plugin {
       server.middlewares.use((req, res, next) => {
         const rawUrl = req.url || "";
         const pathname = rawUrl.split("?")[0];
+
+        // Never intercept Vite internal routes, module imports, source files, or node_modules
+        if (
+          rawUrl.includes("?import") ||
+          pathname.startsWith("/src/") ||
+          pathname.startsWith("/node_modules/") ||
+          pathname.startsWith("/@")
+        ) {
+          return next();
+        }
+
         if (
           pathname.startsWith("/models/") ||
           pathname.startsWith("/wasm/") ||
-          /\.(json|wasm|onnx|bin|safetensors|pt)$/i.test(pathname)
+          /\.(wasm|onnx|bin|safetensors|pt)$/i.test(pathname)
         ) {
           const cleanPath = pathname.replace(/^\/+/, "");
           const publicFile = path.resolve(__dirname, "public", cleanPath);
-          if (!fs.existsSync(publicFile)) {
+          const rootFile = path.resolve(__dirname, cleanPath);
+          if (!fs.existsSync(publicFile) && !fs.existsSync(rootFile)) {
             res.statusCode = 404;
             res.setHeader("Content-Type", "application/json");
             res.end(JSON.stringify({ error: "Static asset not found", path: pathname }));

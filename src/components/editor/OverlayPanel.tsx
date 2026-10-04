@@ -790,10 +790,27 @@ const OverlayPanel = ({ open, onClose, currentTime }: Props) => {
           {/* TAB 3: TRIM & TIMING */}
           {activeTab === "mask" && selectedOverlay && (() => {
             const o = selectedOverlay;
-            const shape = o.maskShape ?? "none";
+            const eff = o.mask || o;
+            const shape = eff.maskShape ?? o.maskShape ?? "none";
             const local = Math.max(0, currentTime - o.start);
-            const kfs = o.maskKeyframes || [];
+            const kfs = eff.maskKeyframes || o.maskKeyframes || [];
             const kfAtNow = kfs.find(k => Math.abs(k.time - local) < 0.05);
+            const updateOvMask = (patch: Record<string, any>) => {
+              const nextMask = {
+                maskShape: eff.maskShape ?? o.maskShape ?? "none",
+                maskX: eff.maskX ?? o.maskX ?? 50,
+                maskY: eff.maskY ?? o.maskY ?? 50,
+                maskSize: eff.maskSize ?? o.maskSize ?? 100,
+                maskWidth: eff.maskWidth ?? o.maskWidth ?? 100,
+                maskHeight: eff.maskHeight ?? o.maskHeight ?? 100,
+                maskFeather: eff.maskFeather ?? o.maskFeather ?? 0,
+                maskInverted: eff.maskInverted ?? o.maskInverted ?? false,
+                maskKeyframes: eff.maskKeyframes ?? o.maskKeyframes,
+                maskPath: eff.maskPath ?? o.maskPath,
+                ...patch,
+              };
+              updateOverlay(o.id, { ...patch, mask: nextMask } as any);
+            };
             const shapes: { id: MaskShape; icon: any; label: string }[] = [
               { id: "none", icon: Ban, label: en ? "None" : "بدون" },
               { id: "circle", icon: Circle, label: en ? "Circle" : "دائرة" },
@@ -806,18 +823,18 @@ const OverlayPanel = ({ open, onClose, currentTime }: Props) => {
               <div className="space-y-1.5" key={key}>
                 <div className="flex items-center justify-between text-xs font-bold text-foreground">
                   <span>{label}</span>
-                  <span className="text-primary text-[10px] bg-primary/10 px-1.5 py-0.5 rounded-full font-mono">{Math.round((o[key] as number | undefined) ?? def)}{unit}</span>
+                  <span className="text-primary text-[10px] bg-primary/10 px-1.5 py-0.5 rounded-full font-mono">{Math.round(((eff as any)[key] ?? (o as any)[key]) ?? def)}{unit}</span>
                 </div>
-                <input type="range" min={min} max={max} step={1} value={(o[key] as number | undefined) ?? def}
-                  onChange={(e) => updateOverlay(o.id, { [key]: Number(e.target.value) } as any)}
+                <input type="range" min={min} max={max} step={1} value={((eff as any)[key] ?? (o as any)[key]) ?? def}
+                  onChange={(e) => updateOvMask({ [key]: Number(e.target.value) })}
                   className="w-full h-2 rounded-lg accent-primary bg-secondary cursor-pointer" />
               </div>
             );
             const addKf = () => {
               playSfx("click");
-              const k: MaskKeyframe = { time: local, x: o.maskX ?? 50, y: o.maskY ?? 50, size: o.maskSize ?? 100 };
-              const next = [...kfs.filter(x => Math.abs(x.time - local) >= 0.05), k].sort((a, b) => a.time - b.time);
-              updateOverlay(o.id, { maskKeyframes: next });
+              const k: MaskKeyframe = { time: local, x: eff.maskX ?? o.maskX ?? 50, y: eff.maskY ?? o.maskY ?? 50, size: eff.maskSize ?? o.maskSize ?? 100 };
+              const next = [...kfs.filter(x => Math.abs(k.time - local) >= 0.05), k].sort((a, b) => a.time - b.time);
+              updateOvMask({ maskKeyframes: next });
               toast.success(en ? "Mask keyframe added" : "تمت إضافة إطار مفتاحي للقناع");
             };
             return (
@@ -827,7 +844,7 @@ const OverlayPanel = ({ open, onClose, currentTime }: Props) => {
                     const Icon = s.icon;
                     return (
                       <button key={s.id} type="button"
-                        onClick={() => { playSfx("click"); updateOverlay(o.id, { maskShape: s.id }); }}
+                        onClick={() => { playSfx("click"); updateOvMask({ maskShape: s.id }); }}
                         className={`flex flex-col items-center gap-1 py-2 rounded-xl border text-[9px] font-bold transition-all active:scale-95 ${shape === s.id ? "border-primary bg-primary/10 text-primary" : "border-border/40 bg-background text-muted-foreground"}`}>
                         <Icon className="w-4 h-4" />
                         <span className="truncate max-w-full">{s.label}</span>
@@ -845,7 +862,7 @@ const OverlayPanel = ({ open, onClose, currentTime }: Props) => {
                     {slider(en ? "Feather / Softness" : "نعومة الحواف", "maskFeather", 0, 50, 0, "px")}
                     <label className="flex items-center justify-between text-xs font-bold text-foreground bg-background border border-border/40 rounded-xl px-3 py-2">
                       <span>{en ? "Invert mask" : "عكس القناع"}</span>
-                      <input type="checkbox" checked={!!o.maskInverted} onChange={(e) => updateOverlay(o.id, { maskInverted: e.target.checked })} className="w-4 h-4 accent-primary" />
+                      <input type="checkbox" checked={!!(eff.maskInverted ?? o.maskInverted)} onChange={(e) => updateOvMask({ maskInverted: e.target.checked })} className="w-4 h-4 accent-primary" />
                     </label>
                     <div className="space-y-2 pt-2 border-t border-border/30">
                       <div className="flex gap-2">
@@ -853,7 +870,7 @@ const OverlayPanel = ({ open, onClose, currentTime }: Props) => {
                           {kfAtNow ? (en ? "Update keyframe" : "تحديث الإطار المفتاحي") : (en ? "Add keyframe at playhead" : "إضافة إطار مفتاحي عند المؤشر")}
                         </button>
                         {kfs.length > 0 && (
-                          <button type="button" onClick={() => { playSfx("click"); updateOverlay(o.id, { maskKeyframes: [] }); }} className="px-3 py-2 rounded-xl bg-secondary text-foreground text-xs font-bold active:scale-95">
+                          <button type="button" onClick={() => { playSfx("click"); updateOvMask({ maskKeyframes: [] }); }} className="px-3 py-2 rounded-xl bg-secondary text-foreground text-xs font-bold active:scale-95">
                             {en ? "Clear" : "مسح"}
                           </button>
                         )}
@@ -861,7 +878,7 @@ const OverlayPanel = ({ open, onClose, currentTime }: Props) => {
                       {kfs.length > 0 && (
                         <div className="flex flex-wrap gap-1">
                           {kfs.map((k, i) => (
-                            <button key={i} type="button" onClick={() => updateOverlay(o.id, { maskKeyframes: kfs.filter((_, j) => j !== i) })}
+                            <button key={i} type="button" onClick={() => updateOvMask({ maskKeyframes: kfs.filter((_, j) => j !== i) })}
                               className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/30">
                               {k.time.toFixed(2)}s ✕
                             </button>

@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect, useRef } from "react";
 import { X, Download, Share2, Check, Sparkles, Film, Music, Languages, Sliders, Volume2, Loader2, Wifi, WifiOff, Globe, AlertTriangle } from "lucide-react";
 import { useMedia, interpolateKeyframes } from "@/context/MediaContext";
 import { toast } from "sonner";
-import { hasMask, applyMaskToContext } from "@/lib/maskEngine";
+import { hasMask, applyMaskToContext, getEffectiveMask } from "@/lib/maskEngine";
 import { t, isRTL, getLang } from "@/lib/i18n";
 import { applyOfflineFxChain } from "@/lib/audioFx";
 import { registerPlugin, Capacitor } from '@capacitor/core';
@@ -1325,23 +1325,51 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
           ctx.filter = combinedFilter;
         }
 
-        // 4. Render actual preloaded media layer
-        if (activeMedia.type === "video") {
-          const preloadedVid = (preloadedMap[clip.id] || preloadedMap[clip.mediaId]) as HTMLVideoElement;
-          if (preloadedVid && preloadedVid.videoWidth > 0) {
-            const vw = preloadedVid.videoWidth;
-            const vh = preloadedVid.videoHeight;
-            const { drawW, drawH } = getContainSize(vw, vh, exportWidth, exportHeight);
-            ctx.drawImage(preloadedVid, -drawW / 2, -drawH / 2, drawW, drawH);
+        // 4. Render actual preloaded media layer (with shared WYSIWYG mask support)
+        const drawActiveClipMedia = (targetCtx: CanvasRenderingContext2D, centerOrigin: boolean) => {
+          if (activeMedia.type === "video") {
+            const preloadedVid = (preloadedMap[clip.id] || preloadedMap[clip.mediaId]) as HTMLVideoElement;
+            if (preloadedVid && preloadedVid.videoWidth > 0) {
+              const vw = preloadedVid.videoWidth;
+              const vh = preloadedVid.videoHeight;
+              const { drawW, drawH } = getContainSize(vw, vh, exportWidth, exportHeight);
+              const dx = centerOrigin ? -drawW / 2 : (exportWidth - drawW) / 2;
+              const dy = centerOrigin ? -drawH / 2 : (exportHeight - drawH) / 2;
+              targetCtx.drawImage(preloadedVid, dx, dy, drawW, drawH);
+            }
+          } else if (activeMedia.type === "image") {
+            const preloadedImg = (preloadedMap[clip.id] || preloadedMap[clip.mediaId]) as HTMLImageElement;
+            if (preloadedImg && (preloadedImg.complete || preloadedImg.naturalWidth > 0)) {
+              const iw = preloadedImg.naturalWidth || 1080;
+              const ih = preloadedImg.naturalHeight || 1920;
+              const { drawW, drawH } = getContainSize(iw, ih, exportWidth, exportHeight);
+              const dx = centerOrigin ? -drawW / 2 : (exportWidth - drawW) / 2;
+              const dy = centerOrigin ? -drawH / 2 : (exportHeight - drawH) / 2;
+              targetCtx.drawImage(preloadedImg, dx, dy, drawW, drawH);
+            }
           }
-        } else if (activeMedia.type === "image") {
-          const preloadedImg = (preloadedMap[clip.id] || preloadedMap[clip.mediaId]) as HTMLImageElement;
-          if (preloadedImg && (preloadedImg.complete || preloadedImg.naturalWidth > 0)) {
-            const iw = preloadedImg.naturalWidth || 1080;
-            const ih = preloadedImg.naturalHeight || 1920;
-            const { drawW, drawH } = getContainSize(iw, ih, exportWidth, exportHeight);
-            ctx.drawImage(preloadedImg, -drawW / 2, -drawH / 2, drawW, drawH);
-          }
+        };
+
+        if (hasMask(clip)) {
+          ctx.save();
+          ctx.translate(-exportWidth / 2, -exportHeight / 2);
+          const clipFeatherPx = (clip.mask?.maskFeather ?? 0) * (exportWidth / previewW);
+          applyMaskToContext(
+            ctx,
+            clip,
+            clipLocalTime,
+            exportWidth,
+            exportHeight,
+            clipFeatherPx,
+            clip.keyframes,
+            (mctx) => {
+              if (combinedFilter) mctx.filter = combinedFilter;
+              drawActiveClipMedia(mctx, false);
+            }
+          );
+          ctx.restore();
+        } else {
+          drawActiveClipMedia(ctx, true);
         }
 
         // 5. Render transitions inside transform context
@@ -1555,15 +1583,25 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
             }
 
             if (hasMask(o)) {
-              // Offscreen layer → mask (same engine as preview) → composite
+              const effMask = getEffectiveMask(o);
               const lw = Math.max(1, Math.round(drawW)), lh = Math.max(1, Math.round(drawH));
-              const layer = document.createElement("canvas");
-              layer.width = lw; layer.height = lh;
-              const lctx = layer.getContext("2d")!;
-              lctx.drawImage(el, 0, 0, lw, lh);
               const pxRatio = drawW / previewBaseW;
-              applyMaskToContext(lctx, o, elapsed - o.start, lw, lh, (o.maskFeather ?? 0) * pxRatio);
-              ctx.drawImage(layer, -drawW / 2, -drawH / 2, drawW, drawH);
+              const featherPx = ((effMask?.maskFeather ?? o.maskFeather ?? 0)) * pxRatio;
+              ctx.save();
+              ctx.translate(-drawW / 2, -drawH / 2);
+              applyMaskToContext(
+                ctx,
+                o,
+                elapsed - o.start,
+                lw,
+                lh,
+                featherPx,
+                o.keyframes,
+                (mctx) => {
+                  mctx.drawImage(el, 0, 0, lw, lh);
+                }
+              );
+              ctx.restore();
             } else {
               ctx.drawImage(el, -drawW / 2, -drawH / 2, drawW, drawH);
             }
@@ -1676,98 +1714,131 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
           maxLineWidth += badgeWidth;
         }
 
-        const rectW = maxLineWidth + paddingX * 2;
-        const rectH = textLines.length * lineHeightPx + paddingY * 2;
+        const rectW = Math.max(16, maxLineWidth + paddingX * 2);
+        const rectH = Math.max(16, textLines.length * lineHeightPx + paddingY * 2);
         const radiusVal = bgRadius * scaleFactor;
 
-        // Background box
-        if (bg && bg !== "transparent" && bg !== "rgba(0,0,0,0)") {
-          ctx.fillStyle = bg;
-          ctx.beginPath();
-          if (ctx.roundRect) {
-            ctx.roundRect(-rectW / 2, -rectH / 2, rectW, rectH, radiusVal);
-          } else {
-            ctx.rect(-rectW / 2, -rectH / 2, rectW, rectH);
+        const drawCaptionContent = (targetCtx: CanvasRenderingContext2D, offsetX: number, offsetY: number) => {
+          targetCtx.font = `bold ${fontSize}px ${font}, sans-serif`;
+          targetCtx.textBaseline = "middle";
+          targetCtx.textAlign = "center";
+          if ("letterSpacing" in targetCtx && letterSpacing) {
+            try {
+              (targetCtx as any).letterSpacing = `${letterSpacing * scaleFactor}px`;
+            } catch {}
           }
-          ctx.fill();
-        }
 
-        // Text stroke & shadow for crisp visibility matching live preview
-        ctx.shadowColor = shadowColor;
-        ctx.shadowBlur = shadowBlur * scaleFactor;
-        ctx.shadowOffsetX = shadowOffsetX * scaleFactor;
-        ctx.shadowOffsetY = shadowOffsetY * scaleFactor;
-        ctx.fillStyle = color;
-
-        if (strokeWidth > 0) {
-          ctx.strokeStyle = strokeColor;
-          ctx.lineWidth = strokeWidth * scaleFactor;
-        }
-
-        const startY = -((textLines.length - 1) * lineHeightPx) / 2;
-        const capDuration = Math.max(0.1, activeCap.end - activeCap.start);
-
-        textLines.forEach((line, idx) => {
-          let lineToRender = line;
-          if (idx === 0 && badgeIconPrefix) {
-            lineToRender = badgeIconPrefix + lineToRender;
+          // Background box
+          if (bg && bg !== "transparent" && bg !== "rgba(0,0,0,0)") {
+            targetCtx.fillStyle = bg;
+            targetCtx.beginPath();
+            if (targetCtx.roundRect) {
+              targetCtx.roundRect(offsetX - rectW / 2, offsetY - rectH / 2, rectW, rectH, radiusVal);
+            } else {
+              targetCtx.rect(offsetX - rectW / 2, offsetY - rectH / 2, rectW, rectH);
+            }
+            targetCtx.fill();
           }
-          const formattedLine = textTransform === "uppercase" 
-            ? lineToRender.toUpperCase() 
-            : textTransform === "lowercase" 
-            ? lineToRender.toLowerCase() 
-            : lineToRender;
 
-          const currentLineY = startY + idx * lineHeightPx;
+          // Text stroke & shadow for crisp visibility matching live preview
+          targetCtx.shadowColor = shadowColor;
+          targetCtx.shadowBlur = shadowBlur * scaleFactor;
+          targetCtx.shadowOffsetX = shadowOffsetX * scaleFactor;
+          targetCtx.shadowOffsetY = shadowOffsetY * scaleFactor;
+          targetCtx.fillStyle = color;
 
-          if (activeCap.wordAnimation?.enabled) {
-            // Word-level rendering matching CaptionOverlay
-            const words = formattedLine.split(/\s+/).filter(Boolean);
-            const spaceW = ctx.measureText(" ").width;
-            const wordWidths = words.map((w) => ctx.measureText(w).width);
-            const totalLineW = wordWidths.reduce((sum, w) => sum + w, 0) + (words.length - 1) * spaceW;
-            let curX = -totalLineW / 2;
+          if (strokeWidth > 0) {
+            targetCtx.strokeStyle = strokeColor;
+            targetCtx.lineWidth = strokeWidth * scaleFactor;
+          }
 
-            words.forEach((word, wIdx) => {
-              const wState = computeWordState(wIdx, words.length, capLocalTime, capDuration, activeCap.wordAnimation);
-              const wW = wordWidths[wIdx];
-              const wordCenterX = curX + wW / 2;
+          const startY = offsetY - ((textLines.length - 1) * lineHeightPx) / 2;
+          const capDuration = Math.max(0.1, activeCap.end - activeCap.start);
 
-              if (wState.isVisible) {
-                ctx.save();
-                ctx.translate(wordCenterX, currentLineY + (wState.translateY || 0) * scaleFactor);
-                ctx.scale(wState.scale, wState.scale);
-                ctx.globalAlpha = (ctx.globalAlpha || 1) * wState.opacity;
+          textLines.forEach((line, idx) => {
+            let lineToRender = line;
+            if (idx === 0 && badgeIconPrefix) {
+              lineToRender = badgeIconPrefix + lineToRender;
+            }
+            const formattedLine = textTransform === "uppercase" 
+              ? lineToRender.toUpperCase() 
+              : textTransform === "lowercase" 
+              ? lineToRender.toLowerCase() 
+              : lineToRender;
 
-                if (wState.highlightBg) {
-                  ctx.fillStyle = wState.highlightBg;
-                  const bgPad = 4 * scaleFactor;
-                  ctx.fillRect(-wW / 2 - bgPad, -fontSize / 2, wW + bgPad * 2, fontSize);
+            const currentLineY = startY + idx * lineHeightPx;
+
+            if (activeCap.wordAnimation?.enabled) {
+              // Word-level rendering matching CaptionOverlay
+              const words = formattedLine.split(/\s+/).filter(Boolean);
+              const spaceW = targetCtx.measureText(" ").width;
+              const wordWidths = words.map((w) => targetCtx.measureText(w).width);
+              const totalLineW = wordWidths.reduce((sum, w) => sum + w, 0) + (words.length - 1) * spaceW;
+              let curX = offsetX - totalLineW / 2;
+
+              words.forEach((word, wIdx) => {
+                const wState = computeWordState(wIdx, words.length, capLocalTime, capDuration, activeCap.wordAnimation);
+                const wW = wordWidths[wIdx];
+                const wordCenterX = curX + wW / 2;
+
+                if (wState.isVisible) {
+                  targetCtx.save();
+                  targetCtx.translate(wordCenterX, currentLineY + (wState.translateY || 0) * scaleFactor);
+                  targetCtx.scale(wState.scale, wState.scale);
+                  targetCtx.globalAlpha = (targetCtx.globalAlpha || 1) * wState.opacity;
+
+                  if (wState.highlightBg) {
+                    targetCtx.fillStyle = wState.highlightBg;
+                    const bgPad = 4 * scaleFactor;
+                    targetCtx.fillRect(-wW / 2 - bgPad, -fontSize / 2, wW + bgPad * 2, fontSize);
+                  }
+
+                  targetCtx.fillStyle = wState.highlightColor || color;
+                  if (strokeWidth > 0) {
+                    targetCtx.strokeText(word, 0, 0);
+                  }
+                  targetCtx.fillText(word, 0, 0);
+                  targetCtx.restore();
                 }
-
-                ctx.fillStyle = wState.highlightColor || color;
-                if (strokeWidth > 0) {
-                  ctx.strokeText(word, 0, 0);
-                }
-                ctx.fillText(word, 0, 0);
-                ctx.restore();
+                curX += wW + spaceW;
+              });
+            } else if (activeCap.characterAnimation?.enabled) {
+              // Character-level reveal
+              const charResult = computeCharacterReveal(formattedLine, capLocalTime, capDuration, activeCap.characterAnimation);
+              if (strokeWidth > 0) {
+                targetCtx.strokeText(charResult.visibleText, offsetX, currentLineY);
               }
-              curX += wW + spaceW;
-            });
-          } else if (activeCap.characterAnimation?.enabled) {
-            // Character-level reveal
-            const charResult = computeCharacterReveal(formattedLine, capLocalTime, capDuration, activeCap.characterAnimation);
-            if (strokeWidth > 0) {
-              ctx.strokeText(charResult.visibleText, 0, currentLineY);
+              targetCtx.fillText(charResult.visibleText, offsetX, currentLineY);
+            } else {
+              if (strokeWidth > 0) {
+                targetCtx.strokeText(formattedLine, offsetX, currentLineY);
+              }
+              targetCtx.fillText(formattedLine, offsetX, currentLineY);
             }
-            ctx.fillText(charResult.visibleText, 0, currentLineY);
-          } else {
-            if (strokeWidth > 0) {
-              ctx.strokeText(formattedLine, 0, currentLineY);
+          });
+        };
+
+        if (hasMask(activeCap)) {
+          const effCapMask = getEffectiveMask(activeCap);
+          const capFeatherPx = (effCapMask?.maskFeather ?? 0) * scaleFactor;
+          ctx.save();
+          ctx.translate(-rectW / 2, -rectH / 2);
+          applyMaskToContext(
+            ctx,
+            activeCap,
+            capLocalTime,
+            rectW,
+            rectH,
+            capFeatherPx,
+            activeCap.keyframes,
+            (mctx) => {
+              drawCaptionContent(mctx, rectW / 2, rectH / 2);
             }
-            ctx.fillText(formattedLine, 0, currentLineY);
-          }
-        });
+          );
+          ctx.restore();
+        } else {
+          drawCaptionContent(ctx, 0, 0);
+        }
 
         ctx.restore();
       }

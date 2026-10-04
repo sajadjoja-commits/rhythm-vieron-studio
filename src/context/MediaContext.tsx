@@ -116,6 +116,7 @@ export interface Clip {
   muteOriginalAudio?: boolean;
   editable?: boolean;
   duration?: number;
+  mask?: import("@/lib/maskEngine").MaskConfig;
 }
 
 export function interpolateKeyframes(
@@ -214,6 +215,7 @@ export interface Caption {
   templateOverrides?: Partial<Caption>;
   wordAnimation?: WordAnimationConfig;
   characterAnimation?: CharacterAnimationConfig;
+  mask?: import("@/lib/maskEngine").MaskConfig;
 }
 
 export interface CaptionTemplate {
@@ -375,6 +377,7 @@ export interface OverlayItem {
   keyframes?: Keyframe[];
   duration?: number;
   // Mask (قناع)
+  mask?: import("@/lib/maskEngine").MaskConfig;
   maskShape?: import("@/lib/maskEngine").MaskShape;
   maskX?: number;
   maskY?: number;
@@ -385,6 +388,7 @@ export interface OverlayItem {
   maskInverted?: boolean;
   maskKeyframes?: import("@/lib/maskEngine").MaskKeyframe[];
   maskPath?: string;
+  customPoints?: Array<{ x: number; y: number }>;
 }
 
 export type ExportPreset = "reels-15" | "reels-30" | "reels-60" | "story-60" | "full";

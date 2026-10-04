@@ -3,6 +3,7 @@ import { useMedia, CaptionAnimation, interpolateKeyframes } from "@/context/Medi
 import { X, FlipHorizontal, FlipVertical, RotateCw, Maximize2, WrapText, Youtube, Instagram, Sparkles, MapPin, AlertTriangle, Quote, Bell, Flame, CheckCircle2, Radio, Tv, Hash, Bookmark, Award, Star } from "lucide-react";
 import { snapPreviewTransform } from "@/lib/timelineSnap";
 import { computeWordState, computeCharacterReveal } from "@/lib/textTemplatesLibrary";
+import { hasMask, maskDataUrl, getEffectiveMask } from "@/lib/maskEngine";
 
 const renderBadgeIcon = (iconName?: string) => {
   if (!iconName) return null;
@@ -428,6 +429,25 @@ const CaptionOverlay = memo(({ currentTime }: Props) => {
         const animation = active.animation ?? captionStyle.animation;
         const isSelected = selectedId === active.id;
 
+        const masked = hasMask(active);
+        const effMask = getEffectiveMask(active);
+        const hasMaskAnim = Boolean(
+          effMask?.maskKeyframes?.length ||
+          active.keyframes?.some((k) => k.property.startsWith("mask"))
+        );
+        const capMaskTime = masked && hasMaskAnim ? Math.round(localTime * 30) / 30 : 0;
+        const capMaskUrl = masked ? maskDataUrl(active, capMaskTime, 320, 120, active.keyframes) : null;
+        const capMaskStyle: React.CSSProperties = capMaskUrl
+          ? {
+              WebkitMaskImage: `url(${capMaskUrl})`,
+              maskImage: `url(${capMaskUrl})`,
+              WebkitMaskSize: "100% 100%",
+              maskSize: "100% 100%",
+              WebkitMaskRepeat: "no-repeat",
+              maskRepeat: "no-repeat",
+            }
+          : {};
+
         return (
           <div
             key={active.id}
@@ -514,6 +534,7 @@ const CaptionOverlay = memo(({ currentTime }: Props) => {
                         ? `${active.shadowOffsetX || 0}px ${active.shadowOffsetY || 2}px ${shadowBlur}px ${shadowColor}`
                         : "0 2px 4px rgba(0,0,0,0.8)",
                       WebkitTextStroke: strokeWidth > 0 ? `${strokeWidth}px ${strokeColor}` : undefined,
+                      ...capMaskStyle,
                     }}
                     className={`ring-0 transition-shadow flex items-center justify-center gap-1.5 active:cursor-grabbing ${isSelected ? "ring-2 ring-primary" : "group-hover:ring-2 group-hover:ring-primary/60"}`}
                   >

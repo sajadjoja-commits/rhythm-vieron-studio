@@ -3,10 +3,13 @@ import {
   ArrowRight, Play, Pause, PauseCircle, Scissors, Type, Music, Sparkles, Ratio, Download,
   Image as ImageIcon, Video, Plus, Wand2, Loader2, Palette, Activity, Layers,
   Gauge, Zap, Clapperboard, Undo2, Redo2, Eye, EyeOff, RotateCw, Diamond, Minus, Trash2, Maximize2, Minimize2,
-  ChevronLeft, X, Volume2, VolumeX,
+  ChevronLeft, X, Volume2, VolumeX, CircleDot,
 } from "lucide-react";
 import { useMedia, TransitionType, Clip, interpolateKeyframes, OverlayItem, MediaItem } from "@/context/MediaContext";
 import { computeVfxState } from "@/lib/vfxEngine";
+import { hasMask, maskDataUrl, getEffectiveMask, type MaskConfig } from "@/lib/maskEngine";
+import MaskPanel from "@/components/editor/MaskPanel";
+import MaskFreeformOverlay from "@/components/editor/MaskFreeformOverlay";
 import MediaPicker from "@/components/MediaPicker";
 import Timeline from "@/components/editor/Timeline";
 import SpeedPanel from "@/components/editor/SpeedPanel";
@@ -45,7 +48,7 @@ interface EditorScreenProps {
   onBack: () => void;
 }
 
-type Tool = "transition" | "caption" | "music" | "filter" | "vfx" | "ratio" | "overlay" | "speed" | "cover" | "ai" | "keyframe" | null;
+type Tool = "transition" | "caption" | "music" | "filter" | "vfx" | "ratio" | "overlay" | "speed" | "cover" | "ai" | "keyframe" | "mask" | null;
 
 // Which timeline track is focused — determines which handles are visible
 type FocusedTrack = "video" | "caption" | "audio" | "filter" | "vfx" | "overlay" | null;
@@ -56,11 +59,12 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     audioTracks = [], selectedAudioTrackId, setSelectedAudioTrackId, videoMuted, videoVolume, videoAudioFx, projectName, setProjectName,
     splitClipsAtBeats, filters = [], vfx = [], overlays = [], setAudioBeats, updateOverlay, setOverlays,
     splitTrackAt, addFreezeFrameAt, coverImage, undo, redo, canUndo, canRedo, setClips,
-    captions = [], captionStyle, setCaptions, setFilters, setVfx, updateAudioTrack, updateMediaItem,
+    captions = [], captionStyle, setCaptions, updateCaption, setFilters, setVfx, updateAudioTrack, updateMediaItem,
     removeClip, removeCaption, removeAudioTrack, removeFilter, removeVfx, removeOverlay,
     setVideoMuted,
   } = useMedia();
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isFreeformMaskDraw, setIsFreeformMaskDraw] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [showSmartCut, setShowSmartCut] = useState(false);
   const [activeRatio, setActiveRatio] = useState(0);
@@ -200,6 +204,30 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     }
     return {};
   }, [resolved?.clip]);
+
+  const activeClipMaskStyle = useMemo<React.CSSProperties>(() => {
+    const c = resolved?.clip;
+    if (!c || !hasMask(c)) return {};
+    const effMask = getEffectiveMask(c);
+    if (!effMask) return {};
+    const hasAnim = Boolean(
+      effMask.maskKeyframes?.length ||
+      c.keyframes?.some((k) => k.property.startsWith("mask"))
+    );
+    const t = hasAnim ? Math.round(clipLocalTime * 30) / 30 : 0;
+    const w = previewRef.current?.clientWidth || (ASPECT_RATIOS[activeRatio]?.w ? ASPECT_RATIOS[activeRatio].w * 30 : 360);
+    const h = previewRef.current?.clientHeight || (ASPECT_RATIOS[activeRatio]?.h ? ASPECT_RATIOS[activeRatio].h * 30 : 640);
+    const url = maskDataUrl(effMask, t, w, h, c.keyframes);
+    if (!url) return {};
+    return {
+      WebkitMaskImage: `url(${url})`,
+      maskImage: `url(${url})`,
+      WebkitMaskSize: "100% 100%",
+      maskSize: "100% 100%",
+      WebkitMaskRepeat: "no-repeat",
+      maskRepeat: "no-repeat",
+    };
+  }, [resolved?.clip, clipLocalTime, activeRatio]);
 
   const activeKfItem = useMemo(() => {
     switch (focusedTrack) {
@@ -1651,6 +1679,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     { id: "filter", icon: Palette, label: t("tool.filter") },
     { id: "vfx", icon: Sparkles, label: t("tool.vfx") },
     { id: "overlay", icon: Layers, label: t("tool.overlay") },
+    { id: "mask", icon: CircleDot, label: getLang() === "ar" ? "أداة قناع" : "Mask" },
     { id: "cover", icon: Clapperboard, label: t("tool.cover") },
     { id: "ratio", icon: Ratio, label: t("tool.ratio") },
   ];
@@ -1709,6 +1738,12 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     else if (id === "filter") { setTool(tool === "filter" ? null : "filter"); setFocusedTrack("filter"); }
     else if (id === "vfx") { setTool(tool === "vfx" ? null : "vfx"); setFocusedTrack("vfx"); }
     else if (id === "overlay") { setTool(tool === "overlay" ? null : "overlay"); setFocusedTrack("overlay"); }
+    else if (id === "mask") {
+      setTool(tool === "mask" ? null : "mask");
+      if (!focusedTrack || focusedTrack === "audio" || focusedTrack === "filter" || focusedTrack === "vfx") {
+        setFocusedTrack("video");
+      }
+    }
     else if (id === "ratio") { setTool(tool === "ratio" ? null : "ratio"); }
     else if (id === "transition") {
       if (clips.length < 2) { toast.error(t("toast.needTwoClips")); return; }
@@ -1998,6 +2033,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
                 width: "100%", height: "100%",
                 position: "relative",
                 transition: (pinchRef.current || panRef.current) ? "none" : "transform 200ms ease-out",
+                ...activeClipMaskStyle,
               }}>
                 {/* Ping-Pong Video Player Slot A */}
                 <video 
@@ -2240,6 +2276,50 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
 
             {/* Caption Overlay (Rendered directly in the preview stage canvas for exact 1:1 export alignment & full free movement) */}
             <CaptionOverlay currentTime={currentTime} />
+
+            {/* Freeform Mask Touch/Pointer Drawing Overlay */}
+            <MaskFreeformOverlay
+              active={isFreeformMaskDraw && tool === "mask" && !isFullscreen}
+              onApplyFreeform={(patch: Partial<MaskConfig>) => {
+                if (focusedTrack === "overlay") {
+                  const targetOv =
+                    overlays.find((o) => o.id === selectedOverlayId) ||
+                    overlays.find((o) => currentTime >= o.start && currentTime <= o.end) ||
+                    overlays[0];
+                  if (targetOv) {
+                    const nextMask: MaskConfig = { ...(getEffectiveMask(targetOv) || {}), ...patch };
+                    updateOverlay(targetOv.id, {
+                      mask: nextMask,
+                      maskShape: nextMask.maskShape,
+                      maskPath: nextMask.maskPath,
+                      customPoints: nextMask.customPoints,
+                      maskX: nextMask.maskX,
+                      maskY: nextMask.maskY,
+                      maskSize: nextMask.maskSize,
+                      maskWidth: nextMask.maskWidth,
+                      maskHeight: nextMask.maskHeight,
+                    });
+                  }
+                } else if (focusedTrack === "caption") {
+                  const targetCap =
+                    captions.find((c) => currentTime >= c.start && currentTime <= c.end) ||
+                    captions[0];
+                  if (targetCap) {
+                    const nextMask: MaskConfig = { ...(getEffectiveMask(targetCap) || {}), ...patch };
+                    updateCaption(targetCap.id, { mask: nextMask });
+                  }
+                } else {
+                  const targetClip = resolved?.clip || clips[0];
+                  if (targetClip) {
+                    const nextMask: MaskConfig = { ...(getEffectiveMask(targetClip) || {}), ...patch };
+                    setClips((prev) =>
+                      prev.map((c) => (c.id === targetClip.id ? { ...c, mask: nextMask } : c))
+                    );
+                  }
+                }
+              }}
+              onClose={() => setIsFreeformMaskDraw(false)}
+            />
 
             {/* Extended CapCut-style Transform Bounding Box (Visible on timeline when video track is focused, but hidden when tool panels are open or in fullscreen) */}
             {((focusedTrack === "video" && !tool) || showFrame || isPanningPreview) && !isPlaying && !isFullscreen && Boolean(resolved?.clip) && (
@@ -2706,6 +2786,22 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
         {tool === "filter" && <FilterPanel open={tool === "filter"} onClose={() => setTool(null)} currentTime={currentTime} />}
         {tool === "vfx" && <VfxPanel open={tool === "vfx"} onClose={() => setTool(null)} currentTime={currentTime} />}
         {tool === "overlay" && <OverlayPanel open={tool === "overlay"} onClose={() => setTool(null)} currentTime={currentTime} />}
+        {tool === "mask" && (
+          <MaskPanel
+            open={tool === "mask"}
+            onClose={() => {
+              setIsFreeformMaskDraw(false);
+              setTool(null);
+            }}
+            currentTime={currentTime}
+            focusedTrack={focusedTrack}
+            selectedOverlayId={selectedOverlayId}
+            onSelectOverlay={setSelectedOverlayId}
+            onFocusTrack={(tr) => setFocusedTrack(tr)}
+            isFreeformDrawing={isFreeformMaskDraw}
+            onToggleFreeformDraw={setIsFreeformMaskDraw}
+          />
+        )}
         {tool === "ratio" && (
           <RatioPanel
             open={tool === "ratio"}

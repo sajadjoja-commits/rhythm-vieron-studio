@@ -2,7 +2,7 @@ import { useRef, memo, useCallback, useState, useEffect, useMemo } from "react";
 import { OverlayItem } from "@/context/MediaContext";
 import { RotateCw, Maximize2, Move } from "lucide-react";
 import { snapPreviewTransform } from "@/lib/timelineSnap";
-import { hasMask, maskDataUrl } from "@/lib/maskEngine";
+import { hasMask, maskDataUrl, getEffectiveMask } from "@/lib/maskEngine";
 
 interface Props {
   overlay: OverlayItem;
@@ -227,11 +227,16 @@ const InteractiveOverlay = memo(({ overlay, selected, containerRef, currentTime 
     return () => ro.disconnect();
   }, [overlay.url]);
   const masked = hasMask(overlay);
-  const maskTime = masked && overlay.maskKeyframes?.length ? Math.round((currentTime - overlay.start) * 30) / 30 : 0;
+  const effMask = getEffectiveMask(overlay);
+  const hasAnim = Boolean(
+    effMask?.maskKeyframes?.length ||
+    overlay.keyframes?.some((k) => k.property.startsWith("mask"))
+  );
+  const maskTime = masked && hasAnim ? Math.round((currentTime - overlay.start) * 30) / 30 : 0;
   const maskUrl = useMemo(
-    () => (masked ? maskDataUrl(overlay, maskTime, box.w, box.h) : null),
+    () => (masked ? maskDataUrl(overlay, maskTime, box.w || 200, box.h || 200, overlay.keyframes) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [masked, overlay.maskShape, overlay.maskX, overlay.maskY, overlay.maskSize, overlay.maskWidth, overlay.maskHeight, overlay.maskFeather, overlay.maskInverted, overlay.maskKeyframes, overlay.maskPath, maskTime, box.w, box.h]
+    [masked, overlay.mask, overlay.maskShape, overlay.maskX, overlay.maskY, overlay.maskSize, overlay.maskWidth, overlay.maskHeight, overlay.maskFeather, overlay.maskInverted, overlay.maskKeyframes, overlay.maskPath, overlay.keyframes, maskTime, box.w, box.h]
   );
   const maskStyle: React.CSSProperties = maskUrl
     ? { WebkitMaskImage: `url(${maskUrl})`, maskImage: `url(${maskUrl})`, WebkitMaskSize: "100% 100%", maskSize: "100% 100%", WebkitMaskRepeat: "no-repeat", maskRepeat: "no-repeat" }
