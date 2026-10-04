@@ -69,7 +69,8 @@ export class VideoSegmentationEngine {
     if (this.inferenceCanvas && !this.inferenceCtx) {
       this.inferenceCtx = this.inferenceCanvas.getContext("2d", { willReadFrequently: false }) as any;
     }
-    return this.inferenceCanvas!;
+    if (!this.inferenceCanvas) throw new Error("Canvas is unavailable on this device.");
+    return this.inferenceCanvas;
   }
 
   /**
@@ -403,7 +404,7 @@ export class VideoSegmentationEngine {
     const localPath = "/models/mediapipe/selfie_segmenter.tflite";
     try {
       const localRes = await fetch(localPath, { method: "HEAD" });
-      if (localRes.status < 400) {
+      if (localRes.ok && !localRes.headers.get("content-type")?.includes("text/html")) {
         console.log("[VideoSegmentationEngine] Using local MediaPipe selfie_segmenter model.");
         return localPath;
       }
@@ -420,7 +421,7 @@ export class VideoSegmentationEngine {
       return FALLBACK_SEGMENTER_MODEL;
     }
 
-    return localPath;
+    throw new Error("تعذر تحميل نموذج إزالة الخلفية. اتصل بالإنترنت مرة واحدة وأعد المحاولة.");
   }
 
   /**
@@ -430,12 +431,12 @@ export class VideoSegmentationEngine {
     const localWasmDir = "/wasm/mediapipe";
     try {
       const localWasm = await fetch(`${localWasmDir}/vision_wasm_internal.wasm`, { method: "HEAD" });
-      if (localWasm.status < 400) {
+      if (localWasm.ok && !localWasm.headers.get("content-type")?.includes("text/html")) {
         console.log("[VideoSegmentationEngine] Using local MediaPipe WASM binaries.");
         return localWasmDir;
       }
     } catch {}
-    return localWasmDir;
+    return MEDIAPIPE_WASM_PATH;
   }
 
   /**

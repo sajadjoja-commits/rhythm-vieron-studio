@@ -63,6 +63,20 @@ function ensureOrtWasmAssetsPlugin(): Plugin {
   };
 }
 
+function ensureMediaPipeAssetsPlugin(): Plugin {
+  return {
+    name: "ensure-mediapipe-assets",
+    buildStart() {
+      const source = path.resolve(__dirname, "node_modules/@mediapipe/tasks-vision/wasm");
+      const target = path.resolve(__dirname, "public/wasm/mediapipe");
+      fs.mkdirSync(target, { recursive: true });
+      for (const file of fs.readdirSync(source)) {
+        if (/\.(js|wasm)$/.test(file)) fs.copyFileSync(path.join(source, file), path.join(target, file));
+      }
+    },
+  };
+}
+
 /**
  * Ensure build_info.json and fingerprint.txt are preserved in dist after build
  */
@@ -100,6 +114,7 @@ export default defineConfig(({ mode }) => ({
   },
   plugins: [
     ensureOrtWasmAssetsPlugin(),
+    ensureMediaPipeAssetsPlugin(),
     missingStaticAssets404Plugin(),
     writeDistMetadataPlugin(),
     react(),
@@ -116,7 +131,7 @@ export default defineConfig(({ mode }) => ({
         clientsClaim: true,
         cleanupOutdatedCaches: true,
         maximumFileSizeToCacheInBytes: 35 * 1024 * 1024,
-        globPatterns: ["**/*.{js,css,html,ico,png,jpg,jpeg,svg,mp3,json,webmanifest,wasm}"],
+        globPatterns: ["**/*.{js,css,html,ico,png,jpg,jpeg,svg,mp3,json,webmanifest,wasm,tflite}"],
         navigateFallback: "/index.html",
         navigateFallbackDenylist: [
           /^\/api/,
