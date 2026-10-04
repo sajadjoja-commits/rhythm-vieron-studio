@@ -35,18 +35,16 @@ const TRANSITION_ICON: Record<TransitionType, string> = {
 };
 
 const KeyframeMarkers = memo(({ clip, clipGlobalStart, pxPerSec, currentTime }: { clip: any; clipGlobalStart: number; pxPerSec: number; currentTime: number }) => {
-  const seenTimes = new Set<string>();
+  const seenTimes = new Set<number>();
   const kfs = clip.keyframes || [];
   if (kfs.length === 0) return null;
-  const clipLen = Math.max(0.01, (clip.out || 0) - (clip.in || 0));
-  const clipPx = clipLen * pxPerSec;
   
   return (
     <div className="absolute inset-x-0 top-0 bottom-0 pointer-events-none z-20 flex items-center overflow-visible">
       {kfs.map((kf: any) => {
-        const tKey = kf.time.toFixed(2);
-        if (seenTimes.has(tKey)) return null;
-        seenTimes.add(tKey);
+        const tBucket = Math.round(kf.time * 20);
+        if (seenTimes.has(tBucket)) return null;
+        seenTimes.add(tBucket);
 
         const kfGlobalTime = clipGlobalStart + kf.time;
         // Turn green if the playhead is over/near the keyframe, blue otherwise
@@ -57,7 +55,7 @@ const KeyframeMarkers = memo(({ clip, clipGlobalStart, pxPerSec, currentTime }: 
 
         return (
           <div
-            key={kf.id || `${kf.property}-${tKey}`}
+            key={kf.id || `${kf.property}-${tBucket}`}
             className={`absolute w-3 h-3 border border-white shadow transition-all duration-150 ${
               isOver
                 ? "bg-emerald-500 scale-125 border-emerald-200 ring-2 ring-emerald-400/50 z-25"
@@ -143,8 +141,9 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     };
   }, []);
 
-  // Auto-update selectedClipId when currentTime moves, so the active clip at the playhead is selected
+  // Auto-update selectedClipId when currentTime moves while track is focused, so the active clip at the playhead is selected
   useEffect(() => {
+    if (focused === false) return;
     let acc = 0;
     let foundId: string | null = null;
     for (const clip of clips) {
@@ -158,7 +157,7 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     if (foundId) {
       setSelectedClipId((prev) => (prev === foundId ? prev : foundId));
     }
-  }, [currentTime, clips]);
+  }, [currentTime, clips, focused]);
 
   // Touch Pinch-to-Zoom State & Handlers
   const touchRef = useRef<{ initialDist: number; initialPx: number } | null>(null);
@@ -357,11 +356,9 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     stopInertia();
 
     const targetEl = e.currentTarget as HTMLElement;
-    const rect = targetEl.getBoundingClientRect();
     const startX = e.clientX;
     const startY = e.clientY;
     const startCurrentTime = currentTimeRef.current;
-    const clickedTime = Math.max(0, Math.min(totalDuration, startCurrentTime + (startX - rect.left - halfW) / pxPerSec));
 
     isScrubbingRef.current = true;
     onUserScrub?.(true);
@@ -400,6 +397,8 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
         }
       }
 
+      if (!hasMoved) return;
+
       if (dt > 0) {
         const instantVelocity = dxStep / dt;
         velocity = velocity * 0.4 + instantVelocity * 0.6; // low-pass smoothing
@@ -408,7 +407,7 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
       lastX = currentX;
       lastTime = now;
 
-      let nextTime = Math.max(0, Math.min(totalDuration, clickedTime - dxTotal / pxPerSec));
+      let nextTime = Math.max(0, Math.min(totalDuration, startCurrentTime - dxTotal / pxPerSec));
       nextTime = applySnap(nextTime);
       onSeek(nextTime);
     };
@@ -419,11 +418,8 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       
-      // Commit the seek only if it was a discrete tap/click and we are not currently pinching
+      // Discrete tap on timeline background deselects clip without jumping playhead
       if (!hasMoved && !isPinchingRef.current) {
-        const snapped = applySnap(clickedTime);
-        onSeek(snapped);
-        // Discrete tap on timeline background or ruler deselects clip
         setSelectedClipId(null);
         onDeselect?.();
       } else if (hasMoved && !isPinchingRef.current && Math.abs(velocity) > 0.05) {
@@ -594,7 +590,7 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     const prevSelectedClipId = selectedClipId;
     const prevIdx = clips.findIndex((c) => c.id === prevSelectedClipId);
     const refIdx = prevIdx !== -1 ? prevIdx : currentClipIdx;
-    const isNewClip = clipId !== prevSelectedClipId || refIdx !== clipIdx;
+    const isDifferentClip = clipIdx !== refIdx;
 
     // Calculate target clip's start and end on the timeline
     let accTime = 0;
@@ -614,21 +610,19 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     setSelectedClipId(clipId);
     onFocus?.();
 
-    let targetTime = targetStart;
+    let targetTime = currentTimeRef.current;
     if (clipIdx > refIdx) {
       // Going forward to next/later clip -> snap directly to FIRST handle (start)
       targetTime = targetStart;
     } else if (clipIdx < refIdx) {
       // Going backward to previous/earlier clip -> snap directly to LAST handle (end)
-      // (Using targetEnd - 0.04 keeps resolveTimelineTime safely inside target clip showing its last frame)
       targetTime = Math.max(targetStart, targetEnd - 0.04);
-    } else {
-      // Same clip clicked
-      targetTime = currentTimeRef.current;
     }
 
-    if (isNewClip) {
+    if (isDifferentClip) {
       onSeek(targetTime);
+      triggerHapticTick("light");
+    } else {
       triggerHapticTick("light");
     }
 
@@ -695,20 +689,9 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
         try { navigator.vibrate?.(12); } catch {}
         setDragId(null);
         setDragDx(0);
-      } else if (!hasMoved) {
-        if (isNewClip) {
-          // Confirm discrete tap jumped to first or last handle
-          onSeek(targetTime);
-          triggerHapticTick("light");
-        } else {
-          // Discrete tap inside the ALREADY selected clip: place playhead at tapped spot
-          const rect = containerRef.current?.getBoundingClientRect();
-          if (rect) {
-            const tappedTime = Math.max(0, Math.min(totalDuration, currentTimeRef.current + (startX - rect.left - halfW) / pxPerSecRef.current));
-            onSeek(tappedTime);
-            triggerHapticTick("light");
-          }
-        }
+      } else if (!hasMoved && isDifferentClip) {
+        // Confirm discrete tap on a different clip jumped to first or last handle
+        onSeek(targetTime);
       }
     };
 

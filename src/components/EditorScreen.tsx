@@ -259,7 +259,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
 
   const hasKfAtPlayhead = useMemo(() => {
     if (!activeKfItem) return false;
-    return activeKfItem.keyframes.some((kf) => Math.abs(kf.time - activeKfItem.localTime) < 0.05);
+    return activeKfItem.keyframes.some((kf) => Math.abs(kf.time - activeKfItem.localTime) < 0.08);
   }, [activeKfItem]);
 
   const togglePlayheadKeyframes = useCallback(() => {
@@ -273,48 +273,27 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     }
     vibrate(15);
     const { id, type, keyframes: existingKfs, localTime, defaultProps } = activeKfItem;
-    const hasKf = existingKfs.some((kf) => Math.abs(kf.time - localTime) < 0.05);
+    const hasKf = existingKfs.some((kf) => Math.abs(kf.time - localTime) < 0.08);
 
     let updatedKfs = [...existingKfs];
 
     if (hasKf) {
       // Remove keyframes at this playhead
-      updatedKfs = updatedKfs.filter((kf) => Math.abs(kf.time - localTime) >= 0.05);
+      updatedKfs = updatedKfs.filter((kf) => Math.abs(kf.time - localTime) >= 0.08);
       toast.success(getLang() === "ar" ? "تمت إزالة الإطار المفتاحي" : "Keyframe removed");
     } else {
-      // Add keyframes for all keyframe-able properties of this track's item
+      // Add a single keyframe at localTime for each keyframe-able property (never add an extra keyframe at time 0)
       Object.entries(defaultProps).forEach(([prop, val]) => {
-        // First keyframe for this property? Add a starting keyframe at time 0
-        const propertyKfs = updatedKfs.filter((k) => k.property === prop);
-        if (propertyKfs.length === 0) {
-          updatedKfs.push({
-            id: `start-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-            time: 0,
-            property: prop,
-            value: val as number,
-            easing: "linear" as const
-          });
-          if (localTime > 0.05) {
-            updatedKfs.push({
-              id: `manual-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-              time: localTime,
-              property: prop,
-              value: val as number,
-              easing: "linear" as const
-            });
-          }
-        } else {
-          // Find/Interpolate value to set
-          const valueToSet = interpolateKeyframes({ keyframes: existingKfs }, prop, localTime, val as number);
-          updatedKfs.push({
-            id: `manual-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-            time: localTime,
-            property: prop,
-            value: valueToSet,
-            easing: "linear" as const
-          });
-        }
+        const valueToSet = interpolateKeyframes({ keyframes: existingKfs }, prop, localTime, val as number);
+        updatedKfs.push({
+          id: `manual-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
+          time: localTime,
+          property: prop,
+          value: valueToSet,
+          easing: "linear" as const
+        });
       });
+      updatedKfs.sort((a, b) => a.time - b.time);
       toast.success(getLang() === "ar" ? "تمت إضافة إطار مفتاحي ⬥" : "Keyframe added ⬥");
     }
 
@@ -1547,6 +1526,40 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     setTimeout(() => setShowFrame(false), 1200);
   }, []);
 
+  const startCornerScaleDrag = useCallback((e: React.PointerEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (isFullscreen || !resolved?.clip || !previewRef.current) return;
+    const rect = previewRef.current.getBoundingClientRect();
+    const currentPanX = resolved.clip.panX ?? 0;
+    const currentPanY = resolved.clip.panY ?? 0;
+    const currentScale = resolved.clip.scale ?? 1;
+    const centerX = rect.left + rect.width / 2 + currentPanX;
+    const centerY = rect.top + rect.height / 2 + currentPanY;
+    const startDist = Math.max(20, Math.hypot(e.clientX - centerX, e.clientY - centerY));
+
+    setShowFrame(true);
+    setIsPanningPreview(true);
+
+    const onMove = (ev: PointerEvent) => {
+      const dist = Math.max(10, Math.hypot(ev.clientX - centerX, ev.clientY - centerY));
+      const newScale = Math.max(0.3, Math.min(4, currentScale * (dist / startDist)));
+      updateActiveClip({ scale: newScale });
+    };
+
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      setIsPanningPreview(false);
+      setTimeout(() => setShowFrame(false), 1200);
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  }, [isFullscreen, resolved, updateActiveClip]);
+
   const onPreviewWheel = useCallback((e: React.WheelEvent) => {
     if (isFullscreen) return;
     const target = e.target as HTMLElement;
@@ -1564,6 +1577,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
 
     const delta = e.deltaY < 0 ? 0.1 : -0.1;
     const newScale = Math.max(0.3, Math.min(4, currentScale + delta));
+    setShowFrame(true);
     
     updateActiveClip({
       scale: newScale,
@@ -1801,7 +1815,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
   return (
     <div className="h-[100dvh] flex flex-col bg-background overflow-hidden select-none">
       {/* Top Bar */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border flex-shrink-0">
+      <div className="relative z-20 bg-background flex items-center justify-between px-3 py-2 border-b border-border flex-shrink-0">
         <div className="flex items-center gap-2">
           <button onClick={onBack} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-secondary transition-colors">
             <ArrowRight className={`w-5 h-5 text-foreground transition-transform ${isRTL() ? "" : "rotate-180"}`} />
@@ -1827,8 +1841,8 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
         </div>
       </div>
 
-      {/* Preview Area (CapCut style studio stage with responsive height) */}
-      <div className="flex items-center justify-center p-2 sm:p-3 flex-shrink-0 relative overflow-hidden bg-[#07080c]" style={{ height: "clamp(270px, 44vh, 460px)", width: "100%" }}>
+      {/* Preview Area (CapCut style studio stage with responsive height, strictly clipped at stage edges so frame never overflows into top bar or timeline) */}
+      <div className="flex items-center justify-center p-3 sm:p-4 flex-shrink-0 relative overflow-hidden z-10 bg-[#07080c]" style={{ height: "clamp(270px, 44vh, 460px)", width: "100%" }}>
         {!hasMedia ? (
           <div className="w-full max-w-sm">
             <div className="aspect-video rounded-2xl border-2 border-dashed border-primary/30 bg-card flex flex-col items-center justify-center gap-3 p-4">
@@ -1847,7 +1861,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
             </div>
           </div>
         ) : (
-          <div className="h-full flex flex-col items-center justify-center gap-1 w-full relative">
+          <div className="h-full flex flex-col items-center justify-center gap-1 w-full relative overflow-visible">
             {/* AI Processed & Background Toggle Overlay on Active Clip */}
             {resolved?.clip && (resolved.clip.processedUrl || activeMedia?.processedUrl) && (
               <div className="absolute top-1 end-2 z-20 flex items-center gap-1.5 animate-in fade-in duration-200">
@@ -1913,7 +1927,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
               className={
                 isFullscreen
                   ? "fixed inset-0 z-[100] bg-black/98 flex flex-col justify-between p-3 sm:p-5 select-none overflow-hidden animate-in fade-in duration-150"
-                  : "relative flex items-center justify-center select-none"
+                  : "relative flex items-center justify-center select-none overflow-visible"
               }
               style={
                 isFullscreen
@@ -1977,7 +1991,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
                 className={
                   isFullscreen
                     ? "flex-1 min-h-0 w-full flex items-center justify-center p-2 relative overflow-hidden"
-                    : "w-full h-full relative flex items-center justify-center"
+                    : "w-full h-full relative flex items-center justify-center overflow-visible"
                 }
               >
                 <div
@@ -1989,8 +2003,8 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
                     width: "auto",
                     position: "relative",
                   }}
-                  className={`flex items-center justify-center overflow-hidden ${
-                    isFullscreen ? "rounded-2xl shadow-2xl border border-white/15 bg-black" : "w-full h-full"
+                  className={`flex items-center justify-center ${
+                    isFullscreen ? "overflow-hidden rounded-2xl shadow-2xl border border-white/15 bg-black" : "overflow-visible w-full h-full"
                   }`}
                 >
                   {/* Inner Clipped Canvas: clips video & media content strictly to export ratio */}
@@ -2272,10 +2286,10 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
                   durationMs={Math.round((resolved.clip.transitionIn?.duration ?? 0.5) * 1000)}
                 />
               )}
-            </div>
 
-            {/* Caption Overlay (Rendered directly in the preview stage canvas for exact 1:1 export alignment & full free movement) */}
-            <CaptionOverlay currentTime={currentTime} />
+              {/* Caption Overlay (Rendered strictly inside the clipped previewRef canvas so text stays within preview bounds) */}
+              <CaptionOverlay currentTime={currentTime} />
+            </div>
 
             {/* Freeform Mask Touch/Pointer Drawing Overlay */}
             <MaskFreeformOverlay
@@ -2321,32 +2335,45 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
               onClose={() => setIsFreeformMaskDraw(false)}
             />
 
-            {/* Extended CapCut-style Transform Bounding Box (Visible on timeline when video track is focused, but hidden when tool panels are open or in fullscreen) */}
+            {/* Extended CapCut-style Transform Bounding Box (Visible inside preview stage, clipped by stage container so it never overlaps top bar or timeline) */}
             {((focusedTrack === "video" && !tool) || showFrame || isPanningPreview) && !isPlaying && !isFullscreen && Boolean(resolved?.clip) && (
-              <div
-                className="absolute inset-0 pointer-events-none z-30 transition-all duration-150"
-                style={{
-                  transform: `scale(${activeScale}) translate(${activePan.x / activeScale}px, ${activePan.y / activeScale}px) rotate(${activeRotation}deg)`,
-                  transformOrigin: "center center",
-                }}
-              >
-                {/* Bounding Box Frame with Cyan glow, corner handles, and outer tint */}
-                <div className="absolute inset-0 border-2 border-cyan-400 shadow-[0_0_16px_rgba(6,182,212,0.65)] rounded-xl bg-cyan-400/[0.04]">
-                  {/* 4 Corner Handle Dots */}
-                  <div className="absolute -top-1.5 -left-1.5 w-3.5 h-3.5 rounded-full bg-white border-2 border-cyan-400 shadow-md" />
-                  <div className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 rounded-full bg-white border-2 border-cyan-400 shadow-md" />
-                  <div className="absolute -bottom-1.5 -left-1.5 w-3.5 h-3.5 rounded-full bg-white border-2 border-cyan-400 shadow-md" />
-                  <div className="absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 rounded-full bg-white border-2 border-cyan-400 shadow-md" />
+              <>
+                <div
+                  className="absolute inset-0 pointer-events-none z-30"
+                  style={{
+                    transform: `scale(${activeScale}) translate(${activePan.x / activeScale}px, ${activePan.y / activeScale}px) rotate(${activeRotation}deg)`,
+                    transformOrigin: "center center",
+                    transition: (pinchRef.current || panRef.current || isPanningPreview) ? "none" : "transform 200ms ease-out",
+                  }}
+                >
+                  {/* Bounding Box Frame with Cyan glow, corner handles, and outer tint */}
+                  <div className="absolute inset-0 border-2 border-cyan-400 shadow-[0_0_16px_rgba(6,182,212,0.65)] rounded-xl bg-cyan-400/[0.04]">
+                    {/* 4 Corner Handle Dots */}
+                    <div onPointerDown={startCornerScaleDrag} className="absolute -top-1.5 -left-1.5 w-3.5 h-3.5 rounded-full bg-white border-2 border-cyan-400 shadow-md pointer-events-auto cursor-nwse-resize touch-none" />
+                    <div onPointerDown={startCornerScaleDrag} className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 rounded-full bg-white border-2 border-cyan-400 shadow-md pointer-events-auto cursor-nesw-resize touch-none" />
+                    <div onPointerDown={startCornerScaleDrag} className="absolute -bottom-1.5 -left-1.5 w-3.5 h-3.5 rounded-full bg-white border-2 border-cyan-400 shadow-md pointer-events-auto cursor-nesw-resize touch-none" />
+                    <div onPointerDown={startCornerScaleDrag} className="absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 rounded-full bg-white border-2 border-cyan-400 shadow-md pointer-events-auto cursor-nwse-resize touch-none" />
 
-                  {/* Mid-edge ticks */}
-                  <div className="absolute top-1/2 -left-1 -translate-y-1/2 w-2 h-0.5 bg-white rounded-full shadow" />
-                  <div className="absolute top-1/2 -right-1 -translate-y-1/2 w-2 h-0.5 bg-white rounded-full shadow" />
-                  <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-0.5 h-2 bg-white rounded-full shadow" />
-                  <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-0.5 h-2 bg-white rounded-full shadow" />
+                    {/* Mid-edge ticks */}
+                    <div className="absolute top-1/2 -left-1 -translate-y-1/2 w-2 h-0.5 bg-white rounded-full shadow" />
+                    <div className="absolute top-1/2 -right-1 -translate-y-1/2 w-2 h-0.5 bg-white rounded-full shadow" />
+                    <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-0.5 h-2 bg-white rounded-full shadow" />
+                    <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-0.5 h-2 bg-white rounded-full shadow" />
+                  </div>
 
-                  {/* Rotation Degree Pill (Top Center) */}
+                  {/* Center Alignment Snap Lines - ONLY visible while user is actively moving/panning video in preview */}
+                  {isPanningPreview && Math.abs(activePan.x) < 8 && (
+                    <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-0.5 bg-cyan-400 border-r border-dashed border-cyan-200 shadow-[0_0_8px_rgba(6,182,212,0.9)] z-40" />
+                  )}
+                  {isPanningPreview && Math.abs(activePan.y) < 8 && (
+                    <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-0.5 bg-cyan-400 border-b border-dashed border-cyan-200 shadow-[0_0_8px_rgba(6,182,212,0.9)] z-40" />
+                  )}
+                </div>
+
+                {/* Unscaled HUD Pills anchored neatly inside the preview frame so they never overflow into workspace or timeline */}
+                <div className="absolute inset-0 pointer-events-none z-40">
                   {Math.round(activeRotation) !== 0 && (
-                    <div className="absolute -top-8 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-slate-950/90 border border-cyan-400/80 px-2.5 py-0.5 rounded-full shadow-xl pointer-events-auto">
+                    <div className="absolute top-2 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-slate-950/90 border border-cyan-400/80 px-2.5 py-0.5 rounded-full shadow-xl pointer-events-auto">
                       <RotateCw className="w-3 h-3 text-cyan-300" />
                       <span className="text-[10px] text-cyan-200 font-extrabold font-mono">
                         {Math.round(activeRotation)}°
@@ -2354,8 +2381,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
                     </div>
                   )}
 
-                  {/* Scale Percentage & Reset Pill (Bottom Center) */}
-                  <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-slate-950/90 border border-cyan-400/80 px-2.5 py-0.5 rounded-full shadow-xl pointer-events-auto whitespace-nowrap">
+                  <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-slate-950/90 border border-cyan-400/80 px-2.5 py-0.5 rounded-full shadow-xl pointer-events-auto whitespace-nowrap">
                     <Maximize2 className="w-3 h-3 text-cyan-300" />
                     <span className="text-[10px] text-cyan-200 font-extrabold font-mono">
                       {Math.round(activeScale * 100)}%
@@ -2375,15 +2401,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
                     )}
                   </div>
                 </div>
-
-                {/* Center Alignment Snap Lines - ONLY visible while user is actively moving/panning video in preview */}
-                {isPanningPreview && Math.abs(activePan.x) < 8 && (
-                  <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-0.5 bg-cyan-400 border-r border-dashed border-cyan-200 shadow-[0_0_8px_rgba(6,182,212,0.9)] z-40" />
-                )}
-                {isPanningPreview && Math.abs(activePan.y) < 8 && (
-                  <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-0.5 bg-cyan-400 border-b border-dashed border-cyan-200 shadow-[0_0_8px_rgba(6,182,212,0.9)] z-40" />
-                )}
-              </div>
+              </>
             )}
 
             {/* Center Play/Pause pulse icon indicator when paused in preview mode */}
@@ -2491,7 +2509,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
       <AudioPlayback tracks={audioTracks} currentTime={currentTime} isPlaying={isPlaying} />
 
       {/* Bottom workspace */}
-      <div className="relative bg-card border-t border-border flex-1 min-h-0 flex flex-col overflow-hidden">
+      <div className="relative z-20 bg-card border-t border-border flex-1 min-h-0 flex flex-col overflow-hidden">
         {/* Playback controls + time display (CapCut layout) */}
         <div className="flex items-center justify-between py-1.5 px-3 sm:px-4 flex-shrink-0 bg-secondary/15 rounded-xl mx-2 sm:mx-3 my-1 border border-border/30">
           {/* Current / Total Time */}

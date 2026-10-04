@@ -24,6 +24,7 @@ import {
 import { getLang } from "@/lib/i18n";
 import { playSfx } from "@/lib/soundFx";
 import { toast } from "sonner";
+import DraggableLibrarySheet from "./DraggableLibrarySheet";
 
 export interface MaskPanelProps {
   open: boolean;
@@ -74,7 +75,6 @@ const MaskPanel = ({
     resolveTimelineTime,
   } = useMedia();
 
-  const [isCollapsed, setIsCollapsed] = useState(false);
   const [targetKind, setTargetKind] = useState<LayerKind>("video");
   const [selectedCaptionId, setSelectedCaptionId] = useState<string | null>(null);
   const en = getLang() === "en";
@@ -82,7 +82,6 @@ const MaskPanel = ({
   // Sync targetKind with timeline's focusedTrack when opening or changing focusedTrack
   useEffect(() => {
     if (!open) {
-      setIsCollapsed(false);
       onToggleFreeformDraw?.(false);
       return;
     }
@@ -439,7 +438,6 @@ const MaskPanel = ({
     playSfx("click");
     applyMaskUpdate({ maskShape: "custom-path" });
     onToggleFreeformDraw?.(true);
-    setIsCollapsed(true);
     toast.info(
       en
         ? "Draw your custom mask shape directly on the preview screen!"
@@ -447,20 +445,14 @@ const MaskPanel = ({
     );
   };
 
-  if (isCollapsed || isFreeformDrawing) {
+  if (isFreeformDrawing) {
     return (
       <div className="fixed inset-x-0 bottom-4 z-50 flex justify-center px-4 animate-in fade-in slide-in-from-bottom-2 duration-300" dir="rtl">
         <div className="bg-card/95 backdrop-blur-xl border border-primary/30 rounded-2xl px-4 py-2.5 shadow-2xl flex items-center gap-3">
           <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
             <CircleDot className="w-4 h-4 text-primary" />
             <span>
-              {isFreeformDrawing
-                ? en
-                  ? "Drawing Freeform Mask..."
-                  : "وضع الرسم الحر للقناع..."
-                : en
-                ? "Mask Tool Active"
-                : "أداة القناع نشطة"}
+              {en ? "Drawing Freeform Mask..." : "وضع الرسم الحر للقناع..."}
             </span>
           </span>
           <div className="h-4 w-px bg-border" />
@@ -468,11 +460,10 @@ const MaskPanel = ({
             onClick={() => {
               playSfx("click");
               onToggleFreeformDraw?.(false);
-              setIsCollapsed(false);
             }}
             className="px-3.5 py-1.5 rounded-full gradient-primary text-white text-xs font-bold transition-all active:scale-95"
           >
-            {en ? "Show Panel" : "إظهار اللوحة"}
+            {en ? "Done Drawing" : "إنهاء الرسم"}
           </button>
           <button
             onClick={() => {
@@ -520,99 +511,70 @@ const MaskPanel = ({
   };
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-50 animate-slide-up max-h-[82vh] flex flex-col" dir="rtl">
-      <div className="bg-card border-t border-border rounded-t-3xl p-4 pb-6 shadow-2xl overflow-y-auto space-y-4">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl gradient-primary flex items-center justify-center shadow-md">
-              <CircleDot className="w-4 h-4 text-primary-foreground" />
-            </div>
-            <div>
-              <h3 className="font-heading font-bold text-foreground text-sm">
-                {en ? "Mask Tool (قناع)" : "أداة القناع الشاملة (Mask)"}
-              </h3>
-              <p className="text-[10px] text-muted-foreground">
-                {en
-                  ? "Shapes, Freeform Draw, Presets & Keyframes for any layer"
-                  : "أشكال جاهزة، رسم حر باللمس، وتحريك بالإطارات المفتاحية لأي طبقة"}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1.5">
-            {shape !== "none" && (
-              <button
-                type="button"
-                onClick={resetMask}
-                className="px-2.5 py-1.5 rounded-xl bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground text-[11px] font-bold flex items-center gap-1 transition-all"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>{en ? "Reset" : "إعادة ضبط"}</span>
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                playSfx("click");
-                setIsCollapsed(true);
-              }}
-              className="px-2.5 py-1.5 rounded-xl bg-primary/10 text-primary text-[11px] font-bold"
-            >
-              {en ? "Preview" : "معاينة"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                onToggleFreeformDraw?.(false);
-                onClose();
-              }}
-              className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center"
-            >
-              <X className="w-4 h-4 text-foreground" />
-            </button>
-          </div>
-        </div>
-
-        {/* Layer Target Selector Tabs (Video Clip / Overlay / Caption) */}
-        <div className="grid grid-cols-3 gap-1.5 bg-secondary/40 p-1 rounded-2xl border border-border/40">
+    <DraggableLibrarySheet
+      id="mask-panel-root"
+      open={open}
+      onClose={() => {
+        onToggleFreeformDraw?.(false);
+        onClose();
+      }}
+      dir={en ? "ltr" : "rtl"}
+      defaultVh={54}
+      icon={<CircleDot className="w-3.5 h-3.5 text-primary-foreground" />}
+      title={en ? "Mask Studio" : "أداة القناع"}
+      headerActions={
+        shape !== "none" ? (
+          <button
+            type="button"
+            onClick={resetMask}
+            className="h-7 px-2.5 rounded-lg bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground text-[10px] font-bold flex items-center gap-1 transition-all border border-border/50"
+          >
+            <RotateCcw className="w-3 h-3" />
+            <span>{en ? "Reset" : "إعادة ضبط"}</span>
+          </button>
+        ) : null
+      }
+      subHeader={
+        <div className="grid grid-cols-3 gap-1.5 bg-secondary/40 p-1 rounded-xl border border-border/40">
           <button
             type="button"
             onClick={() => handleSwitchTargetKind("video")}
-            className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-xs font-bold transition-all ${
+            className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-[10px] font-bold transition-all ${
               targetKind === "video"
-                ? "bg-primary text-primary-foreground shadow-sm"
+                ? "bg-primary text-primary-foreground shadow-xs"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            <Video className="w-3.5 h-3.5" />
+            <Video className="w-3 h-3" />
             <span>{en ? "Clip / Image" : "المقطع / الصورة"}</span>
           </button>
           <button
             type="button"
             onClick={() => handleSwitchTargetKind("overlay")}
-            className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-xs font-bold transition-all ${
+            className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-[10px] font-bold transition-all ${
               targetKind === "overlay"
-                ? "bg-primary text-primary-foreground shadow-sm"
+                ? "bg-primary text-primary-foreground shadow-xs"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            <Layers className="w-3.5 h-3.5" />
+            <Layers className="w-3 h-3" />
             <span>{en ? "Overlay" : "التراكب"} ({overlays.length})</span>
           </button>
           <button
             type="button"
             onClick={() => handleSwitchTargetKind("caption")}
-            className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-xs font-bold transition-all ${
+            className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-[10px] font-bold transition-all ${
               targetKind === "caption"
-                ? "bg-primary text-primary-foreground shadow-sm"
+                ? "bg-primary text-primary-foreground shadow-xs"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            <Type className="w-3.5 h-3.5" />
+            <Type className="w-3 h-3" />
             <span>{en ? "Caption" : "النص"} ({captions.length})</span>
           </button>
         </div>
+      }
+    >
 
         {/* Specific item picker when multiple overlays or captions exist */}
         {targetKind === "overlay" && overlays.length > 1 && (
@@ -935,8 +897,7 @@ const MaskPanel = ({
             )}
           </div>
         )}
-      </div>
-    </div>
+    </DraggableLibrarySheet>
   );
 };
 

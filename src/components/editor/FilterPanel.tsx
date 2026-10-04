@@ -2,11 +2,12 @@ import { useState, useEffect, useMemo, memo, useRef, useCallback } from "react";
 import { useMedia, FilterType, FilterItem } from "@/context/MediaContext";
 import { 
   X, Palette, Trash2, Sliders, Sparkles, Check, Flame, 
-  Tv, Film, Sun, Compass, RotateCw, Megaphone, HelpCircle, Eye, EyeOff 
+  Tv, Film, Sun, Compass, RotateCw, Megaphone, HelpCircle
 } from "lucide-react";
 import { getLang } from "@/lib/i18n";
 import { playSfx } from "@/lib/soundFx";
 import { toast } from "sonner";
+import DraggableLibrarySheet from "./DraggableLibrarySheet";
 
 interface Props { open: boolean; onClose: () => void; currentTime: number; }
 
@@ -883,210 +884,95 @@ const FilterPanel = ({ open, onClose, currentTime }: Props) => {
               </div>
             )}
           </div>
-          
-          <p className="text-[9px] text-muted-foreground/80 leading-relaxed font-bold">
-            {en 
-              ? "All changes are applied in real-time to the current segment track and will be synchronized when exporting."
-              : "يتم تطبيق جميع التعديلات في الوقت الفعلي على مسار المقطع المحدد وسيتم دمجها تلقائياً عند تصدير الفيديو."}
-          </p>
         </div>
       </div>
     );
   }, [selectedManualTool, en, manualTools, getManualValue, handleManualAdjustChange, activeFilter]);
 
-  if (!open) return null;
-
-  // Minimized/Collapsed render mode so the user can easily see their work
-  if (isCollapsed) {
-    return (
-      <div className="fixed inset-x-0 bottom-4 z-50 flex justify-center px-4 animate-in fade-in slide-in-from-bottom-2 duration-300" dir="rtl">
-        <div className="bg-card/90 backdrop-blur-xl border border-primary/30 rounded-full px-4 py-2 shadow-2xl flex items-center gap-3">
-          <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-primary animate-ping" />
-            <span className="text-muted-foreground">{en ? "Active Filter:" : "الفلتر النشط:"}</span>
-            <span className="text-primary font-extrabold">
-              {activeFilter ? `${activeFilter.type.toUpperCase()}` : (en ? "None" : "لا يوجد")}
-            </span>
-          </span>
-          <div className="h-4 w-px bg-border" />
-          <button 
-            onClick={() => { playSfx("click"); setIsCollapsed(false); }}
-            className="px-3.5 py-1.5 rounded-full gradient-primary hover:opacity-90 text-white text-xs font-bold transition-all active:scale-95 flex items-center gap-1 shadow-md"
-          >
-            <Eye className="w-3.5 h-3.5" />
-            {en ? "Show Library" : "إظهار المكتبة"}
-          </button>
-          <button 
-            onClick={() => { playSfx("success"); onClose(); }}
-            className="w-7 h-7 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center transition-all active:scale-90"
-            title={en ? "Confirm Selection" : "تأكيد الاختيار"}
-          >
-            <Check className="w-3.5 h-3.5 text-white stroke-[3px]" />
-          </button>
-          <button 
-            onClick={handleCancel}
-            className="w-7 h-7 rounded-full bg-secondary flex items-center justify-center text-foreground hover:bg-secondary/80 transition-all active:scale-90"
-            title={en ? "Cancel Changes" : "تراجع وإلغاء"}
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div 
+    <DraggableLibrarySheet
       id="filter-panel-root"
-      className="fixed inset-x-0 bottom-0 z-50 animate-in slide-in-from-bottom-3 duration-250" 
-      dir="rtl"
-    >
-      <div className="bg-card/95 backdrop-blur-2xl border-t border-border/80 rounded-t-3xl shadow-2xl max-h-[60vh] sm:max-h-[64vh] flex flex-col overflow-hidden pb-4">
-        
-        {/* Subtle top drag handle */}
-        <div className="w-9 h-1 rounded-full bg-border/80 mx-auto mt-2 shrink-0" />
-
-        {/* Header Console */}
-        <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 shrink-0 bg-card/95">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-7 h-7 rounded-xl gradient-primary flex items-center justify-center shadow-xs shrink-0">
-              <Palette className="w-4 h-4 text-primary-foreground animate-pulse" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5">
-                <span className="font-heading font-black text-xs sm:text-sm text-foreground truncate block">
-                  {en ? "Color Filters & LUTs" : "الفلاتر وتصحيح الألوان"}
-                </span>
-                {activeFilter && (
-                  <span className="text-[10px] text-primary font-black px-1.5 py-0.2 rounded-md bg-primary/10 border border-primary/20 shrink-0 font-mono">
-                    {activeFilter.type.toUpperCase()}
-                  </span>
-                )}
-              </div>
-              <span className="text-[10px] text-muted-foreground truncate block font-medium">
-                {en ? "Cinematic color grading & LUTs" : "معايرة ألوان سينمائية وتدرجات ضوئية"}
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1.5 shrink-0">
-            {/* Collapse to see work button */}
-            <button 
-              id="filter-minimize-btn"
-              onClick={() => { playSfx("click"); setIsCollapsed(true); }}
-              className="h-7 px-2 rounded-lg bg-secondary/80 hover:bg-secondary flex items-center gap-1 text-[10px] font-bold text-foreground transition-all active:scale-90 border border-border/60"
-              title={en ? "Minimize library to preview work" : "إخفاء مؤقت لرؤية العمل"}
-            >
-              <EyeOff className="w-3.5 h-3.5 text-muted-foreground" />
-              <span className="hidden xs:inline">{en ? "See Work" : "رؤية العمل"}</span>
-            </button>
-
-            <button 
-              id="filter-confirm-btn"
-              onClick={() => { playSfx("success"); onClose(); }} 
-              className="h-7 px-2.5 rounded-lg gradient-primary flex items-center gap-1 text-white text-[11px] font-bold shadow-sm transition-all active:scale-90"
-              title={en ? "Confirm Selection" : "تأكيد الاختيار"}
-            >
-              <Check className="w-3.5 h-3.5 text-white stroke-[3px]" />
-              <span>{en ? "Done" : "تم"}</span>
-            </button>
-            <button 
-              id="filter-close-btn"
-              onClick={handleCancel} 
-              className="w-7 h-7 rounded-lg bg-secondary flex items-center justify-center hover:bg-secondary/80 transition-all active:scale-90 text-foreground"
-              title={en ? "Cancel Changes" : "تراجع وإلغاء"}
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Category Tabs Strip */}
-        <div className="px-3.5 pt-2 pb-1.5 border-b border-border/40 shrink-0 bg-background/40">
-          <div className="flex gap-1.5 p-1 bg-secondary/40 rounded-xl border border-border/40 overflow-x-auto no-scrollbar">
-            {[
-              { id: "all", label: en ? "All Filters" : "كل الفلاتر", icon: Compass },
-              { id: "color", label: en ? "Presets" : "تدرجات لونية", icon: Film },
-              { id: "adjust", label: en ? "Creative LUTs" : "فلاتر الإدخال", icon: Tv },
-              { id: "manual", label: en ? "Manual Adjust" : "تعديل يدوي", icon: Sliders }
-            ].map((c) => {
-              const Icon = c.icon;
-              const isSelected = activeCategory === c.id;
-              return (
-                <button 
-                  key={c.id} 
-                  onClick={() => { playSfx("click"); setActiveCategory(c.id as any); }}
-                  className={`flex-1 flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg text-[10px] font-bold transition-all duration-150 active:scale-95 whitespace-nowrap ${
-                    isSelected ? "bg-primary text-primary-foreground shadow-xs" : "hover:bg-secondary text-muted-foreground bg-transparent"
-                  }`}
-                >
-                  <Icon className="w-3 h-3" />
-                  <span>{c.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Scrollable Content Body */}
-        <div className="flex-1 overflow-y-auto no-scrollbar p-3.5 space-y-3">
-
-          {/* Mode Indicator Banner */}
-          {selectedId ? (
-            <div className="flex items-center justify-between bg-primary/10 border border-primary/30 px-3 py-2 rounded-2xl text-xs font-bold text-primary animate-in fade-in duration-200">
-              <div className="flex items-center gap-2">
-                <Palette className="w-4 h-4 animate-spin" />
-                <span>{en ? "Replacing selected filter preset..." : "جاري استبدال/تعديل الفلتر المحدد في المخطط الزمني"}</span>
-              </div>
-              <button
-                onClick={() => { playSfx("click"); setSelectedId(null); }}
-                className="px-3 py-1 rounded-xl bg-card hover:bg-secondary text-foreground text-[10px] font-extrabold border border-border/60 shadow-sm transition-all active:scale-95"
+      open={open}
+      onClose={onClose}
+      dir={en ? "ltr" : "rtl"}
+      defaultVh={52}
+      icon={<Palette className="w-3.5 h-3.5 text-primary-foreground" />}
+      title={en ? "Filters & Color" : "الفلاتر والألوان"}
+      badge={
+        activeFilter ? (
+          <span className="text-[10px] text-primary font-black px-1.5 py-0.5 rounded-md bg-primary/10 border border-primary/20 font-mono">
+            {activeFilter.type.toUpperCase()}
+          </span>
+        ) : filters.length > 0 ? (
+          <span className="text-[10px] text-primary font-bold font-mono">· {filters.length}</span>
+        ) : null
+      }
+      subHeader={
+        <div className="flex gap-1 p-1 bg-secondary/40 rounded-xl border border-border/40 overflow-x-auto no-scrollbar">
+          {[
+            { id: "all", label: en ? "All" : "الكل", icon: Compass },
+            { id: "color", label: en ? "Presets" : "تدرجات", icon: Film },
+            { id: "adjust", label: en ? "LUTs" : "سينمائي", icon: Tv },
+            { id: "manual", label: en ? "Adjust" : "تعديل يدوي", icon: Sliders }
+          ].map((c) => {
+            const Icon = c.icon;
+            const isSelected = activeCategory === c.id;
+            return (
+              <button 
+                key={c.id} 
+                onClick={() => { playSfx("click"); setActiveCategory(c.id as any); }}
+                className={`flex-1 flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg text-[10px] font-bold transition-all duration-150 active:scale-95 whitespace-nowrap ${
+                  isSelected ? "bg-primary text-primary-foreground shadow-xs" : "hover:bg-secondary text-muted-foreground bg-transparent"
+                }`}
               >
-                {en ? "Deselect (Add New)" : "إلغاء التحديد (إضافة جديد)"}
+                <Icon className="w-3 h-3" />
+                <span>{c.label}</span>
               </button>
-            </div>
-          ) : (
-            <div className="flex items-center justify-between bg-secondary/40 border border-border/40 px-3 py-2 rounded-2xl text-[11px] font-semibold text-muted-foreground">
-              <span>{en ? "Click any filter to add a new preset layer track below" : "اضغط على أي فلتر لإضافة مصفوفة فلتر جديدة أسفله بسهولة"}</span>
-              <span className="text-primary font-bold text-[10px] bg-primary/10 px-2.5 py-0.5 rounded-full border border-primary/20">
-                {filters.length} {en ? "Filters" : "فلاتر"}
-              </span>
-            </div>
-          )}
-
-          {/* Quick Remove Active Filter Button */}
-          {activeFilter && (
-            <button
-              onClick={() => {
-                playSfx("swipe");
-                removeFilter(activeFilter.id);
-                toast.success(en ? "Removed active luts from current playhead!" : "تمت إزالة الفلتر النشط من موضع التشغيل الحالي!");
-              }}
-              className="w-full py-2.5 rounded-xl border border-dashed border-red-500/40 bg-red-500/5 hover:bg-red-500/10 text-red-500 text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-2"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>{en ? "Remove Active Filter at Playhead" : "إلغاء / حذف الفلتر من موضع التشغيل الحالي"}</span>
-            </button>
-          )}
-
-          {activeCategory === "manual" ? (
-            renderedManualPanel
-          ) : (
-            <>
-              {/* Grid Layout with Premium Icons and Badges */}
-              {renderedGrid}
-
-              {/* Interactive Multi-Slider Customization Console */}
-              {renderedTuningConsole}
-            </>
-          )}
-
-          {/* Bottom margin padding */}
-          <div className="pt-2"></div>
-
+            );
+          })}
         </div>
-      </div>
-    </div>
+      }
+    >
+      {/* Selected Filter Replace Notice */}
+      {selectedId && (
+        <div className="flex items-center justify-between bg-primary/10 border border-primary/30 px-3 py-2 rounded-xl text-xs font-bold text-primary">
+          <div className="flex items-center gap-2">
+            <Palette className="w-3.5 h-3.5" />
+            <span>{en ? "Editing selected filter" : "تعديل الفلتر المحدد"}</span>
+          </div>
+          <button
+            onClick={() => { playSfx("click"); setSelectedId(null); }}
+            className="px-2.5 py-1 rounded-lg bg-card hover:bg-secondary text-foreground text-[10px] font-bold border border-border/60 transition-all active:scale-95"
+          >
+            {en ? "Add New Instead" : "إضافة جديد"}
+          </button>
+        </div>
+      )}
+
+      {/* Quick Remove Active Filter Button */}
+      {activeFilter && (
+        <button
+          onClick={() => {
+            playSfx("swipe");
+            removeFilter(activeFilter.id);
+            toast.success(en ? "Removed active filter" : "تمت إزالة الفلتر النشط");
+          }}
+          className="w-full py-2 rounded-xl border border-dashed border-red-500/40 bg-red-500/5 hover:bg-red-500/10 text-red-500 text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+          <span>{en ? "Remove Active Filter" : "حذف الفلتر الحالي"}</span>
+        </button>
+      )}
+
+      {activeCategory === "manual" ? (
+        renderedManualPanel
+      ) : (
+        <>
+          {renderedGrid}
+          {renderedTuningConsole}
+        </>
+      )}
+    </DraggableLibrarySheet>
   );
 };
 

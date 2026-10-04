@@ -39,19 +39,14 @@ const AudioTimeline = memo(({ currentTime, pxPerSec, containerW, isPlaying, focu
 
   const handleTrackPointerDown = (e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest("[data-no-scrub]") || (e.target as HTMLElement).closest("button")) return;
-    const el = e.currentTarget;
-    const rect = el.getBoundingClientRect();
     const startX = e.clientX;
     const startY = e.clientY;
     const startCurrentTime = currentTimeRef.current;
-    const clickedTime = Math.max(0, Math.min(totalDuration, startCurrentTime + (startX - rect.left - halfW) / pxPerSec));
 
     // Deselect if clicking on empty track space
     if (!(e.target as HTMLElement).closest("[data-audio-block]")) {
       setSelectedAudioTrackId(null);
     }
-
-    if (onSeek) onSeek(clickedTime);
 
     let scrubbing = false;
     const move = (ev: PointerEvent) => {
@@ -64,7 +59,7 @@ const AudioTimeline = memo(({ currentTime, pxPerSec, containerW, isPlaying, focu
       }
       if (Math.abs(dx) > 3) scrubbing = true;
       if (onSeek && scrubbing) {
-        const nextTime = Math.max(0, Math.min(totalDuration, clickedTime - dx / pxPerSec));
+        const nextTime = Math.max(0, Math.min(totalDuration, startCurrentTime - dx / pxPerSec));
         onSeek(nextTime);
       }
     };
@@ -88,7 +83,6 @@ const AudioTimeline = memo(({ currentTime, pxPerSec, containerW, isPlaying, focu
           style={{
             width: totalPx,
             transform: `translate3d(${translateX}px, 0, 0)`,
-            transition: isPlaying ? "none" : "transform 80ms linear",
             willChange: "transform",
           }}
         >

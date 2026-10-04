@@ -156,16 +156,9 @@ const OverlayTimeline = memo(({ currentTime, pxPerSec, containerW, isPlaying, fo
 
   const handleTrackPointerDown = (e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest("[data-no-scrub]") || (e.target as HTMLElement).closest("button")) return;
-    const el = e.currentTarget;
-    const rect = el.getBoundingClientRect();
     const startX = e.clientX;
     const startY = e.clientY;
-    const localXToTime = (clientX: number) => {
-      const pointerX = clientX - rect.left;
-      const delta = (pointerX - halfW) / pxPerSec;
-      return Math.max(0, Math.min(totalDuration, currentTimeRef.current + delta));
-    };
-    if (onSeek) onSeek(localXToTime(startX));
+    const startCurrentTime = currentTimeRef.current;
 
     let scrubbing = false;
     const move = (ev: PointerEvent) => {
@@ -177,7 +170,10 @@ const OverlayTimeline = memo(({ currentTime, pxPerSec, containerW, isPlaying, fo
         return;
       }
       if (Math.abs(dx) > 3) scrubbing = true;
-      if (onSeek && scrubbing) onSeek(localXToTime(ev.clientX));
+      if (onSeek && scrubbing) {
+        const nextTime = Math.max(0, Math.min(totalDuration, startCurrentTime - dx / pxPerSec));
+        onSeek(nextTime);
+      }
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
@@ -196,7 +192,7 @@ const OverlayTimeline = memo(({ currentTime, pxPerSec, containerW, isPlaying, fo
       >
         <div className="absolute top-0 left-0 h-full" style={{
           width: totalPx, transform: `translate3d(${translateX}px, 0, 0)`,
-          transition: isPlaying ? "none" : "transform 80ms linear", willChange: "transform",
+          willChange: "transform",
         }}>
           {/* Left Track Icon Header: Overlay Track */}
           <div 
@@ -258,27 +254,33 @@ const OverlayTimeline = memo(({ currentTime, pxPerSec, containerW, isPlaying, fo
                 
                 {/* Keyframe diamonds overlay */}
                 <div className="absolute inset-x-0 inset-y-0 pointer-events-none z-10 overflow-visible">
-                  {(o.keyframes || []).map((kf) => {
-                    const oDur = Math.max(0.01, o.end - o.start);
-                    const xPos = (kf.time / oDur) * w;
-                    const kfGlobalTime = o.start + kf.time;
-                    const isOver = Math.abs(currentTime - kfGlobalTime) < 0.08;
-                    return (
-                      <div 
-                        key={kf.id} 
-                        className={`absolute w-2.5 h-2.5 border border-white shadow transition-all duration-150 ${
-                          isOver
-                            ? "bg-emerald-500 scale-125 border-emerald-200 ring-2 ring-emerald-400/50 z-20"
-                            : "bg-blue-500 border-blue-200 z-10"
-                        }`}
-                        style={{ 
-                          left: `${xPos}px`, 
-                          top: "50%",
-                          transform: "translate(-50%, -50%) rotate(45deg)" 
-                        }}
-                      />
-                    );
-                  })}
+                  {(() => {
+                    const seenBuckets = new Set<number>();
+                    return (o.keyframes || []).map((kf) => {
+                      const bucket = Math.round(kf.time * 20);
+                      if (seenBuckets.has(bucket)) return null;
+                      seenBuckets.add(bucket);
+                      const oDur = Math.max(0.01, o.end - o.start);
+                      const xPos = (kf.time / oDur) * w;
+                      const kfGlobalTime = o.start + kf.time;
+                      const isOver = Math.abs(currentTime - kfGlobalTime) < 0.08;
+                      return (
+                        <div 
+                          key={kf.id || `${kf.property}-${bucket}`} 
+                          className={`absolute w-2.5 h-2.5 border border-white shadow transition-all duration-150 ${
+                            isOver
+                              ? "bg-emerald-500 scale-125 border-emerald-200 ring-2 ring-emerald-400/50 z-20"
+                              : "bg-blue-500 border-blue-200 z-10"
+                          }`}
+                          style={{ 
+                            left: `${xPos}px`, 
+                            top: "50%",
+                            transform: "translate(-50%, -50%) rotate(45deg)" 
+                          }}
+                        />
+                      );
+                    });
+                  })()}
                 </div>
 
                 {/* Thumbnail */}

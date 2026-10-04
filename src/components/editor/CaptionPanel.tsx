@@ -11,6 +11,7 @@ import { parseSRT } from "@/lib/srtParser";
 import { getLang } from "@/lib/i18n";
 import { playSfx } from "@/lib/soundFx";
 import { animClass } from "./CaptionOverlay";
+import DraggableLibrarySheet from "./DraggableLibrarySheet";
 import {
   TextTemplate,
   TextTemplateCategory,
@@ -839,42 +840,6 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
 
   if (!open) return null;
 
-  // Minimized/Collapsed render mode so the user can easily see their work
-  if (isCollapsed) {
-    return (
-      <div className="fixed inset-x-0 bottom-4 z-50 flex justify-center px-4 animate-in fade-in slide-in-from-bottom-2 duration-300" dir="rtl">
-        <div className="bg-card/90 backdrop-blur-xl border border-primary/30 rounded-full px-4 py-2 shadow-2xl flex items-center gap-3">
-          <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-primary animate-ping" />
-            <span className="text-muted-foreground">{en ? "Active Captions:" : "مسارات الكابشن:"}</span>
-            <span className="text-primary font-extrabold">{captions.length}</span>
-          </span>
-          <div className="h-4 w-px bg-border" />
-          <button 
-            onClick={() => { playSfx("click"); setIsCollapsed(false); }}
-            className="px-3.5 py-1.5 rounded-full gradient-primary hover:opacity-90 text-white text-xs font-bold transition-all active:scale-95 flex items-center gap-1 shadow-md"
-          >
-            <Eye className="w-3.5 h-3.5" />
-            {en ? "Show Library" : "إظهار المكتبة"}
-          </button>
-          <button 
-            onClick={() => { playSfx("success"); onClose(); }}
-            className="w-7 h-7 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center transition-all active:scale-90"
-            title={en ? "Confirm" : "تأكيد"}
-          >
-            <Check className="w-3.5 h-3.5 text-white stroke-[3px]" />
-          </button>
-          <button 
-            onClick={() => { playSfx("click"); onClose(); }}
-            className="w-7 h-7 rounded-full bg-secondary flex items-center justify-center text-foreground hover:bg-secondary/80 transition-all active:scale-90"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   const addCaption = () => {
     if (!editingText.trim()) {
       toast.error(en ? "Write some text first" : "اكتب نص الكابشن أولاً");
@@ -1321,186 +1286,134 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
   });
 
   return (
-    <div 
+    <DraggableLibrarySheet
       id="caption-panel-root"
-      className="fixed inset-x-0 bottom-0 z-50 animate-in slide-in-from-bottom-3 duration-250" 
+      open={open}
+      onClose={onClose}
       dir={en ? "ltr" : "rtl"}
-    >
-      <div className="bg-card/95 backdrop-blur-2xl border-t border-border/80 rounded-t-3xl shadow-2xl max-h-[60vh] sm:max-h-[64vh] flex flex-col overflow-hidden pb-4">
-        
-        {/* Subtle top drag handle */}
-        <div className="w-9 h-1 rounded-full bg-border/80 mx-auto mt-2 shrink-0" />
-
-        <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 shrink-0">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-7 h-7 rounded-xl gradient-primary flex items-center justify-center shadow-xs shrink-0">
-              <Type className="w-4 h-4 text-primary-foreground animate-pulse" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5">
-                <span className="font-heading font-black text-xs sm:text-sm text-foreground truncate block">
-                  {en ? "Auto Captions & Subtitles" : "نصوص الشاشة والكابشن"}
-                </span>
-                <span className="text-[10px] text-primary font-black px-1.5 py-0.2 rounded-md bg-primary/10 border border-primary/20 shrink-0 font-mono">
-                  {captions.length}
-                </span>
-              </div>
-              <span className="text-[10px] text-muted-foreground truncate block font-medium">
-                {en ? "Speech transcription & stylized text" : "تفريغ صوتي ذكي وتأثيرات النصوص"}
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1.5 shrink-0">
-            {/* Collapse to see work button */}
-            <button 
-              id="caption-minimize-btn"
-              onClick={() => { playSfx("click"); setIsCollapsed(true); }}
-              className="h-7 px-2 rounded-lg bg-secondary/80 hover:bg-secondary flex items-center gap-1 text-[10px] font-bold text-foreground transition-all active:scale-90 border border-border/60"
-              title={en ? "Minimize library to preview work" : "إخفاء مؤقت لرؤية العمل"}
-            >
-              <EyeOff className="w-3.5 h-3.5 text-muted-foreground" />
-              <span className="hidden xs:inline">{en ? "See Work" : "رؤية العمل"}</span>
-            </button>
-
-            <button 
-              id="caption-confirm-btn"
-              onClick={() => { playSfx("success"); onClose(); }} 
-              className="h-7 px-2.5 rounded-lg gradient-primary flex items-center gap-1 text-white text-[11px] font-bold shadow-sm transition-all active:scale-90"
-              title={en ? "Confirm Selection" : "تأكيد الاختيار"}
-            >
-              <Check className="w-3.5 h-3.5 text-white stroke-[3px]" />
-              <span>{en ? "Done" : "تم"}</span>
-            </button>
-            <button 
-              id="caption-close-btn"
-              onClick={() => { playSfx("click"); onClose(); }} 
-              className="w-7 h-7 rounded-lg bg-secondary flex items-center justify-center hover:bg-secondary/80 transition-all active:scale-90 text-foreground"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Scrollable Content Body */}
-        <div className="flex-1 overflow-y-auto no-scrollbar p-3.5 space-y-3">
-
-        {/* AI extract */}
-        {extracting ? (
-          <div className="w-full mb-3 bg-slate-950 border border-slate-800 rounded-xl overflow-hidden relative h-12 flex flex-col items-center justify-center px-4">
-            {/* Animated Background Progress Filler */}
-            <div 
-              className="absolute top-0 bottom-0 left-0 transition-all duration-300 ease-out"
-              style={{ 
-                width: `${extractProgress}%`,
-                backgroundColor: getProgressBarColor(extractProgress),
-                opacity: 0.95
-              }}
-            />
-            {/* Content layer */}
-            <div className="relative z-10 flex flex-col items-center justify-center w-full text-white drop-shadow-[0_1.5px_1.5px_rgba(0,0,0,0.8)]">
-              <div className="flex items-center gap-2 font-mono text-xs font-black">
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-white stroke-[3px]" />
-                <span>{Math.round(extractProgress)}%</span>
-              </div>
-              <span className="text-[11px] font-bold text-white/95 font-sans mt-0.5 truncate max-w-full text-center">
-                {extractMsg || (en ? "Extracting speech..." : "جاري استخراج الكلام...")}
-              </span>
-            </div>
-          </div>
-        ) : extractError ? (
-          <div className="w-full mb-3 p-3 bg-destructive/15 border border-destructive/30 rounded-xl flex flex-col items-center gap-2 text-center animate-in fade-in slide-in-from-top-2 duration-200">
-            <p className="text-[11px] font-bold text-destructive">
-              {en ? "Speech extraction failed. Please try again." : "فشل استخراج الكلام. يرجى إعادة المحاولة."}
-            </p>
-            <p className="text-[10px] text-muted-foreground line-clamp-2 max-w-md bg-black/20 p-1.5 rounded-lg border border-border/20 font-mono">
-              {extractError}
-            </p>
-            <button
-              onClick={autoExtract}
-              className="px-4 py-2 rounded-xl bg-destructive text-white text-xs font-bold hover:bg-destructive/90 active:scale-95 transition-all flex items-center gap-1.5 shadow-md shadow-destructive/20 cursor-pointer"
-            >
-              <Sparkles className="w-3.5 h-3.5 animate-pulse text-white" />
-              <span>{en ? "Retry Extraction" : "إعادة المحاولة"}</span>
-            </button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
-            <button
-              onClick={autoExtract}
-              className="w-full py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all duration-300 gradient-primary text-primary-foreground hover:opacity-95 active:scale-[0.99] cursor-pointer glow-primary-sm"
-            >
-              <Sparkles className="w-4 h-4 text-white animate-pulse" />
-              <span className="tracking-wide">
-                {en ? "Auto-Extract Speech" : "استخراج تلقائي للكلام"}
-              </span>
-            </button>
-
-            <button
-              onClick={() => srtFileInputRef.current?.click()}
-              className="w-full py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all duration-300 bg-secondary hover:bg-secondary/80 text-foreground border border-border/80 hover:border-primary/50 active:scale-[0.99] cursor-pointer shadow-sm"
-            >
-              <Upload className="w-4 h-4 text-primary" />
-              <span className="tracking-wide">
-                {en ? "Upload SRT File" : "رفع ملف ترجمة SRT"}
-              </span>
-            </button>
-
-            <input
-              ref={srtFileInputRef}
-              type="file"
-              accept=".srt"
-              onChange={handleSRTFileUpload}
-              className="hidden"
-            />
-          </div>
-        )}
-
-        {/* Tabs */}
-        <div className="flex gap-1 mb-3 bg-secondary/50 p-1 rounded-lg overflow-x-auto no-scrollbar">
+      defaultVh={56}
+      icon={<Type className="w-3.5 h-3.5 text-primary-foreground" />}
+      title={en ? "Captions & Text" : "النصوص والكابشن"}
+      badge={
+        captions.length > 0 ? (
+          <span className="text-[10px] text-primary font-bold font-mono">
+            · {captions.length}
+          </span>
+        ) : null
+      }
+      subHeader={
+        <div className="flex gap-1 bg-secondary/50 p-1 rounded-xl overflow-x-auto no-scrollbar">
           {([
-            ["templates", en ? "Text Library" : "مكتبة النصوص"],
-            ["motion", en ? "Motion Presets 🎬" : "قوالب أنيميشن 🎬"],
-            ["stickers", en ? "Stickers 🎨" : "الملصقات 🎨"],
-            ["style", en ? "Custom Style" : "تعديل التنسيق"],
-            ["list", en ? `List (${captions.length})` : `قائمة (${captions.length})`],
+            ["templates", en ? "Templates" : "القوالب"],
+            ["motion", en ? "Motion" : "أنيميشن"],
+            ["stickers", en ? "Stickers" : "ملصقات"],
+            ["style", en ? "Style" : "التنسيق"],
+            ["list", en ? `List (${captions.length})` : `النصوص (${captions.length})`],
           ] as const).map(([id, label]) => (
             <button
               key={id}
               onClick={() => setTab(id as any)}
-              className={`flex-1 py-1.5 px-2 rounded-md text-[11px] font-bold transition whitespace-nowrap ${
-                tab === id ? "gradient-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+              className={`flex-1 py-1.5 px-2.5 rounded-lg text-[11px] font-bold transition whitespace-nowrap ${
+                tab === id ? "gradient-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
               }`}
             >
               {label}
             </button>
           ))}
         </div>
-
-        {tab === "templates" && (
-          <div className="space-y-3">
-            {/* Top Bar: Search + Save Current Style Button */}
-            <div className="flex items-center gap-2">
-              <div className="relative flex-1">
-                <Search className="w-3.5 h-3.5 absolute right-3 top-2.5 text-muted-foreground pointer-events-none" />
-                <input
-                  type="text"
-                  placeholder={en ? "Search templates (Viral, Reels, Neon, Cinematic)..." : "بحث في القوالب (فيرال، ريلز، سينمائي، نيون)..."}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-secondary/60 border border-border/80 rounded-xl pr-9 pl-3 py-1.5 text-xs focus:outline-none focus:border-primary text-foreground placeholder:text-muted-foreground/60"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowSaveCustom((s) => !s)}
-                className="flex-shrink-0 px-2.5 py-1.5 rounded-xl bg-primary/15 hover:bg-primary/25 text-primary text-[11px] font-bold border border-primary/30 flex items-center gap-1 transition-all"
-                title={en ? "Save current font & style as custom preset" : "حفظ النمط الحالي كقالب مخصص جديد"}
-              >
-                <Star className="w-3 h-3 fill-primary/40" />
-                <span>{en ? "Save Preset" : "حفظ كقالب"}</span>
-              </button>
+      }
+    >
+      {/* AI extract */}
+      {extracting ? (
+        <div className="w-full mb-2 bg-slate-950 border border-slate-800 rounded-xl overflow-hidden relative h-11 flex flex-col items-center justify-center px-4">
+          {/* Animated Background Progress Filler */}
+          <div 
+            className="absolute top-0 bottom-0 left-0 transition-all duration-300 ease-out"
+            style={{ 
+              width: `${extractProgress}%`,
+              backgroundColor: getProgressBarColor(extractProgress),
+              opacity: 0.95
+            }}
+          />
+          {/* Content layer */}
+          <div className="relative z-10 flex items-center justify-between w-full text-white drop-shadow-[0_1.5px_1.5px_rgba(0,0,0,0.8)]">
+            <span className="text-[11px] font-bold text-white/95 font-sans truncate">
+              {extractMsg || (en ? "Extracting speech..." : "جاري استخراج الكلام...")}
+            </span>
+            <div className="flex items-center gap-1.5 font-mono text-xs font-black shrink-0">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-white stroke-[3px]" />
+              <span>{Math.round(extractProgress)}%</span>
             </div>
+          </div>
+        </div>
+      ) : extractError ? (
+        <div className="w-full mb-2 p-2.5 bg-destructive/15 border border-destructive/30 rounded-xl flex items-center justify-between gap-2 animate-in fade-in duration-200">
+          <p className="text-[11px] font-bold text-destructive truncate">
+            {extractError}
+          </p>
+          <button
+            onClick={autoExtract}
+            className="px-3 py-1.5 rounded-lg bg-destructive text-white text-[11px] font-bold hover:bg-destructive/90 active:scale-95 transition-all flex items-center gap-1 shrink-0 cursor-pointer"
+          >
+            <Sparkles className="w-3 h-3 text-white" />
+            <span>{en ? "Retry" : "إعادة"}</span>
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={autoExtract}
+            className="w-full py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all gradient-primary text-primary-foreground hover:opacity-95 active:scale-[0.99] cursor-pointer glow-primary-sm"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-white shrink-0" />
+            <span className="truncate">
+              {en ? "Auto Captions" : "استخراج تلقائي"}
+            </span>
+          </button>
+
+          <button
+            onClick={() => srtFileInputRef.current?.click()}
+            className="w-full py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all bg-secondary hover:bg-secondary/80 text-foreground border border-border/80 hover:border-primary/50 active:scale-[0.99] cursor-pointer"
+          >
+            <Upload className="w-3.5 h-3.5 text-primary shrink-0" />
+            <span className="truncate">
+              {en ? "Import SRT" : "رفع ملف SRT"}
+            </span>
+          </button>
+
+          <input
+            ref={srtFileInputRef}
+            type="file"
+            accept=".srt"
+            onChange={handleSRTFileUpload}
+            className="hidden"
+          />
+        </div>
+      )}
+
+      {tab === "templates" && (
+        <div className="space-y-3">
+          {/* Top Bar: Search + Save Current Style Button */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="w-3.5 h-3.5 absolute right-3 top-2.5 text-muted-foreground pointer-events-none" />
+              <input
+                type="text"
+                placeholder={en ? "Search templates..." : "بحث في القوالب..."}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-secondary/60 border border-border/80 rounded-xl pr-9 pl-3 py-1.5 text-xs focus:outline-none focus:border-primary text-foreground placeholder:text-muted-foreground/60"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowSaveCustom((s) => !s)}
+              className="flex-shrink-0 px-2.5 py-1.5 rounded-xl bg-primary/15 hover:bg-primary/25 text-primary text-[11px] font-bold border border-primary/30 flex items-center gap-1 transition-all"
+            >
+              <Star className="w-3 h-3 fill-primary/40" />
+              <span>{en ? "Save Preset" : "حفظ كقالب"}</span>
+            </button>
+          </div>
 
             {/* Inline Save Preset Dialog */}
             {showSaveCustom && (
@@ -1569,7 +1482,7 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
             </div>
 
             {/* CapCut-inspired Preset Cards Grid */}
-            <div className="grid grid-cols-1 gap-2.5 max-h-[380px] overflow-y-auto pr-0.5 no-scrollbar">
+            <div className="grid grid-cols-1 gap-2">
               {filteredNewTemplates.length === 0 ? (
                 <div className="p-8 text-center text-muted-foreground text-xs bg-secondary/20 rounded-xl border border-border/40">
                   {selectedCategory === "custom"
@@ -1676,17 +1589,8 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
         )}
 
         {(tab as string) === "motion" && (
-          <div className="space-y-3">
-            <div className="p-2 bg-primary/10 border border-primary/20 rounded-xl text-center">
-              <span className="text-xs font-bold text-foreground">
-                {en ? "Professional Motion Animations & Keyframe Effects 🎬" : "مكتبة قوالب الحركة والأنيميشن الاحترافية 🎬"}
-              </span>
-              <p className="text-[10px] text-muted-foreground mt-0.5">
-                {en ? "Choose a kinetic preset to apply font, background, and motion effects immediately" : "اختر قالب أنيميشن حركي لتطبيقه مباشرة على النصوص مع التوهج والحركة"}
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 gap-2.5 max-h-[360px] overflow-y-auto pr-0.5 no-scrollbar">
+          <div className="space-y-2.5">
+            <div className="grid grid-cols-1 gap-2">
               {MOTION_PRESET_TEMPLATES.map((m) => (
                 <div
                   key={m.id}
@@ -1795,7 +1699,7 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
             </div>
 
             {/* Stickers Grid */}
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5 max-h-[320px] overflow-y-auto pr-0.5 no-scrollbar">
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
               {STICKERS_LIST.filter((st) => {
                 const matchesCat = stickerCategory === "all" || st.category === stickerCategory;
                 const query = stickerSearch.trim().toLowerCase();
@@ -2126,10 +2030,6 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
                   </button>
                 </div>
               </div>
-
-              <p className="text-[9px] text-muted-foreground text-center">
-                {en ? "💡 You can also drag the caption directly on the preview to place it freely anywhere." : "💡 يمكنك أيضاً سحب النص مباشرة على شاشة المعاينة لوضعه في أي مكان بحرية تامة."}
-              </p>
             </div>
 
             {/* Quick Text Formatting & Flip Tools */}
@@ -2540,9 +2440,7 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
             </div>
           </>
         )}
-        </div>
-      </div>
-    </div>
+    </DraggableLibrarySheet>
   );
 };
 

@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useMedia, VfxType } from "@/context/MediaContext";
-import { X, Sparkles, Trash2, Plus, Check, Eye, EyeOff, Search, Play, Clapperboard, Flame, CloudRain, Disc3, Zap, Sun, Film } from "lucide-react";
+import { X, Sparkles, Trash2, Plus, Check, Search, Play, Clapperboard, Flame, CloudRain, Disc3, Zap, Sun, Film } from "lucide-react";
 import { t, getLang } from "@/lib/i18n";
 import { playSfx } from "@/lib/soundFx";
 import { toast } from "sonner";
 import { VFX_DATA, VFX_CATEGORIES, VfxCategory, VfxMetadata } from "@/data/vfxData";
+import DraggableLibrarySheet from "./DraggableLibrarySheet";
 
 interface Props {
   open: boolean;
@@ -928,121 +929,22 @@ const VfxPanel = ({ open, onClose, currentTime }: Props) => {
     toast.success(en ? `Added ${meta.labelEn} as video opener intro!` : `تمت إضافة ${meta.labelAr} كافتتاحية سينمائية للفيديو!`);
   };
 
-  // Minimized / Collapsed Bar so user can preview their work clearly
-  if (isCollapsed) {
-    return (
-      <div className="fixed inset-x-0 bottom-4 z-50 flex justify-center px-4 animate-in fade-in slide-in-from-bottom-2 duration-300" dir={en ? "ltr" : "rtl"}>
-        <div className="bg-card/95 backdrop-blur-xl border border-primary/30 rounded-full px-4 py-2 shadow-2xl flex items-center gap-3">
-          <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-primary animate-ping" />
-            <span className="text-muted-foreground">{en ? "Active VFX tracks:" : "المؤثرات البصرية النشطة:"}</span>
-            <span className="text-primary font-extrabold">{vfx.length}</span>
-          </span>
-          <div className="h-4 w-px bg-border" />
-          <button
-            onClick={() => {
-              playSfx("click");
-              setIsCollapsed(false);
-            }}
-            className="px-3.5 py-1.5 rounded-full gradient-primary hover:opacity-90 text-white text-xs font-bold transition-all active:scale-95 flex items-center gap-1.5 shadow-md"
-          >
-            <Eye className="w-3.5 h-3.5" />
-            {en ? "Show Library" : "إظهار المكتبة"}
-          </button>
-          <button
-            onClick={() => {
-              playSfx("success");
-              onClose();
-            }}
-            className="w-7 h-7 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center transition-all active:scale-90"
-            title={en ? "Confirm Selection" : "تأكيد والانتهاء"}
-          >
-            <Check className="w-3.5 h-3.5 text-white stroke-[3px]" />
-          </button>
-          <button
-            onClick={() => {
-              playSfx("click");
-              onClose();
-            }}
-            className="w-7 h-7 rounded-full bg-secondary flex items-center justify-center text-foreground hover:bg-secondary/80 transition-all active:scale-90"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div 
+    <DraggableLibrarySheet
       id="vfx-panel-root"
-      className="fixed inset-x-0 bottom-0 z-50 animate-in slide-in-from-bottom-3 duration-250" 
+      open={open}
+      onClose={onClose}
       dir={en ? "ltr" : "rtl"}
-    >
-      <div className="bg-card/95 backdrop-blur-2xl border-t border-border/80 rounded-t-3xl shadow-2xl max-h-[60vh] sm:max-h-[64vh] flex flex-col overflow-hidden pb-4">
-        
-        {/* Subtle top drag handle */}
-        <div className="w-9 h-1 rounded-full bg-border/80 mx-auto mt-2 shrink-0" />
-
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 shrink-0">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-7 h-7 rounded-xl gradient-primary flex items-center justify-center shadow-xs shrink-0">
-              <Sparkles className="w-4 h-4 text-primary-foreground animate-pulse" />
-            </div>
-            <div className="min-w-0">
-              <span className="font-heading font-black text-xs sm:text-sm text-foreground truncate block">
-                {en ? "Visual Effects (VFX)" : "مكتبة المؤثرات البصرية"}
-              </span>
-              <span className="text-[10px] text-muted-foreground truncate block font-medium">
-                {en ? "Cinema Openers, Weather, Dance & Action" : "افتتاحيات سينمائية، طقس، رقص وأكشن"}
-              </span>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-1.5 shrink-0">
-            {/* Collapse button */}
-            <button
-              id="vfx-minimize-btn"
-              onClick={() => {
-                playSfx("click");
-                setIsCollapsed(true);
-              }}
-              className="h-7 px-2 rounded-lg bg-secondary/80 hover:bg-secondary flex items-center gap-1 text-[10px] font-bold text-foreground transition-all active:scale-90 border border-border/60"
-              title={en ? "Minimize to preview video" : "إخفاء مؤقت لرؤية الفيديو"}
-            >
-              <EyeOff className="w-3.5 h-3.5 text-muted-foreground" />
-              <span className="hidden xs:inline">{en ? "See Work" : "رؤية العمل"}</span>
-            </button>
-
-            <button
-              id="vfx-confirm-btn"
-              onClick={() => {
-                playSfx("success");
-                onClose();
-              }}
-              className="h-7 px-2.5 rounded-lg gradient-primary flex items-center gap-1 text-white text-[11px] font-bold shadow-sm transition-all active:scale-90"
-              title={en ? "Done" : "تم"}
-            >
-              <Check className="w-3.5 h-3.5 text-white stroke-[3px]" />
-              <span>{en ? "Done" : "تم"}</span>
-            </button>
-            <button
-              id="vfx-close-btn"
-              onClick={() => {
-                playSfx("click");
-                onClose();
-              }}
-              className="w-7 h-7 rounded-lg bg-secondary flex items-center justify-center hover:bg-secondary/80 transition-all active:scale-90 text-foreground"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Categories Tabs & Search */}
-        <div className="px-3.5 pt-2 pb-1.5 space-y-1.5 border-b border-border/40 shrink-0 bg-background/40">
-          
+      defaultVh={54}
+      icon={<Sparkles className="w-3.5 h-3.5 text-primary-foreground" />}
+      title={en ? "Visual Effects" : "المؤثرات البصرية"}
+      badge={
+        vfx.length > 0 ? (
+          <span className="text-[10px] text-primary font-bold font-mono">· {vfx.length}</span>
+        ) : null
+      }
+      subHeader={
+        <div className="space-y-1.5">
           {/* Search bar */}
           <div className="relative">
             <Search className={`w-3.5 h-3.5 absolute ${en ? "left-2.5" : "right-2.5"} top-1/2 -translate-y-1/2 text-muted-foreground`} />
@@ -1050,7 +952,7 @@ const VfxPanel = ({ open, onClose, currentTime }: Props) => {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={en ? "Search effects (rain, snow, opener, dance, disco...)" : "بحث في المؤثرات (مطر، ثلج، افتتاحية، رقص، ديسكو...)"}
+              placeholder={en ? "Search effects..." : "بحث في المؤثرات..."}
               className={`w-full ${en ? "pl-8 pr-7" : "pr-8 pl-7"} py-1.5 text-xs rounded-xl bg-card border border-border/70 focus:border-primary focus:outline-none text-foreground placeholder:text-muted-foreground transition-all`}
             />
             {searchQuery && (
@@ -1087,37 +989,28 @@ const VfxPanel = ({ open, onClose, currentTime }: Props) => {
             })}
           </div>
         </div>
+      }
+    >
+      {/* Selected Replace Notice */}
+      {selectedId && (
+        <div className="flex items-center justify-between bg-primary/10 border border-primary/30 px-3 py-2 rounded-xl text-xs font-bold text-primary">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>{en ? "Replacing selected effect" : "تعديل المؤثر المحدد"}</span>
+          </div>
+          <button
+            onClick={() => {
+              playSfx("click");
+              setSelectedId(null);
+            }}
+            className="px-2.5 py-1 rounded-lg bg-card hover:bg-secondary text-foreground text-[10px] font-bold border border-border/60 transition-all active:scale-95"
+          >
+            {en ? "Add New Instead" : "إضافة جديد"}
+          </button>
+        </div>
+      )}
 
-        {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto no-scrollbar p-4 space-y-4">
-          
-          {/* Mode Indicator Banner */}
-          {selectedId ? (
-            <div className="flex items-center justify-between bg-primary/10 border border-primary/30 px-3.5 py-2.5 rounded-2xl text-xs font-bold text-primary animate-in fade-in duration-200">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 animate-spin" />
-                <span>{en ? "Replacing selected effect track..." : "جاري استبدال وتعديل المؤثر المحدد في المخطط"}</span>
-              </div>
-              <button
-                onClick={() => {
-                  playSfx("click");
-                  setSelectedId(null);
-                }}
-                className="px-3 py-1 rounded-xl bg-card hover:bg-secondary text-foreground text-[10px] font-extrabold border border-border/60 shadow-sm transition-all active:scale-95"
-              >
-                {en ? "Cancel (Add New)" : "إلغاء (إضافة جديد)"}
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center justify-between bg-secondary/40 border border-border/40 px-3.5 py-2 rounded-2xl text-[11px] font-semibold text-muted-foreground">
-              <span>{en ? "Click card to add at playhead, or use Intro button" : "اضغط على البطاقة للإضافة عند المؤشر، أو زر الافتتاحية"}</span>
-              <span className="text-primary font-bold text-[10px] bg-primary/10 px-2.5 py-0.5 rounded-full border border-primary/20">
-                {vfx.length} {en ? "Active" : "مؤثرات نشطة"}
-              </span>
-            </div>
-          )}
-
-          {/* Grid of Effects */}
+      {/* Grid of Effects */}
           {filteredVfx.length === 0 ? (
             <div className="text-center py-10 space-y-2">
               <span className="text-2xl">🔍</span>
@@ -1201,17 +1094,12 @@ const VfxPanel = ({ open, onClose, currentTime }: Props) => {
 
           {/* Active VFX Tracks Manager */}
           {vfx.length > 0 && (
-            <div className="space-y-2.5 pt-2 border-t border-border/40">
-              <div className="flex items-center justify-between px-1">
-                <p className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-primary" />
-                  <span>{en ? "Active Effects in Timeline" : "المؤثرات النشطة في المخطط الزمني"}</span>
-                  <span className="text-muted-foreground font-normal text-[11px]">({vfx.length})</span>
-                </p>
-                <span className="text-[10px] text-muted-foreground">
-                  {en ? "Adjust intensity & timing below" : "اضبط القوة والمدة لكل مؤثر"}
-                </span>
-              </div>
+            <div className="space-y-2 pt-2 border-t border-border/40">
+              <p className="text-xs font-bold text-foreground flex items-center gap-1.5 px-1">
+                <Sparkles className="w-3.5 h-3.5 text-primary" />
+                <span>{en ? "Active Effects" : "المؤثرات النشطة"}</span>
+                <span className="text-muted-foreground font-normal text-[11px]">({vfx.length})</span>
+              </p>
 
               <div className="space-y-2">
                 {vfx.map((v) => {
@@ -1287,11 +1175,7 @@ const VfxPanel = ({ open, onClose, currentTime }: Props) => {
               </div>
             </div>
           )}
-
-          <div className="pt-2"></div>
-        </div>
-      </div>
-    </div>
+    </DraggableLibrarySheet>
   );
 };
 

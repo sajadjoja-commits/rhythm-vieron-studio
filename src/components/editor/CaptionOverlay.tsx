@@ -116,28 +116,19 @@ const CaptionOverlay = memo(({ currentTime }: Props) => {
     const active = captions.find((c) => c.id === id);
     if (!active) return;
 
-    const localTime = currentTime - active.start;
+    const localTime = Math.max(0, currentTime - active.start);
     const hasKeyframes = active.keyframes && active.keyframes.length > 0;
 
     if (hasKeyframes) {
       const updatedKfs = [...(active.keyframes || [])];
-      
-      // Update/Create xPercent keyframe at localTime
+
+      // Update/Create xPercent keyframe at localTime only (never add extra keyframe at 0)
       const xKfIndex = updatedKfs.findIndex(
-        (kf) => kf.property === "xPercent" && Math.abs(kf.time - localTime) < 0.15
+        (kf) => kf.property === "xPercent" && Math.abs(kf.time - localTime) < 0.08
       );
       if (xKfIndex > -1) {
         updatedKfs[xKfIndex] = { ...updatedKfs[xKfIndex], value: nextXPercent };
       } else {
-        const xKfs = updatedKfs.filter((k) => k.property === "xPercent");
-        if (xKfs.length === 0) {
-          updatedKfs.push({
-            id: `kf-start-x-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-            time: 0,
-            property: "xPercent",
-            value: active.xPercent ?? 50,
-          });
-        }
         updatedKfs.push({
           id: `kf-drag-x-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
           time: localTime,
@@ -146,23 +137,13 @@ const CaptionOverlay = memo(({ currentTime }: Props) => {
         });
       }
 
-      // Update/Create yPercent keyframe at localTime
+      // Update/Create yPercent keyframe at localTime only (never add extra keyframe at 0)
       const yKfIndex = updatedKfs.findIndex(
-        (kf) => kf.property === "yPercent" && Math.abs(kf.time - localTime) < 0.15
+        (kf) => kf.property === "yPercent" && Math.abs(kf.time - localTime) < 0.08
       );
       if (yKfIndex > -1) {
         updatedKfs[yKfIndex] = { ...updatedKfs[yKfIndex], value: nextYPercent };
       } else {
-        const yKfs = updatedKfs.filter((k) => k.property === "yPercent");
-        if (yKfs.length === 0) {
-          const defaultY = captionStyle.position === "top" ? 8 : captionStyle.position === "center" ? 50 : 88;
-          updatedKfs.push({
-            id: `kf-start-y-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-            time: 0,
-            property: "yPercent",
-            value: active.yPercent ?? defaultY,
-          });
-        }
         updatedKfs.push({
           id: `kf-drag-y-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
           time: localTime,
@@ -172,7 +153,11 @@ const CaptionOverlay = memo(({ currentTime }: Props) => {
       }
 
       updatedKfs.sort((a, b) => a.time - b.time);
-      updateCaption(id, { keyframes: updatedKfs });
+      updateCaption(id, {
+        xPercent: nextXPercent,
+        yPercent: nextYPercent,
+        keyframes: updatedKfs,
+      });
     } else {
       updateCaption(id, {
         xPercent: nextXPercent,
@@ -181,17 +166,75 @@ const CaptionOverlay = memo(({ currentTime }: Props) => {
     }
   };
 
+  const applyScaleRotationUpdate = (id: string, nextScale: number, nextRotation: number) => {
+    const active = captions.find((c) => c.id === id);
+    if (!active) return;
+
+    const localTime = Math.max(0, currentTime - active.start);
+    const hasKeyframes = active.keyframes && active.keyframes.length > 0;
+
+    if (hasKeyframes) {
+      const updatedKfs = [...(active.keyframes || [])];
+
+      const scaleKfIdx = updatedKfs.findIndex(
+        (kf) => kf.property === "scale" && Math.abs(kf.time - localTime) < 0.08
+      );
+      if (scaleKfIdx > -1) {
+        updatedKfs[scaleKfIdx] = { ...updatedKfs[scaleKfIdx], value: nextScale };
+      } else {
+        updatedKfs.push({
+          id: `kf-s-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
+          time: localTime,
+          property: "scale",
+          value: nextScale,
+        });
+      }
+
+      const rotKfIdx = updatedKfs.findIndex(
+        (kf) => kf.property === "rotation" && Math.abs(kf.time - localTime) < 0.08
+      );
+      if (rotKfIdx > -1) {
+        updatedKfs[rotKfIdx] = { ...updatedKfs[rotKfIdx], value: nextRotation };
+      } else {
+        updatedKfs.push({
+          id: `kf-r-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
+          time: localTime,
+          property: "rotation",
+          value: nextRotation,
+        });
+      }
+
+      updatedKfs.sort((a, b) => a.time - b.time);
+      updateCaption(id, {
+        scale: nextScale,
+        rotation: nextRotation,
+        keyframes: updatedKfs,
+      });
+    } else {
+      updateCaption(id, {
+        scale: nextScale,
+        rotation: nextRotation,
+      });
+    }
+  };
+
   const startDrag = (e: React.PointerEvent, id: string, startXPercent: number, startYPercent: number) => {
     if (editingId === id) return;
+    if ((e.target as HTMLElement).closest("[data-caption-handle]")) return;
     e.stopPropagation();
     e.preventDefault();
     setSelectedId(id);
-    
-    // Container reference: check element itself or its parent canvas
-    const container = containerRef.current?.parentElement || containerRef.current;
+
+    const container = containerRef.current;
     if (!container) return;
     const initialRect = container.getBoundingClientRect();
     if (initialRect.width <= 0 || initialRect.height <= 0) return;
+
+    const targetEl = e.currentTarget as HTMLElement;
+    const activePointerId = e.pointerId;
+    try {
+      targetEl.setPointerCapture(activePointerId);
+    } catch {}
 
     setActiveDragId(id);
     setDragLiveCoords({ x: Math.round(startXPercent), y: Math.round(startYPercent) });
@@ -199,7 +242,26 @@ const CaptionOverlay = memo(({ currentTime }: Props) => {
     const startClientX = e.clientX;
     const startClientY = e.clientY;
 
+    const cleanup = () => {
+      try {
+        if (targetEl.hasPointerCapture(activePointerId)) {
+          targetEl.releasePointerCapture(activePointerId);
+        }
+      } catch {}
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+      window.removeEventListener("blur", onPointerUp);
+      setActiveDragId(null);
+      setDragLiveCoords(null);
+    };
+
     const onPointerMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== activePointerId) return;
+      if (ev.pointerType === "mouse" && ev.buttons === 0) {
+        cleanup();
+        return;
+      }
       ev.stopPropagation();
       ev.preventDefault();
 
@@ -209,11 +271,10 @@ const CaptionOverlay = memo(({ currentTime }: Props) => {
       const dx = ev.clientX - startClientX;
       const dy = ev.clientY - startClientY;
 
-      // Fully unrestricted movement: allow moving from 0% left edge to 100% right edge and beyond (-5% to 105%)
-      const rawX = Math.max(-5, Math.min(105, startXPercent + (dx / curRect.width) * 100));
+      // Keep text movement within preview bounds (0% to 100%)
+      const rawX = Math.max(0, Math.min(100, startXPercent + (dx / curRect.width) * 100));
       const rawY = Math.max(2, Math.min(98, startYPercent + (dy / curRect.height) * 100));
 
-      // Gentle snap to center axes with smooth release
       const snapped = snapPreviewTransform({ x: rawX, y: rawY, thresholdPercent: 1.5 });
       const nextX = Math.round(snapped.x * 10) / 10;
       const nextY = Math.round(snapped.y * 10) / 10;
@@ -222,26 +283,106 @@ const CaptionOverlay = memo(({ currentTime }: Props) => {
       applyPositionUpdate(id, nextX, nextY);
     };
 
-    const onPointerUp = (ev: PointerEvent) => {
+    const onPointerUp = (ev: PointerEvent | FocusEvent) => {
+      if ("pointerId" in ev && ev.pointerId !== activePointerId) return;
       ev.stopPropagation();
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-      window.removeEventListener("pointercancel", onPointerUp);
-      setActiveDragId(null);
-      setDragLiveCoords(null);
+      cleanup();
     };
 
     window.addEventListener("pointermove", onPointerMove, { passive: false });
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("pointercancel", onPointerUp);
+    window.addEventListener("blur", onPointerUp);
   };
 
-  const handleTouchStart = (e: React.TouchEvent, id: string) => {
+  const startRotateScaleDrag = (
+    e: React.PointerEvent,
+    id: string,
+    currentScale: number,
+    currentRotation: number
+  ) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setSelectedId(id);
+
+    const handleEl = e.currentTarget as HTMLElement;
+    const captionBoxEl = handleEl.closest("[data-caption-text]") as HTMLElement | null;
+    if (!captionBoxEl) return;
+
+    const boxRect = captionBoxEl.getBoundingClientRect();
+    const centerX = boxRect.left + boxRect.width / 2;
+    const centerY = boxRect.top + boxRect.height / 2;
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startDist = Math.max(16, Math.hypot(startX - centerX, startY - centerY));
+    const startAngle = Math.atan2(startY - centerY, startX - centerX) * (180 / Math.PI);
+
+    const activePointerId = e.pointerId;
+    try {
+      handleEl.setPointerCapture(activePointerId);
+    } catch {}
+
+    let isDraggingHandle = true;
+
+    const cleanup = () => {
+      if (!isDraggingHandle) return;
+      isDraggingHandle = false;
+      try {
+        if (handleEl.hasPointerCapture(activePointerId)) {
+          handleEl.releasePointerCapture(activePointerId);
+        }
+      } catch {}
+      window.removeEventListener("pointermove", onRotateMove);
+      window.removeEventListener("pointerup", onRotateUp);
+      window.removeEventListener("pointercancel", onRotateUp);
+      window.removeEventListener("blur", onRotateUp);
+      handleEl.removeEventListener("lostpointercapture", onRotateUp);
+    };
+
+    const onRotateMove = (ev: PointerEvent) => {
+      if (!isDraggingHandle || ev.pointerId !== activePointerId) return;
+      if (ev.pointerType === "mouse" && ev.buttons === 0) {
+        cleanup();
+        return;
+      }
+      ev.stopPropagation();
+      ev.preventDefault();
+
+      const curDist = Math.max(10, Math.hypot(ev.clientX - centerX, ev.clientY - centerY));
+      const curAngle = Math.atan2(ev.clientY - centerY, ev.clientX - centerX) * (180 / Math.PI);
+
+      const scaleRatio = curDist / startDist;
+      const newSc = Math.max(0.25, Math.min(3.5, Math.round(currentScale * scaleRatio * 100) / 100));
+
+      let angleDelta = curAngle - startAngle;
+      if (angleDelta > 180) angleDelta -= 360;
+      if (angleDelta < -180) angleDelta += 360;
+      const newRot = Math.round(currentRotation + angleDelta);
+
+      applyScaleRotationUpdate(id, newSc, newRot);
+    };
+
+    const onRotateUp = (ev: Event) => {
+      if ("pointerId" in ev && (ev as PointerEvent).pointerId !== activePointerId) return;
+      ev.stopPropagation();
+      cleanup();
+    };
+
+    window.addEventListener("pointermove", onRotateMove, { passive: false });
+    window.addEventListener("pointerup", onRotateUp);
+    window.addEventListener("pointercancel", onRotateUp);
+    window.addEventListener("blur", onRotateUp);
+    handleEl.addEventListener("lostpointercapture", onRotateUp);
+  };
+
+  const handleTouchStart = (e: React.TouchEvent, id: string, currentScale: number, currentRotation: number) => {
     if (editingId === id) return;
+    if ((e.target as HTMLElement).closest("[data-caption-handle]")) return;
     setSelectedId(id);
     const active = activeList.find((c) => c.id === id);
     if (!active) return;
-    
+
     if (e.touches.length === 2) {
       e.stopPropagation();
       const dist = getDistance(e.touches);
@@ -249,8 +390,8 @@ const CaptionOverlay = memo(({ currentTime }: Props) => {
       touchStateRef.current = {
         startXPercent: active.xPercent ?? 50,
         startYPercent: active.yPercent ?? 88,
-        startScale: active.scale ?? 1,
-        startRotation: active.rotation ?? 0,
+        startScale: currentScale,
+        startRotation: currentRotation,
         startDist: dist,
         startAngle: angle,
       };
@@ -262,128 +403,29 @@ const CaptionOverlay = memo(({ currentTime }: Props) => {
     if (!touchState || e.touches.length !== 2) return;
     e.stopPropagation();
     e.preventDefault();
-    
+
     const dist = getDistance(e.touches);
     const angle = getAngle(e.touches);
-    
+
     const scaleDelta = dist / touchState.startDist;
-    const nextScale = Math.max(0.2, Math.min(3, touchState.startScale * scaleDelta));
-    
+    const nextScale = Math.max(0.25, Math.min(3.5, touchState.startScale * scaleDelta));
+
     const angleDelta = angle - touchState.startAngle;
-    const nextRotation = touchState.startRotation + angleDelta;
-    
-    const active = captions.find((c) => c.id === id);
-    if (!active) return;
+    const nextRotation = Math.round(touchState.startRotation + angleDelta);
 
-    const localTime = currentTime - active.start;
-    const hasKeyframes = active.keyframes && active.keyframes.length > 0;
-
-    if (hasKeyframes) {
-      const updatedKfs = [...(active.keyframes || [])];
-      
-      // Scale
-      const scaleKfIdx = updatedKfs.findIndex(
-        (kf) => kf.property === "scale" && Math.abs(kf.time - localTime) < 0.15
-      );
-      if (scaleKfIdx > -1) {
-        updatedKfs[scaleKfIdx] = { ...updatedKfs[scaleKfIdx], value: nextScale };
-      } else {
-        const scaleKfs = updatedKfs.filter((k) => k.property === "scale");
-        if (scaleKfs.length === 0) {
-          updatedKfs.push({
-            id: `kf-start-s-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-            time: 0,
-            property: "scale",
-            value: active.scale ?? 1,
-          });
-        }
-        updatedKfs.push({
-          id: `kf-touch-s-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-          time: localTime,
-          property: "scale",
-          value: nextScale,
-        });
-      }
-
-      // Rotation
-      const rotKfIdx = updatedKfs.findIndex(
-        (kf) => kf.property === "rotation" && Math.abs(kf.time - localTime) < 0.15
-      );
-      if (rotKfIdx > -1) {
-        updatedKfs[rotKfIdx] = { ...updatedKfs[rotKfIdx], value: nextRotation };
-      } else {
-        const rotKfs = updatedKfs.filter((k) => k.property === "rotation");
-        if (rotKfs.length === 0) {
-          updatedKfs.push({
-            id: `kf-start-r-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-            time: 0,
-            property: "rotation",
-            value: active.rotation ?? 0,
-          });
-        }
-        updatedKfs.push({
-          id: `kf-touch-r-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-          time: localTime,
-          property: "rotation",
-          value: nextRotation,
-        });
-      }
-
-      updatedKfs.sort((a, b) => a.time - b.time);
-      updateCaption(id, { keyframes: updatedKfs });
-    } else {
-      updateCaption(id, {
-        scale: nextScale,
-        rotation: nextRotation,
-      });
-    }
+    applyScaleRotationUpdate(id, nextScale, nextRotation);
   };
 
   const handleTouchEnd = () => {
     touchStateRef.current = null;
   };
 
-  const handleWheel = (e: React.WheelEvent, id: string, currentScale: number) => {
+  const handleWheel = (e: React.WheelEvent, id: string, currentScale: number, currentRotation: number) => {
     e.stopPropagation();
     e.preventDefault();
     const delta = e.deltaY > 0 ? -0.05 : 0.05;
-    const nextScale = Math.max(0.2, Math.min(3, currentScale + delta));
-    
-    const active = captions.find((c) => c.id === id);
-    if (!active) return;
-
-    const localTime = currentTime - active.start;
-    const hasKeyframes = active.keyframes && active.keyframes.length > 0;
-
-    if (hasKeyframes) {
-      const updatedKfs = [...(active.keyframes || [])];
-      const scaleKfIdx = updatedKfs.findIndex(
-        (kf) => kf.property === "scale" && Math.abs(kf.time - localTime) < 0.15
-      );
-      if (scaleKfIdx > -1) {
-        updatedKfs[scaleKfIdx] = { ...updatedKfs[scaleKfIdx], value: nextScale };
-      } else {
-        const scaleKfs = updatedKfs.filter((k) => k.property === "scale");
-        if (scaleKfs.length === 0) {
-          updatedKfs.push({
-            id: `kf-start-ws-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-            time: 0,
-            property: "scale",
-            value: active.scale ?? 1,
-          });
-        }
-        updatedKfs.push({
-          id: `kf-wheel-s-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-          time: localTime,
-          property: "scale",
-          value: nextScale,
-        });
-      }
-      updatedKfs.sort((a, b) => a.time - b.time);
-      updateCaption(id, { keyframes: updatedKfs });
-    } else {
-      updateCaption(id, { scale: nextScale });
-    }
+    const nextScale = Math.max(0.25, Math.min(3.5, currentScale + delta));
+    applyScaleRotationUpdate(id, nextScale, currentRotation);
   };
 
   const beginEdit = (id: string, text: string) => {
@@ -399,7 +441,7 @@ const CaptionOverlay = memo(({ currentTime }: Props) => {
   };
 
   return (
-    <div ref={containerRef} data-caption-overlay className="absolute inset-0 pointer-events-none z-10">
+    <div ref={containerRef} data-caption-overlay className="absolute inset-0 pointer-events-none z-20 overflow-hidden">
       {activeList.map((active) => {
         const font = active.font ?? captionStyle.font;
         const size = active.size ?? captionStyle.size;
@@ -476,7 +518,7 @@ const CaptionOverlay = memo(({ currentTime }: Props) => {
                   width: "max-content",
                   minWidth: "max-content",
                 }}
-                onTouchStart={(e) => handleTouchStart(e, active.id)}
+                onTouchStart={(e) => handleTouchStart(e, active.id, scale, rotation)}
                 onTouchMove={(e) => handleTouchMove(e, active.id)}
                 onTouchEnd={handleTouchEnd}
               >
@@ -508,7 +550,7 @@ const CaptionOverlay = memo(({ currentTime }: Props) => {
                 ) : (
                   <div
                     onPointerDown={(e) => startDrag(e, active.id, xPercent, yPercent)}
-                    onWheel={(e) => handleWheel(e, active.id, scale)}
+                    onWheel={(e) => handleWheel(e, active.id, scale, rotation)}
                     onDoubleClick={() => beginEdit(active.id, active.text)}
                     dir={captionStyle.language === "ar" ? "rtl" : "ltr"}
                     style={{
@@ -594,8 +636,11 @@ const CaptionOverlay = memo(({ currentTime }: Props) => {
                     {/* Top-Left: Edit button */}
                     <button
                       type="button"
+                      data-caption-handle
+                      onTouchStart={(e) => e.stopPropagation()}
                       onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); beginEdit(active.id, active.text); }}
-                      className="absolute -top-3 -left-3 w-6 h-6 rounded-full bg-slate-900 border-2 border-amber-400 text-amber-300 flex items-center justify-center shadow-md hover:scale-110 active:scale-90 transition-transform pointer-events-auto cursor-pointer"
+                      style={{ touchAction: "none" }}
+                      className="absolute -top-3 -left-3 w-6 h-6 rounded-full bg-slate-900 border-2 border-amber-400 text-amber-300 flex items-center justify-center shadow-md hover:scale-110 active:scale-90 transition-transform pointer-events-auto cursor-pointer touch-none select-none"
                       title="تعديل النص"
                     >
                       <span className="text-[10px]">✏️</span>
@@ -604,68 +649,27 @@ const CaptionOverlay = memo(({ currentTime }: Props) => {
                     {/* Top-Right: Delete button */}
                     <button
                       type="button"
+                      data-caption-handle
+                      onTouchStart={(e) => e.stopPropagation()}
                       onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); removeCaption(active.id); }}
-                      className="absolute -top-3 -right-3 w-6 h-6 rounded-full bg-rose-600 border-2 border-white text-white flex items-center justify-center shadow-md hover:scale-110 active:scale-90 transition-transform pointer-events-auto cursor-pointer"
+                      style={{ touchAction: "none" }}
+                      className="absolute -top-3 -right-3 w-6 h-6 rounded-full bg-rose-600 border-2 border-white text-white flex items-center justify-center shadow-md hover:scale-110 active:scale-90 transition-transform pointer-events-auto cursor-pointer touch-none select-none"
                       title="حذف النص"
                     >
                       <X className="w-3.5 h-3.5 stroke-[3]" />
                     </button>
 
-                    {/* Bottom-Right: Rotate & Scale Handle */}
+                    {/* Bottom-Right: Rotate & Scale Handle (Touch/Drag around center to rotate & pull in/out to scale) */}
                     <div
-                      onPointerDown={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        const startX = e.clientX;
-                        const startY = e.clientY;
-                        const startRot = active.rotation ?? 0;
-                        const startSc = active.scale ?? 1;
-
-                        const onRotateMove = (ev: PointerEvent) => {
-                          ev.stopPropagation();
-                          ev.preventDefault();
-                          const dx = ev.clientX - startX;
-                          const dy = ev.clientY - startY;
-                          const newRot = Math.round(startRot + (dx + dy) * 0.8);
-                          const newSc = Math.max(0.2, Math.min(3, startSc + dx * 0.008));
-                          updateCaption(active.id, { rotation: newRot, scale: newSc });
-                        };
-
-                        const onRotateUp = (ev: PointerEvent) => {
-                          ev.stopPropagation();
-                          window.removeEventListener("pointermove", onRotateMove);
-                          window.removeEventListener("pointerup", onRotateUp);
-                        };
-
-                        window.addEventListener("pointermove", onRotateMove);
-                        window.addEventListener("pointerup", onRotateUp);
-                      }}
-                      className="absolute -bottom-3 -right-3 w-6 h-6 rounded-full bg-amber-400 border-2 border-slate-950 text-slate-950 flex items-center justify-center shadow-md hover:scale-110 active:scale-90 transition-transform pointer-events-auto cursor-grab active:cursor-grabbing"
-                      title="تدوير وتكبير/تصغير"
+                      data-caption-handle
+                      onTouchStart={(e) => e.stopPropagation()}
+                      onPointerDown={(e) => startRotateScaleDrag(e, active.id, scale, rotation)}
+                      style={{ touchAction: "none" }}
+                      className="absolute -bottom-3 -right-3 w-6 h-6 rounded-full bg-amber-400 border-2 border-slate-950 text-slate-950 flex items-center justify-center shadow-md hover:scale-110 active:scale-90 transition-transform pointer-events-auto cursor-grab active:cursor-grabbing touch-none select-none"
+                      title="تدوير وتكبير/تصغير باللمس والسحب"
                     >
                       <RotateCw className="w-3.5 h-3.5 stroke-[3]" />
                     </div>
-
-                    {/* Bottom-Left: Duplicate Handle */}
-                    <button
-                      type="button"
-                      onPointerDown={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-                        updateCaption(newId, {
-                          ...active,
-                          id: newId,
-                          text: active.text + " (نسخة)",
-                          yPercent: Math.min(92, (active.yPercent ?? 50) + 6),
-                        });
-                        setSelectedId(newId);
-                      }}
-                      className="absolute -bottom-3 -left-3 w-6 h-6 rounded-full bg-slate-900 border-2 border-amber-400 text-amber-300 flex items-center justify-center shadow-md hover:scale-110 active:scale-90 transition-transform pointer-events-auto cursor-pointer"
-                      title="نسخ النص"
-                    >
-                      <span className="text-[10px]">📋</span>
-                    </button>
                   </div>
                 </>
               )}

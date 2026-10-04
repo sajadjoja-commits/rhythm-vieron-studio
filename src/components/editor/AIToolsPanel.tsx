@@ -21,8 +21,6 @@ import {
   Info,
   ArrowUpRight,
   Clock,
-  Eye,
-  EyeOff,
   Layers,
   Video,
   Image as ImageIcon,
@@ -36,6 +34,7 @@ import { AITaskType } from "@/ai/types/ai";
 import { VideoJobManager } from "@/ai/video";
 import { useMedia } from "@/context/MediaContext";
 import { audioSourceResolver, ResolvedAudioSource } from "@/ai/audio/AudioSourceResolver";
+import DraggableLibrarySheet from "./DraggableLibrarySheet";
 
 export interface AIToolConfig {
   id: string;
@@ -280,7 +279,6 @@ export const AIToolsPanel = ({
   const [lastError, setLastError] = useState<string | null>(null);
   const [isolationMode, setIsolationMode] = useState<"extract-vocals" | "extract-music">("extract-vocals");
   const [selectedCategory, setSelectedCategory] = useState<"all" | "video" | "audio" | "image">(mediaType);
-  const [isPeeking, setIsPeeking] = useState(false);
   const activeAbortRef = useRef<AbortController | null>(null);
 
   const en = getLang() === "en";
@@ -685,42 +683,6 @@ export const AIToolsPanel = ({
     }
   };
 
-  if (isPeeking) {
-    return (
-      <div
-        className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-card/95 border border-primary/40 rounded-full px-4 py-2 flex items-center gap-3 shadow-2xl backdrop-blur-xl animate-in fade-in duration-200"
-        dir={en ? "ltr" : "rtl"}
-      >
-        <button
-          onClick={() => {
-            playSfx("click");
-            setIsPeeking(false);
-          }}
-          className="flex items-center gap-2 text-xs font-bold text-foreground hover:text-primary transition-colors active:scale-95"
-        >
-          <Eye className="w-4 h-4 text-primary animate-pulse" />
-          <span>{en ? "Show AI Studio" : "إظهار لوحة الذكاء الاصطناعي"}</span>
-        </button>
-        {isExecuting && (
-          <div className="flex items-center gap-2 pl-3 border-l border-border/50">
-            <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
-            <span className="text-xs font-mono font-bold text-primary">{executingProgress}%</span>
-          </div>
-        )}
-        <button
-          onClick={() => {
-            playSfx("click");
-            onClose();
-          }}
-          className="w-6 h-6 rounded-full bg-secondary/80 flex items-center justify-center text-muted-foreground hover:text-foreground"
-          title={en ? "Close panel" : "إغلاق الواجهة"}
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
-      </div>
-    );
-  }
-
   // Embedded mode for direct inline mounting inside other panels (e.g. MusicPanel)
   if (embedded) {
     return (
@@ -986,93 +948,119 @@ export const AIToolsPanel = ({
   }
 
   return (
-    <div
-      className="fixed inset-x-0 bottom-0 z-50 bg-card/95 backdrop-blur-2xl border-t border-primary/20 shadow-2xl rounded-t-3xl max-h-[78vh] flex flex-col animate-in slide-in-from-bottom duration-300"
+    <DraggableLibrarySheet
+      id="ai-tools-panel-root"
+      open={open}
+      onClose={() => {
+        if (isExecuting) {
+          toast.info(
+            en
+              ? "AI is continuing to process in the background."
+              : "الذكاء الاصطناعي مستمر بالمعالجة في الخلفية."
+          );
+        }
+        onClose();
+      }}
       dir={en ? "ltr" : "rtl"}
+      defaultVh={56}
+      icon={<Sparkles className="w-3.5 h-3.5 text-white" />}
+      title={en ? "AI Creative Studio" : "أدوات الذكاء الاصطناعي"}
+      badge={
+        <span className="px-1.5 py-0.5 text-[9px] font-bold rounded-md bg-primary/15 text-primary border border-primary/25 uppercase">
+          {selectedCategory === "all" ? (en ? "ALL" : "الكل") : selectedCategory}
+        </span>
+      }
+      headerActions={
+        <button
+          onClick={() => {
+            playSfx("click");
+            setShowHistory(!showHistory);
+          }}
+          className={`h-7 px-2.5 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all ${
+            showHistory
+              ? "bg-primary text-white"
+              : "bg-secondary/80 hover:bg-secondary text-foreground border border-border/40"
+          }`}
+        >
+          <History className="w-3 h-3" />
+          <span>{en ? "History" : "السجل"}</span>
+          {historyRecords.length > 0 && (
+            <span className="w-4 h-4 rounded-full bg-primary-foreground text-primary text-[9px] font-bold flex items-center justify-center">
+              {historyRecords.length}
+            </span>
+          )}
+        </button>
+      }
+      subHeader={
+        !showHistory ? (
+          <div className="flex items-center gap-1 p-1 rounded-xl bg-secondary/40 border border-border/30 overflow-x-auto no-scrollbar">
+            <button
+              type="button"
+              onClick={() => {
+                playSfx("click");
+                setSelectedCategory("all");
+              }}
+              className={`flex-1 py-1 px-2.5 rounded-lg text-[10px] font-bold whitespace-nowrap transition-all flex items-center justify-center gap-1 ${
+                selectedCategory === "all"
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Layers className="w-3 h-3" />
+              <span>{en ? "All" : "الكل"}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                playSfx("click");
+                setSelectedCategory("video");
+              }}
+              className={`flex-1 py-1 px-2.5 rounded-lg text-[10px] font-bold whitespace-nowrap transition-all flex items-center justify-center gap-1 ${
+                selectedCategory === "video"
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Video className="w-3 h-3" />
+              <span>{en ? "Video AI" : "فيديو"}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                playSfx("click");
+                setSelectedCategory("audio");
+              }}
+              className={`flex-1 py-1 px-2.5 rounded-lg text-[10px] font-bold whitespace-nowrap transition-all flex items-center justify-center gap-1 ${
+                selectedCategory === "audio"
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Music2 className="w-3 h-3" />
+              <span>{en ? "Audio" : "صوتيات"}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                playSfx("click");
+                setSelectedCategory("image");
+              }}
+              className={`flex-1 py-1 px-2.5 rounded-lg text-[10px] font-bold whitespace-nowrap transition-all flex items-center justify-center gap-1 ${
+                selectedCategory === "image"
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <ImageIcon className="w-3 h-3" />
+              <span>{en ? "Images" : "صور"}</span>
+            </button>
+          </div>
+        ) : null
+      }
     >
-      {/* Mobile Sheet Drag Handle */}
-      <div className="w-10 h-1 rounded-full bg-border/80 mx-auto mt-2.5 shrink-0" />
-
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border/40">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl gradient-primary flex items-center justify-center text-white shadow-md shadow-primary/20 shrink-0">
-            <Sparkles className="w-4 h-4" />
-          </div>
-          <div>
-            <h3 className="text-xs sm:text-sm font-extrabold text-foreground flex items-center gap-1.5">
-              {en ? "AI Creative Studio" : "استوديو الذكاء الاصطناعي"}
-              <span className="px-1.5 py-0.5 text-[9px] font-bold rounded-full bg-primary/20 text-primary border border-primary/30 uppercase">
-                {selectedCategory === "all" ? (en ? "ALL" : "الكل") : selectedCategory}
-              </span>
-            </h3>
-            <p className="text-[10px] text-muted-foreground">
-              {en
-                ? "Fast neural segmentation & high-precision DSP"
-                : "أدوات عزل وفصل ذكية ومعالجة عالية الدقة"}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          {/* Peek / Preview Button */}
-          <button
-            onClick={() => {
-              playSfx("click");
-              setIsPeeking(true);
-            }}
-            className="px-2.5 py-1 rounded-full text-xs font-semibold bg-secondary/80 hover:bg-secondary text-foreground flex items-center gap-1 transition-all active:scale-95"
-            title={en ? "Peek work & preview video" : "رؤية العمل ومعاينة الفيديو"}
-          >
-            <Eye className="w-3.5 h-3.5 text-primary" />
-            <span className="hidden sm:inline">{en ? "See Work" : "رؤية العمل"}</span>
-          </button>
-
-          {/* History Button */}
-          <button
-            onClick={() => {
-              playSfx("click");
-              setShowHistory(!showHistory);
-            }}
-            className={`px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all ${
-              showHistory
-                ? "bg-primary text-white"
-                : "bg-secondary/80 hover:bg-secondary text-foreground"
-            }`}
-          >
-            <History className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">{en ? "History" : "السجل"}</span>
-            {historyRecords.length > 0 && (
-              <span className="w-4 h-4 rounded-full bg-primary-foreground text-primary text-[10px] font-bold flex items-center justify-center">
-                {historyRecords.length}
-              </span>
-            )}
-          </button>
-
-          {/* Close Panel Button */}
-          <button
-            onClick={() => {
-              playSfx("click");
-              if (isExecuting) {
-                toast.info(
-                  en
-                    ? "AI is continuing to process in the background."
-                    : "الذكاء الاصطناعي مستمر بالمعالجة في الخلفية."
-                );
-              }
-              onClose();
-            }}
-            className="w-7 h-7 rounded-full bg-secondary/80 hover:bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground transition-all"
-            title={en ? "Close panel" : "إغلاق الواجهة"}
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-
       {/* Execution Progress Bar Overlay */}
       {isExecuting && (
-        <div className="px-4 py-2.5 bg-primary/10 border-b border-primary/20 backdrop-blur-md">
+        <div className="p-2.5 rounded-xl bg-primary/10 border border-primary/20 backdrop-blur-md">
           <div className="flex items-center justify-between text-xs font-bold text-primary mb-1.5">
             <span className="flex items-center gap-2 max-w-[65%] truncate">
               <Loader2 className="w-3.5 h-3.5 animate-spin text-primary shrink-0" />
@@ -1080,22 +1068,16 @@ export const AIToolsPanel = ({
             </span>
             <div className="flex items-center gap-2">
               <span className="font-mono text-xs font-black">{executingProgress}%</span>
-              
-              {/* Exit and Wait Button */}
               <button
                 onClick={handleExitAndBackground}
-                className="px-2.5 py-1 text-[11px] rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 font-bold transition-all flex items-center gap-1 shadow-sm active:scale-95"
-                title={en ? "Exit and continue working while AI processes in background" : "خروج والانتظار - المتابعة بالخلفية أثناء العمل في المحرر"}
+                className="px-2 py-0.5 text-[10px] rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 font-bold transition-all flex items-center gap-1 shadow-xs active:scale-95"
               >
                 <ArrowUpRight className="w-3 h-3" />
                 <span>{en ? "Exit & Wait" : "خروج والانتظار"}</span>
               </button>
-
-              {/* Optional Subtle Cancel if user wants to abort */}
               <button
                 onClick={handleCancelExecution}
                 className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/15 transition-all flex items-center justify-center"
-                title={en ? "Cancel processing" : "إلغاء المعالجة"}
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -1110,78 +1092,9 @@ export const AIToolsPanel = ({
         </div>
       )}
 
-      {/* Category Tabs Bar */}
-      {!showHistory && (
-        <div className="flex items-center gap-1.5 px-4 py-2 border-b border-border/30 overflow-x-auto no-scrollbar bg-secondary/15 shrink-0">
-          <button
-            type="button"
-            onClick={() => {
-              playSfx("click");
-              setSelectedCategory("all");
-            }}
-            className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
-              selectedCategory === "all"
-                ? "bg-primary text-primary-foreground shadow-sm scale-[1.02]"
-                : "bg-secondary/60 hover:bg-secondary text-muted-foreground"
-            }`}
-          >
-            <Layers className="w-3 h-3" />
-            <span>{en ? "All" : "الكل"}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              playSfx("click");
-              setSelectedCategory("video");
-            }}
-            className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
-              selectedCategory === "video"
-                ? "bg-primary text-primary-foreground shadow-sm scale-[1.02]"
-                : "bg-secondary/60 hover:bg-secondary text-muted-foreground"
-            }`}
-          >
-            <Video className="w-3 h-3" />
-            <span>{en ? "Video AI" : "فيديو ذكي"}</span>
-            <span className="text-[10px] opacity-75">4</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              playSfx("click");
-              setSelectedCategory("audio");
-            }}
-            className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
-              selectedCategory === "audio"
-                ? "bg-primary text-primary-foreground shadow-sm scale-[1.02]"
-                : "bg-secondary/60 hover:bg-secondary text-muted-foreground"
-            }`}
-          >
-            <Music2 className="w-3 h-3" />
-            <span>{en ? "Audio & Music" : "صوتيات وموسيقى"}</span>
-            <span className="text-[10px] opacity-75">4</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              playSfx("click");
-              setSelectedCategory("image");
-            }}
-            className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
-              selectedCategory === "image"
-                ? "bg-primary text-primary-foreground shadow-sm scale-[1.02]"
-                : "bg-secondary/60 hover:bg-secondary text-muted-foreground"
-            }`}
-          >
-            <ImageIcon className="w-3 h-3" />
-            <span>{en ? "Images" : "صور وفوتو"}</span>
-            <span className="text-[10px] opacity-75">5</span>
-          </button>
-        </div>
-      )}
-
       {/* Last Error Notice */}
       {lastError && !isExecuting && (
-        <div className="px-4 py-2 bg-destructive/10 border-b border-destructive/20 text-destructive text-xs flex items-center justify-between">
+        <div className="p-2.5 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-xs flex items-center justify-between">
           <span className="truncate max-w-[85%]">{lastError}</span>
           <button
             onClick={() => setLastError(null)}
@@ -1193,7 +1106,7 @@ export const AIToolsPanel = ({
       )}
 
       {/* Main Content Area */}
-      <div className="p-3.5 overflow-y-auto max-h-[55vh] space-y-2.5">
+      <div className="space-y-2.5">
         {showHistory ? (
           /* History View */
           <div className="space-y-2">
@@ -1374,15 +1287,6 @@ export const AIToolsPanel = ({
           </div>
         )}
       </div>
-
-      {/* Footer Info */}
-      <div className="px-4 py-2 border-t border-border/40 bg-secondary/20 flex items-center justify-between text-[10px] text-muted-foreground">
-        <span className="flex items-center gap-1.5 text-primary font-medium">
-          <Sparkles className="w-3 h-3" />
-          {en ? "Background AI Processing Ready" : "المعالجة الذكية بالخلفية جاهزة ومفعلة"}
-        </span>
-        <span className="font-mono text-primary font-bold">{selectedCategory.toUpperCase()} MODE</span>
-      </div>
-    </div>
+    </DraggableLibrarySheet>
   );
 };
