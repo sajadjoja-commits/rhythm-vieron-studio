@@ -68,6 +68,7 @@ dependencies {
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation "androidx.webkit:webkit:$androidxWebkitVersion"
     implementation project(':capacitor-android')
     
     // Google ML Kit Subject Segmentation (Official On-Device Android Native AI)

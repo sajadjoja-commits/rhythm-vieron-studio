@@ -9,6 +9,8 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "build:android": "node scripts/vieron-sync.cjs",
+    "native:build": "node scripts/build-android-web.cjs",
+    "native:verify": "node scripts/verify-native-shell.cjs",
     "cap:sync": "vite build && cap sync android",
     "cap:copy": "vite build && cap copy android",
     "vieron:sync": "node scripts/vieron-sync.cjs",

@@ -60,6 +60,9 @@ public class MainActivity extends BridgeActivity {
             webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
             webView.setKeepScreenOn(true);
             Log.i("MainActivity", "[WebView] Initialized successfully with NO_CACHE and hardware acceleration");
+
+            // Configure Native Android Shell via WebViewAssetLoader
+            VieronWebViewShell.configureShell(this, webView);
         }
     }
 

@@ -7,6 +7,29 @@ import { applyLangToDOM } from "./lib/i18n";
 import { preloadSfx } from "./lib/soundFx";
 import { initializePerformanceOptimizations, logPerformanceMetrics, enableGarbageCollectionHints } from "./lib/performanceOptimizations";
 
+// Expose window.VieronNative bridge foundation for Native Android Shell
+if (typeof window !== "undefined") {
+  (window as any).VieronNative = (window as any).VieronNative || {};
+  (window as any).VieronNative.app = {
+    getRuntimeInfo: async () => {
+      try {
+        if ((window as any).VieronNativeBridgeImpl && typeof (window as any).VieronNativeBridgeImpl.getRuntimeInfo === "function") {
+          const res = (window as any).VieronNativeBridgeImpl.getRuntimeInfo();
+          return typeof res === "string" ? JSON.parse(res) : res;
+        }
+        return {
+          runtime: "APK_ASSET_LOADER",
+          nativeVersion: "1.0.3",
+          webVersion: "web-native",
+          packaging: "NATIVE_ANDROID_SHELL"
+        };
+      } catch (e) {
+        return { runtime: "APK_ASSET_LOADER", error: String(e) };
+      }
+    }
+  };
+}
+
 // Filter benign WebAssembly / TensorFlow Lite engine informational logs
 if (typeof console !== "undefined") {
   const origLog = console.log;

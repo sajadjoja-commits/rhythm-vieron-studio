@@ -24,6 +24,18 @@ const SettingsScreen = ({ session, isGuest, onLogout }: SettingsScreenProps) => 
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<string | null>(null);
   const [showDebug, setShowDebug] = useState(false);
+  const [runtimeInfo, setRuntimeInfo] = useState<any>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    if (showDebug && (window as any).VieronNative?.app?.getRuntimeInfo) {
+      (window as any).VieronNative.app.getRuntimeInfo().then((info: any) => {
+        if (!mounted) return;
+        if (info) setRuntimeInfo(info);
+      }).catch(() => {});
+    }
+    return () => { mounted = false; };
+  }, [showDebug]);
 
   useEffect(() => {
     let mounted = true;
@@ -201,13 +213,28 @@ const SettingsScreen = ({ session, isGuest, onLogout }: SettingsScreenProps) => 
 
         {showDebug && (
           <div className="mt-4 pt-4 border-t border-border space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
-            <div className="flex justify-between items-center text-[10px]">
-              <span className="text-muted-foreground">Web Version</span>
-              <span className="font-mono text-foreground">{buildInfo.web}</span>
-            </div>
-            <div className="flex justify-between items-center text-[10px]">
-              <span className="text-muted-foreground">Git SHA</span>
-              <span className="font-mono text-foreground">{buildInfo.git}</span>
+            <div className="mt-2 p-2.5 bg-primary/10 border border-primary/20 rounded-xl space-y-1.5">
+              <p className="text-[10px] font-bold text-primary">VIERON RUNTIME</p>
+              <div className="flex justify-between items-center text-[10px]">
+                <span className="text-muted-foreground">Runtime</span>
+                <span className="font-mono text-primary font-bold">{runtimeInfo?.runtime || "APK_ASSET_LOADER"}</span>
+              </div>
+              <div className="flex justify-between items-center text-[10px]">
+                <span className="text-muted-foreground">Native Version</span>
+                <span className="font-mono text-foreground">{runtimeInfo?.nativeVersion || "1.0.3"}</span>
+              </div>
+              <div className="flex justify-between items-center text-[10px]">
+                <span className="text-muted-foreground">Web Version</span>
+                <span className="font-mono text-foreground">{runtimeInfo?.web || buildInfo.web}</span>
+              </div>
+              <div className="flex justify-between items-center text-[10px]">
+                <span className="text-muted-foreground">Git SHA</span>
+                <span className="font-mono text-foreground">{runtimeInfo?.git || buildInfo.git}</span>
+              </div>
+              <div className="flex justify-between items-center text-[10px]">
+                <span className="text-muted-foreground">Build</span>
+                <span className="font-mono text-foreground">{runtimeInfo?.build || buildInfo.build}</span>
+              </div>
             </div>
             <div className="flex justify-between items-center text-[10px]">
               <span className="text-muted-foreground">Channel</span>
@@ -219,7 +246,7 @@ const SettingsScreen = ({ session, isGuest, onLogout }: SettingsScreenProps) => 
             </div>
             <div className="mt-2 p-2 bg-secondary/50 rounded-lg">
               <p className="text-[8px] text-muted-foreground mb-1">Asset Fingerprint</p>
-              <p className="text-[8px] font-mono text-foreground break-all leading-tight">{buildInfo.fingerprint}</p>
+              <p className="text-[8px] font-mono text-foreground break-all leading-tight">{runtimeInfo?.fingerprint || buildInfo.fingerprint}</p>
             </div>
           </div>
         )}
