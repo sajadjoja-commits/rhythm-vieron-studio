@@ -1,6 +1,13 @@
 import React from "react";
 import { Frame, Sparkles, Sliders, Type, Palette } from "lucide-react";
-import { PhotoFrameConfig } from "./PhotoExportDialog";
+export interface PhotoFrameConfig {
+  type: "none" | "polaroid" | "film" | "minimal" | "neon" | "gold-double" | "stamp" | "float-shadow" | "blur-bg";
+  color: string;
+  width: number;
+  radius: number;
+  glowColor?: string;
+  polaroidCaption?: string;
+}
 
 interface PhotoFramesSelectorProps {
   frameConfig: PhotoFrameConfig;
