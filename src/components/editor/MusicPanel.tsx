@@ -646,16 +646,6 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
           </span>
         ) : null
       }
-      headerActions={
-        <button
-          type="button"
-          onClick={() => { playSfx("click"); fileRef.current?.click(); }}
-          className="h-7 px-2.5 rounded-lg bg-primary/15 hover:bg-primary/25 text-primary text-[10px] font-bold border border-primary/30 flex items-center gap-1 transition-all active:scale-95"
-        >
-          <Upload className="w-3 h-3" />
-          <span>{en ? "Upload" : "رفع صوت"}</span>
-        </button>
-      }
       subHeader={
         <div className="flex gap-1.5 p-1 bg-secondary/40 rounded-xl border border-border/30 overflow-x-auto no-scrollbar">
           {[
@@ -680,7 +670,6 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
         </div>
       }
     >
-      <input ref={fileRef} type="file" accept="audio/*" hidden onChange={onUpload} />
         {tab === "record" && (
           <VoiceRecorderTab currentTime={currentTime} addAudioTrack={addAudioTrack} />
         )}

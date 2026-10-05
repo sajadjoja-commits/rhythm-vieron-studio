@@ -692,6 +692,162 @@ function renderFrame(
       break;
     }
 
+    case "gsap-vortex-portal": {
+      drawCover(ctx, imgA, gradA, w, h);
+      const rad = p * Math.hypot(w, h) * 0.65;
+      ctx.save();
+      ctx.translate(w / 2, h / 2);
+      ctx.rotate((1 - p) * Math.PI * 1.5);
+      ctx.beginPath();
+      ctx.arc(0, 0, Math.max(2, rad), 0, Math.PI * 2);
+      ctx.clip();
+      ctx.translate(-w / 2, -h / 2);
+      drawCover(ctx, imgB, gradB, w, h);
+      ctx.restore();
+
+      ctx.strokeStyle = "rgba(6, 182, 212, 0.85)";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(w / 2, h / 2, Math.max(2, rad), 0, Math.PI * 2);
+      ctx.stroke();
+      break;
+    }
+
+    case "gsap-whip-pan-blur": {
+      const shift = p * w;
+      ctx.save();
+      ctx.translate(-shift, 0);
+      drawCover(ctx, imgA, gradA, w, h);
+      ctx.translate(w, 0);
+      drawCover(ctx, imgB, gradB, w, h);
+      ctx.restore();
+
+      const streak = Math.sin(p * Math.PI) * 0.7;
+      if (streak > 0.05) {
+        const g = ctx.createLinearGradient(0, 0, w, 0);
+        g.addColorStop(0, "transparent");
+        g.addColorStop(0.5, `rgba(245, 158, 11, ${streak})`);
+        g.addColorStop(1, "transparent");
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, w, h);
+      }
+      break;
+    }
+
+    case "gsap-shatter-prism": {
+      drawCover(ctx, p < 0.5 ? imgA : imgB, p < 0.5 ? gradA : gradB, w, h);
+      const flash = Math.sin(p * Math.PI);
+      ctx.strokeStyle = `rgba(56, 189, 248, ${flash * 0.9})`;
+      ctx.lineWidth = 2;
+      const cx = w / 2, cy = h / 2;
+      for (let i = 0; i < 6; i++) {
+        const ang = (i * Math.PI * 2) / 6 + p;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + Math.cos(ang) * w, cy + Math.sin(ang) * h);
+        ctx.stroke();
+      }
+      break;
+    }
+
+    case "diagonal-blade-split": {
+      drawCover(ctx, imgA, gradA, w, h);
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(w * Math.min(1, p * 1.4), 0);
+      ctx.lineTo(0, h * Math.min(1, p * 1.4));
+      ctx.closePath();
+      ctx.clip();
+      drawCover(ctx, imgB, gradB, w, h);
+      ctx.restore();
+
+      if (p > 0.05 && p < 0.95) {
+        ctx.strokeStyle = "#ec4899";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(w * Math.min(1, p * 1.4), 0);
+        ctx.lineTo(0, h * Math.min(1, p * 1.4));
+        ctx.stroke();
+      }
+      break;
+    }
+
+    case "supernova-burst": {
+      drawCover(ctx, p < 0.5 ? imgA : imgB, p < 0.5 ? gradA : gradB, w, h);
+      const burst = Math.sin(p * Math.PI);
+      const rad = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w * 0.75);
+      rad.addColorStop(0, `rgba(255, 255, 255, ${burst})`);
+      rad.addColorStop(0.4, `rgba(234, 179, 8, ${burst * 0.85})`);
+      rad.addColorStop(1, "transparent");
+      ctx.fillStyle = rad;
+      ctx.fillRect(0, 0, w, h);
+      break;
+    }
+
+    case "cyber-datamosh-glitch": {
+      drawCover(ctx, p < 0.5 ? imgA : imgB, p < 0.5 ? gradA : gradB, w, h);
+      const mosh = Math.sin(p * Math.PI);
+      for (let i = 0; i < 8; i++) {
+        const bx = ((i * 23 + p * 60) % (w - 16));
+        const by = ((i * 17) % (h - 10));
+        ctx.fillStyle = i % 2 === 0 ? `rgba(16, 185, 129, ${mosh * 0.65})` : `rgba(168, 85, 247, ${mosh * 0.65})`;
+        ctx.fillRect(bx, by, 18, 10);
+      }
+      break;
+    }
+
+    case "gsap-pendulum-swing": {
+      drawCover(ctx, imgA, gradA, w, h);
+      ctx.save();
+      ctx.translate(w / 2, 0);
+      ctx.rotate((1 - p) * 0.9);
+      ctx.translate(-w / 2, 0);
+      ctx.globalAlpha = p;
+      drawCover(ctx, imgB, gradB, w, h);
+      ctx.restore();
+      ctx.globalAlpha = 1;
+      break;
+    }
+
+    case "shutter-blinds-wipe": {
+      drawCover(ctx, imgA, gradA, w, h);
+      const slats = 6;
+      const sh = h / slats;
+      ctx.save();
+      ctx.beginPath();
+      for (let i = 0; i < slats; i++) {
+        ctx.rect(0, i * sh, w, sh * p);
+      }
+      ctx.clip();
+      drawCover(ctx, imgB, gradB, w, h);
+      ctx.restore();
+      break;
+    }
+
+    case "vhs-rewind-snap": {
+      drawCover(ctx, p < 0.5 ? imgA : imgB, p < 0.5 ? gradA : gradB, w, h);
+      const track = Math.sin(p * Math.PI);
+      ctx.fillStyle = `rgba(239, 68, 68, ${track * 0.45})`;
+      ctx.fillRect(0, (p * h) % h, w, 6);
+      ctx.fillStyle = `rgba(255, 255, 255, ${track * 0.6})`;
+      ctx.fillRect(0, ((1 - p) * h) % h, w, 3);
+      break;
+    }
+
+    case "origami-fold-3d": {
+      ctx.fillStyle = "#090d16";
+      ctx.fillRect(0, 0, w, h);
+      drawCover(ctx, imgA, gradA, w, h);
+      ctx.save();
+      ctx.translate(w / 2, h / 2);
+      ctx.scale(p, 0.7 + p * 0.3);
+      ctx.translate(-w / 2, -h / 2);
+      drawCover(ctx, imgB, gradB, w, h);
+      ctx.restore();
+      break;
+    }
+
     default:
       drawCover(ctx, imgA, gradA, w, h);
       break;

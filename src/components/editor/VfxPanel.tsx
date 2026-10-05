@@ -819,6 +819,165 @@ function renderVfxFrame(ctx: CanvasRenderingContext2D, type: VfxType, p: number,
       break;
     }
 
+    case "cyber-portal-intro": {
+      ctx.save();
+      ctx.translate(W / 2, H / 2);
+      for (let r = 0; r < 4; r++) {
+        const rad = ((p * 24 + r * 6) % 24) + 2;
+        ctx.strokeStyle = r % 2 === 0 ? "#06b6d4" : "#a855f7";
+        ctx.lineWidth = 1.5;
+        ctx.globalAlpha = 1 - rad / 26;
+        ctx.beginPath();
+        ctx.arc(0, 0, rad, p * 6 + r, p * 6 + r + Math.PI * 1.4);
+        ctx.stroke();
+      }
+      ctx.restore();
+      ctx.globalAlpha = 1;
+      break;
+    }
+
+    case "shatter-glass-intro": {
+      const flash = Math.max(0, 1 - p * 1.6);
+      ctx.fillStyle = `rgba(186, 230, 253, ${flash * 0.45})`;
+      ctx.fillRect(0, 0, W, H);
+      ctx.strokeStyle = "#38bdf8";
+      ctx.lineWidth = 1.2;
+      const cx = W / 2, cy = H / 2;
+      for (let i = 0; i < 7; i++) {
+        const ang = (i * Math.PI * 2) / 7 + p * 0.4;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + Math.cos(ang) * W * 0.6, cy + Math.sin(ang) * H * 0.6);
+        ctx.stroke();
+      }
+      break;
+    }
+
+    case "cherry-blossom": {
+      for (let i = 0; i < 14; i++) {
+        const px = (i * 19 + p * 45 + Math.sin(p * 5 + i) * 6) % W;
+        const py = (i * 17 + p * 35) % H;
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(p * 4 + i);
+        ctx.fillStyle = i % 2 === 0 ? "#f472b6" : "#fbcfe8";
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 2.8, 1.4, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+      break;
+    }
+
+    case "autumn-leaves": {
+      const leafColors = ["#ea580c", "#f59e0b", "#dc2626", "#d97706"];
+      for (let i = 0; i < 12; i++) {
+        const lx = (i * 23 + p * 50 + Math.sin(p * 4 + i) * 8) % W;
+        const ly = (i * 19 + p * 38) % H;
+        ctx.save();
+        ctx.translate(lx, ly);
+        ctx.rotate(p * 5 + i);
+        ctx.fillStyle = leafColors[i % leafColors.length];
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 3.2, 1.8, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+      break;
+    }
+
+    case "confetti-celebration": {
+      const cColors = ["#eab308", "#ec4899", "#06b6d4", "#22c55e", "#a855f7"];
+      for (let i = 0; i < 18; i++) {
+        const cx = (i * 17 + Math.sin(p * 6 + i) * 5) % W;
+        const cy = (i * 13 + p * 60) % H;
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(p * 8 + i);
+        ctx.fillStyle = cColors[i % cColors.length];
+        ctx.fillRect(-2, -1, 4, 2);
+        ctx.restore();
+      }
+      break;
+    }
+
+    case "neon-heart-rave": {
+      for (let i = 0; i < 6; i++) {
+        const hx = (12 + i * 14 + Math.sin(p * 4 + i) * 4) % W;
+        const hy = H - ((i * 15 + p * 50) % H);
+        const s = 2.5 + Math.abs(Math.sin(p * 6 + i)) * 1.5;
+        ctx.fillStyle = i % 2 === 0 ? "#ec4899" : "#f43f5e";
+        ctx.beginPath();
+        ctx.arc(hx - s * 0.45, hy, s * 0.55, 0, Math.PI * 2);
+        ctx.arc(hx + s * 0.45, hy, s * 0.55, 0, Math.PI * 2);
+        ctx.moveTo(hx - s, hy + s * 0.1);
+        ctx.lineTo(hx, hy + s * 1.25);
+        ctx.lineTo(hx + s, hy + s * 0.1);
+        ctx.fill();
+      }
+      break;
+    }
+
+    case "earthquake-tremor": {
+      const ox = (Math.random() - 0.5) * 8;
+      const oy = (Math.random() - 0.5) * 6;
+      ctx.save();
+      ctx.translate(ox, oy);
+      ctx.strokeStyle = "#dc2626";
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(5, 5, W - 10, H - 10);
+      ctx.beginPath();
+      ctx.moveTo(10, H - 8);
+      ctx.lineTo(W * 0.35, H * 0.55);
+      ctx.lineTo(W * 0.55, H * 0.7);
+      ctx.lineTo(W - 12, 10);
+      ctx.stroke();
+      ctx.restore();
+      break;
+    }
+
+    case "speed-warp-lines": {
+      ctx.strokeStyle = "#fbbf24";
+      ctx.lineWidth = 1.2;
+      const cx = W / 2, cy = H / 2;
+      for (let i = 0; i < 16; i++) {
+        const ang = (i * Math.PI * 2) / 16;
+        const r1 = 10 + ((p * 25 + i * 3) % 14);
+        const r2 = r1 + 14;
+        ctx.beginPath();
+        ctx.moveTo(cx + Math.cos(ang) * r1, cy + Math.sin(ang) * r1);
+        ctx.lineTo(cx + Math.cos(ang) * r2, cy + Math.sin(ang) * r2);
+        ctx.stroke();
+      }
+      break;
+    }
+
+    case "thermal-infrared": {
+      const grad = ctx.createRadialGradient(W * 0.5 + sin * 8, H * 0.5, 2, W * 0.5, H * 0.5, W * 0.55);
+      grad.addColorStop(0, "rgba(254, 240, 138, 0.85)");
+      grad.addColorStop(0.35, "rgba(249, 115, 22, 0.75)");
+      grad.addColorStop(0.7, "rgba(217, 70, 239, 0.65)");
+      grad.addColorStop(1, "rgba(30, 58, 138, 0.75)");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, H);
+      break;
+    }
+
+    case "halftone-comic": {
+      ctx.fillStyle = "rgba(139, 92, 246, 0.22)";
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = "#facc15";
+      for (let y = 4; y < H; y += 7) {
+        for (let x = 4; x < W; x += 7) {
+          const r = 1 + Math.abs(Math.sin(p * 4 + (x + y) * 0.05)) * 1.2;
+          ctx.beginPath();
+          ctx.arc(x, y, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      break;
+    }
+
     default:
       break;
   }

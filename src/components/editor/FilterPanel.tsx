@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, memo, useRef, useCallback } from "react";
 import { useMedia, FilterType, FilterItem } from "@/context/MediaContext";
 import { 
   X, Palette, Trash2, Sliders, Sparkles, Check, Flame, 
-  Tv, Film, Sun, Compass, RotateCw, Megaphone, HelpCircle
+  Tv, Film, Sun, Compass, RotateCw, Megaphone, HelpCircle, Image as ImageIcon, Layers
 } from "lucide-react";
 import { getLang } from "@/lib/i18n";
 import { playSfx } from "@/lib/soundFx";
@@ -11,22 +11,128 @@ import DraggableLibrarySheet from "./DraggableLibrarySheet";
 
 interface Props { open: boolean; onClose: () => void; currentTime: number; }
 
-// Lightweight dynamic color swatch grid showing how each filter shifts standard colors in real-time
-const ColorSwatchGrid = memo(({ cssFilter }: { cssFilter: string }) => {
+// Built-in rich SVG data URI fallback portrait/scene with skin tones, sunset sky, neon city lights, and foliage
+// Guarantees instant zero-network rendering if offline or if an external image is slow
+const FALLBACK_PROMO_SCENE_SVG = `data:image/svg+xml;utf8,${encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240">
+    <defs>
+      <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#0ea5e9"/>
+        <stop offset="45%" stop-color="#6366f1"/>
+        <stop offset="78%" stop-color="#f97316"/>
+        <stop offset="100%" stop-color="#fbbf24"/>
+      </linearGradient>
+      <radialGradient id="sun" cx="0.72" cy="0.28" r="0.32">
+        <stop offset="0%" stop-color="#fff7ed"/>
+        <stop offset="50%" stop-color="#fb923c" stop-opacity="0.85"/>
+        <stop offset="100%" stop-color="#f97316" stop-opacity="0"/>
+      </radialGradient>
+      <linearGradient id="skin" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#f7c6a3"/>
+        <stop offset="100%" stop-color="#d9916b"/>
+      </linearGradient>
+      <linearGradient id="jacket" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#e11d48"/>
+        <stop offset="50%" stop-color="#7c3aed"/>
+        <stop offset="100%" stop-color="#0284c7"/>
+      </linearGradient>
+    </defs>
+    <rect width="240" height="240" fill="url(#sky)"/>
+    <circle cx="172" cy="68" r="65" fill="url(#sun)"/>
+    <path d="M0 175 L65 125 L130 168 L188 118 L240 155 L240 240 L0 240 Z" fill="#0f172a" opacity="0.45"/>
+    <path d="M0 192 Q60 165 120 188 T240 180 L240 240 L0 240 Z" fill="#10b981" opacity="0.55"/>
+    <path d="M48 240 C52 178 90 164 120 164 C150 164 188 178 192 240 Z" fill="url(#jacket)"/>
+    <rect x="106" y="132" width="28" height="38" rx="12" fill="url(#skin)"/>
+    <ellipse cx="120" cy="104" rx="36" ry="44" fill="url(#skin)"/>
+    <path d="M82 98 C82 62 158 62 158 98 C154 78 136 72 120 72 C104 72 86 78 82 98 Z" fill="#1e1b4b"/>
+    <circle cx="42" cy="52" r="10" fill="#22d3ee" opacity="0.8"/>
+    <circle cx="198" cy="135" r="12" fill="#f43f5e" opacity="0.75"/>
+  </svg>`
+)}`;
+
+// Single unified high-contrast studio portrait image that reflects the exact color grading of every filter
+const UNIFIED_PROMO_IMAGE =
+  "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=360&q=80&fm=webp";
+
+// Promotional Image Preview component showing the real visual effect of each filter
+const FilterPromoPreview = memo(({
+  cssFilter,
+  promoImg,
+  useUnifiedImage,
+  isVignette,
+  accentColor,
+}: {
+  cssFilter: string;
+  promoImg?: string;
+  useUnifiedImage: boolean;
+  isVignette?: boolean;
+  accentColor: string;
+}) => {
+  const [imgSrc, setImgSrc] = useState<string>(
+    useUnifiedImage ? UNIFIED_PROMO_IMAGE : (promoImg || UNIFIED_PROMO_IMAGE)
+  );
+
+  useEffect(() => {
+    setImgSrc(useUnifiedImage ? UNIFIED_PROMO_IMAGE : (promoImg || UNIFIED_PROMO_IMAGE));
+  }, [useUnifiedImage, promoImg]);
+
   return (
-    <div 
-      className="absolute inset-0 transition-all duration-300"
-      style={{ 
-        background: "linear-gradient(135deg, #f0a98b 0%, #38bdf8 33%, #f59e0b 66%, #22c55e 100%)",
-        filter: cssFilter,
-        transform: "translate3d(0,0,0)",
-        willChange: "filter"
-      }}
-    />
+    <div className="absolute inset-0 overflow-hidden bg-slate-950">
+      {/* Main Promotional Image with Live CSS Filter Applied */}
+      <img
+        src={imgSrc}
+        alt=""
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => {
+          if (imgSrc !== FALLBACK_PROMO_SCENE_SVG) {
+            setImgSrc(FALLBACK_PROMO_SCENE_SVG);
+          }
+        }}
+        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-108"
+        style={{
+          filter: cssFilter,
+          transform: "translate3d(0,0,0)",
+          willChange: "filter, transform",
+        }}
+      />
+
+      {/* Vignette Soft Edge Overlay when filter is fade-edge */}
+      {isVignette && (
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background: "radial-gradient(circle, transparent 32%, rgba(0,0,0,0.88) 100%)",
+          }}
+        />
+      )}
+
+      {/* Subtle Before/After Split Corner Indicator (Top-Left Diagonal Original Reference) */}
+      <div
+        className="absolute top-0 left-0 w-7 h-7 overflow-hidden pointer-events-none opacity-85 border-b border-r border-white/30 rounded-br-lg shadow-sm"
+        title="Original vs Filter"
+      >
+        <img
+          src={imgSrc}
+          alt=""
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          className="w-full h-full object-cover scale-150"
+        />
+      </div>
+
+      {/* Subtle Color Grading Accent Glow at bottom */}
+      <div
+        className="absolute inset-x-0 bottom-0 h-10 pointer-events-none opacity-35"
+        style={{
+          background: `linear-gradient(to top, ${accentColor}, transparent)`,
+        }}
+      />
+    </div>
   );
 });
 
-// Upgraded Filter Library metadata with premium badges, labels, and beautiful color theme configs (Optimized WebP thumbnails)
+// Upgraded Filter Library metadata with high-res promotional images, modern LUT badges, and accurate color grading
 const FILTER_LIB: { 
   type: FilterType; 
   label: string; 
@@ -48,7 +154,7 @@ const FILTER_LIB: {
     icon: "🌅", 
     badge: "شائع", 
     badgeEn: "TRENDING",
-    characterImg: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=40&fm=webp",
+    characterImg: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=360&q=80&fm=webp",
     cssFilter: "sepia(0.35) saturate(1.25) contrast(1.1) brightness(1.02)"
   },
   { 
@@ -60,7 +166,7 @@ const FILTER_LIB: {
     icon: "❄️", 
     badge: "عصري", 
     badgeEn: "NEW",
-    characterImg: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&q=40&fm=webp",
+    characterImg: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=360&q=80&fm=webp",
     cssFilter: "saturate(0.85) hue-rotate(180deg) brightness(1.08)"
   },
   { 
@@ -72,8 +178,44 @@ const FILTER_LIB: {
     icon: "🎬", 
     badge: "سينما", 
     badgeEn: "PRO",
-    characterImg: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=100&q=40&fm=webp",
+    characterImg: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=360&q=80&fm=webp",
     cssFilter: "contrast(1.35) saturate(1.1) brightness(0.92)"
+  },
+  { 
+    type: "cyberpunk-teal-orange",
+    label: "تيل & أورانج",
+    labelEn: "Teal & Orange",
+    color: "#0ea5e9",
+    preview: "linear-gradient(135deg, #0284c7, #f97316)",
+    icon: "🎞️",
+    badge: "هوليوود",
+    badgeEn: "HOLLYWOOD",
+    characterImg: "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=360&q=80&fm=webp",
+    cssFilter: "contrast(1.25) saturate(1.35) hue-rotate(-12deg) sepia(0.22)"
+  },
+  { 
+    type: "golden-hour",
+    label: "الساعة الذهبية",
+    labelEn: "Golden Hour",
+    color: "#f59e0b",
+    preview: "linear-gradient(135deg, #f59e0b, #b45309)",
+    icon: "🌇",
+    badge: "غروب",
+    badgeEn: "SUNSET",
+    characterImg: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=360&q=80&fm=webp",
+    cssFilter: "sepia(0.42) saturate(1.45) contrast(1.1) brightness(1.08)"
+  },
+  { 
+    type: "neon",       
+    label: "طوكيو نيون",   
+    labelEn: "Tokyo Neon",   
+    color: "#22d3ee", 
+    preview: "linear-gradient(135deg, #22d3ee, #d946ef)", 
+    icon: "🏙️", 
+    badge: "سايبر", 
+    badgeEn: "NEON",
+    characterImg: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=360&q=80&fm=webp",
+    cssFilter: "hue-rotate(275deg) saturate(1.5) contrast(1.15)"
   },
   { 
     type: "vintage",    
@@ -84,7 +226,7 @@ const FILTER_LIB: {
     icon: "📷", 
     badge: "عتيق", 
     badgeEn: "RETRO",
-    characterImg: "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=100&q=40&fm=webp",
+    characterImg: "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=360&q=80&fm=webp",
     cssFilter: "sepia(0.45) contrast(0.95) brightness(0.92)"
   },
   { 
@@ -96,7 +238,7 @@ const FILTER_LIB: {
     icon: "🎭", 
     badge: "أسود/أبيض", 
     badgeEn: "CLASSIC",
-    characterImg: "https://images.unsplash.com/photo-1501196354995-cbb51c65aaea?auto=format&fit=crop&w=100&q=40&fm=webp",
+    characterImg: "https://images.unsplash.com/photo-1501196354995-cbb51c65aaea?auto=format&fit=crop&w=360&q=80&fm=webp",
     cssFilter: "grayscale(1) contrast(1.25) brightness(0.95)"
   },
   { 
@@ -108,20 +250,8 @@ const FILTER_LIB: {
     icon: "🔮", 
     badge: "حالم", 
     badgeEn: "SOFT",
-    characterImg: "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=100&q=40&fm=webp",
+    characterImg: "https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=360&q=80&fm=webp",
     cssFilter: "blur(0.6px) brightness(1.12) saturate(1.15)"
-  },
-  { 
-    type: "neon",       
-    label: "طوكيو نيون",   
-    labelEn: "Tokyo Neon",   
-    color: "#22d3ee", 
-    preview: "linear-gradient(135deg, #22d3ee, #d946ef)", 
-    icon: "🏙️", 
-    badge: "سايبر", 
-    badgeEn: "NEON",
-    characterImg: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=100&q=40&fm=webp",
-    cssFilter: "hue-rotate(275deg) saturate(1.5) contrast(1.15)"
   },
   { 
     type: "sepia",      
@@ -132,18 +262,19 @@ const FILTER_LIB: {
     icon: "🍂", 
     badge: "مفضل", 
     badgeEn: "BEST",
-    characterImg: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=100&q=40&fm=webp",
+    characterImg: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=360&q=80&fm=webp",
     cssFilter: "sepia(0.85) contrast(1.05) brightness(0.95)"
   },
   { 
-    type: "sepia-blue", label: "سيبيا زرقاء",   
+    type: "sepia-blue", 
+    label: "سيبيا زرقاء",   
     labelEn: "Sepia Sapphire",
     color: "#3b82f6", 
     preview: "linear-gradient(135deg, #3b82f6, #1e3a8a)", 
     icon: "🔵", 
     badge: "فريد", 
     badgeEn: "COOL",
-    characterImg: "https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=100&q=40&fm=webp",
+    characterImg: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=360&q=80&fm=webp",
     cssFilter: "sepia(0.6) hue-rotate(135deg) contrast(1.1) brightness(0.98)"
   },
   { 
@@ -155,7 +286,7 @@ const FILTER_LIB: {
     icon: "🎨", 
     badge: "تأثير", 
     badgeEn: "ART",
-    characterImg: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=100&q=40&fm=webp",
+    characterImg: "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=360&q=80&fm=webp",
     cssFilter: "contrast(1.4) grayscale(1) sepia(0.4) hue-rotate(215deg) brightness(1.02)"
   },
   { 
@@ -167,7 +298,7 @@ const FILTER_LIB: {
     icon: "⬜", 
     badge: "كلاسيك", 
     badgeEn: "MONO",
-    characterImg: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=100&q=40&fm=webp",
+    characterImg: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=360&q=80&fm=webp",
     cssFilter: "grayscale(1) contrast(1.15) brightness(0.98)"
   },
   { 
@@ -179,18 +310,19 @@ const FILTER_LIB: {
     icon: "🔲", 
     badge: "حواف", 
     badgeEn: "VIGNETTE",
-    characterImg: "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=100&q=40&fm=webp",
-    cssFilter: "brightness(0.88) contrast(1.12)"
+    characterImg: "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=360&q=80&fm=webp",
+    cssFilter: "brightness(0.88) contrast(1.18)"
   },
   { 
-    type: "brightness", label: "إضاءة ساطعة",   
+    type: "brightness", 
+    label: "إضاءة ساطعة",   
     labelEn: "High Light",   
     color: "#f59e0b", 
     preview: "linear-gradient(135deg, #fbbf24, #f59e0b)", 
     icon: "☀️", 
-    badge: "تعديل", 
-    badgeEn: "ADJUST",
-    characterImg: "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=100&q=40&fm=webp",
+    badge: "إشراق", 
+    badgeEn: "BRIGHT",
+    characterImg: "https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?auto=format&fit=crop&w=360&q=80&fm=webp",
     cssFilter: "brightness(1.28)"
   },
   { 
@@ -202,7 +334,7 @@ const FILTER_LIB: {
     icon: "🔳", 
     badge: "تباين", 
     badgeEn: "CONTRAST",
-    characterImg: "https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?auto=format&fit=crop&w=100&q=40&fm=webp",
+    characterImg: "https://images.unsplash.com/photo-1513956589380-bad6acb9b9d4?auto=format&fit=crop&w=360&q=80&fm=webp",
     cssFilter: "contrast(1.42)"
   },
   { 
@@ -214,7 +346,7 @@ const FILTER_LIB: {
     icon: "🌈", 
     badge: "ألوان", 
     badgeEn: "VIBRANT",
-    characterImg: "https://images.unsplash.com/photo-1513956589380-bad6acb9b9d4?auto=format&fit=crop&w=100&q=40&fm=webp",
+    characterImg: "https://images.unsplash.com/photo-1554151228-14d9def656e4?auto=format&fit=crop&w=360&q=80&fm=webp",
     cssFilter: "saturate(1.75)"
   },
   { 
@@ -224,20 +356,21 @@ const FILTER_LIB: {
     color: "#818cf8", 
     preview: "linear-gradient(135deg, #c084fc, #818cf8)", 
     icon: "🌫️", 
-    badge: "سينمائي", 
+    badge: "ضبابي", 
     badgeEn: "BLUR",
-    characterImg: "https://images.unsplash.com/photo-1489980508314-941910ded1f4?auto=format&fit=crop&w=100&q=40&fm=webp",
-    cssFilter: "blur(1.4px) contrast(1.05)"
+    characterImg: "https://images.unsplash.com/photo-1489980508314-941910ded1f4?auto=format&fit=crop&w=360&q=80&fm=webp",
+    cssFilter: "blur(1.8px) contrast(1.05)"
   },
   { 
-    type: "hue-rotate", label: "تدوير طيفي",   
+    type: "hue-rotate", 
+    label: "تدوير طيفي",   
     labelEn: "Hue Rotation", 
     color: "#10b981", 
     preview: "linear-gradient(135deg, #34d399, #10b981)", 
     icon: "🔄", 
     badge: "طيفي", 
     badgeEn: "SPECTRUM",
-    characterImg: "https://images.unsplash.com/photo-1554151228-14d9def656e4?auto=format&fit=crop&w=100&q=40&fm=webp",
+    characterImg: "https://images.unsplash.com/photo-1542206395-9feb3edaa68d?auto=format&fit=crop&w=360&q=80&fm=webp",
     cssFilter: "hue-rotate(115deg) contrast(1.05)"
   },
   { 
@@ -249,20 +382,8 @@ const FILTER_LIB: {
     icon: "🔀", 
     badge: "فني", 
     badgeEn: "INVERT",
-    characterImg: "https://images.unsplash.com/photo-1542206395-9feb3edaa68d?auto=format&fit=crop&w=100&q=40&fm=webp",
+    characterImg: "https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?auto=format&fit=crop&w=360&q=80&fm=webp",
     cssFilter: "invert(1) contrast(1.1)"
-  },
-  {
-    type: "cyberpunk-teal-orange",
-    label: "تيل & أورانج سينمائي",
-    labelEn: "Hollywood Teal & Orange",
-    color: "#0ea5e9",
-    preview: "linear-gradient(135deg, #0284c7, #f97316)",
-    icon: "🎬",
-    badge: "سينمائي",
-    badgeEn: "HOLLYWOOD",
-    characterImg: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=40&fm=webp",
-    cssFilter: "contrast(1.25) saturate(1.35) hue-rotate(-12deg) sepia(0.22)"
   },
   {
     type: "emerald-forest",
@@ -273,20 +394,8 @@ const FILTER_LIB: {
     icon: "🌲",
     badge: "طبيعة",
     badgeEn: "NATURE",
-    characterImg: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=100&q=40&fm=webp",
+    characterImg: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=360&q=80&fm=webp",
     cssFilter: "hue-rotate(25deg) saturate(1.4) contrast(1.15) brightness(0.96)"
-  },
-  {
-    type: "golden-hour",
-    label: "الساعة الذهبية",
-    labelEn: "Golden Hour Glow",
-    color: "#f59e0b",
-    preview: "linear-gradient(135deg, #f59e0b, #b45309)",
-    icon: "🌇",
-    badge: "غروب",
-    badgeEn: "SUNSET",
-    characterImg: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&q=40&fm=webp",
-    cssFilter: "sepia(0.42) saturate(1.45) contrast(1.1) brightness(1.08)"
   },
   {
     type: "vaporwave-pastel",
@@ -297,7 +406,7 @@ const FILTER_LIB: {
     icon: "🌴",
     badge: "جمالي",
     badgeEn: "SYNTHWAVE",
-    characterImg: "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=100&q=40&fm=webp",
+    characterImg: "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=360&q=80&fm=webp",
     cssFilter: "hue-rotate(300deg) saturate(1.35) contrast(1.08) brightness(1.06)"
   },
   {
@@ -309,7 +418,7 @@ const FILTER_LIB: {
     icon: "📸",
     badge: "مطفي",
     badgeEn: "MATTE",
-    characterImg: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=100&q=40&fm=webp",
+    characterImg: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=360&q=80&fm=webp",
     cssFilter: "contrast(0.9) brightness(1.12) sepia(0.2) saturate(0.85)"
   },
   {
@@ -321,8 +430,80 @@ const FILTER_LIB: {
     icon: "🩸",
     badge: "درامي",
     badgeEn: "RUBY",
-    characterImg: "https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?auto=format&fit=crop&w=100&q=40&fm=webp",
+    characterImg: "https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?auto=format&fit=crop&w=360&q=80&fm=webp",
     cssFilter: "grayscale(0.75) sepia(0.35) hue-rotate(320deg) contrast(1.4) brightness(0.95)"
+  },
+  {
+    type: "cinematic-2383",
+    label: "كوداك 2383 سينما",
+    labelEn: "Kodak 2383 LUT",
+    color: "#eab308",
+    preview: "linear-gradient(135deg, #eab308, #1e293b)",
+    icon: "🎞️",
+    badge: "جديد ✨",
+    badgeEn: "KODAK LUT",
+    characterImg: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=360&q=80&fm=webp",
+    cssFilter: "contrast(1.3) saturate(1.18) sepia(0.18) brightness(0.96)"
+  },
+  {
+    type: "fuji-velvia",
+    label: "فوجي فيلفيا ناصع",
+    labelEn: "Fuji Velvia Vivid",
+    color: "#10b981",
+    preview: "linear-gradient(135deg, #10b981, #0284c7)",
+    icon: "🏔️",
+    badge: "جديد ✨",
+    badgeEn: "FUJI LUT",
+    characterImg: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=360&q=80&fm=webp",
+    cssFilter: "saturate(1.6) contrast(1.18) hue-rotate(-6deg) brightness(1.03)"
+  },
+  {
+    type: "bleach-bypass",
+    label: "تبييض الفضة الدرامي",
+    labelEn: "Bleach Bypass",
+    color: "#64748b",
+    preview: "linear-gradient(135deg, #94a3b8, #0f172a)",
+    icon: "⚔️",
+    badge: "سينمائي",
+    badgeEn: "GRITTY",
+    characterImg: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=360&q=80&fm=webp",
+    cssFilter: "grayscale(0.55) contrast(1.45) brightness(0.94) saturate(0.65)"
+  },
+  {
+    type: "sunset-miami",
+    label: "غروب ميامي الوردي",
+    labelEn: "Miami Sunset",
+    color: "#f43f5e",
+    preview: "linear-gradient(135deg, #f43f5e, #f59e0b)",
+    icon: "🌺",
+    badge: "ترند 🔥",
+    badgeEn: "MIAMI",
+    characterImg: "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=360&q=80&fm=webp",
+    cssFilter: "sepia(0.3) saturate(1.55) hue-rotate(315deg) contrast(1.12) brightness(1.04)"
+  },
+  {
+    type: "matrix-cyber-green",
+    label: "ماتريكس سايبر",
+    labelEn: "Matrix CyberTint",
+    color: "#22c55e",
+    preview: "linear-gradient(135deg, #22c55e, #052e16)",
+    icon: "🟢",
+    badge: "سايبر",
+    badgeEn: "MATRIX",
+    characterImg: "https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=360&q=80&fm=webp",
+    cssFilter: "sepia(0.45) hue-rotate(75deg) saturate(1.5) contrast(1.25) brightness(0.95)"
+  },
+  {
+    type: "soft-peach-skin",
+    label: "بشرة مخملية دافئة",
+    labelEn: "Soft Peach Skin",
+    color: "#fb7185",
+    preview: "linear-gradient(135deg, #fda4af, #fb7185)",
+    icon: "✨",
+    badge: "بورتريه",
+    badgeEn: "PORTRAIT",
+    characterImg: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=360&q=80&fm=webp",
+    cssFilter: "brightness(1.08) contrast(0.95) saturate(1.22) sepia(0.15) hue-rotate(-8deg)"
   }
 ];
 
@@ -335,6 +516,7 @@ const FilterPanel = ({ open, onClose, currentTime }: Props) => {
   const [adjustTab, setAdjustTab] = useState<"light" | "color" | "lens">("light");
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [initialFilters, setInitialFilters] = useState<FilterItem[]>([]);
+  const [useUnifiedPromoImg, setUseUnifiedPromoImg] = useState<boolean>(false);
 
   const currentTimeRef = useRef(currentTime);
   useEffect(() => {
@@ -441,7 +623,14 @@ const FilterPanel = ({ open, onClose, currentTime }: Props) => {
     toast.success(en ? "Added new custom filter track!" : "تمت إضافة مسار مصفوفة فلتر لوني جديد أسفله!");
   }, [selectedId, filters, totalDuration, updateFilter, addFilter, en]);
 
-  const colorFilters = useMemo(() => ["warm", "cool", "dramatic", "vintage", "noir", "dream", "neon", "sepia", "sepia-blue", "duotone"], []);
+  const colorFilters = useMemo(
+    () => [
+      "warm", "cool", "dramatic", "vintage", "noir", "dream", "neon",
+      "sepia", "sepia-blue", "duotone", "cyberpunk-teal-orange", "golden-hour",
+      "sunset-miami", "soft-peach-skin"
+    ],
+    []
+  );
   const shown = useMemo(() => {
     return FILTER_LIB.filter((f) => 
       activeCategory === "all" ? true : activeCategory === "color" ? colorFilters.includes(f.type) : !colorFilters.includes(f.type)
@@ -451,7 +640,7 @@ const FilterPanel = ({ open, onClose, currentTime }: Props) => {
   // Optimize Grid Layout with useMemo to prevent 60fps repaints during video play tick
   const renderedGrid = useMemo(() => {
     return (
-      <div className="grid grid-cols-3 gap-2.5">
+      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5">
         {shown.map((f) => {
           const isActive = filters.some((af) => af.type === f.type);
           const badge = en ? f.badgeEn : f.badge;
@@ -459,40 +648,63 @@ const FilterPanel = ({ open, onClose, currentTime }: Props) => {
             <button 
               key={f.type} 
               onClick={() => addNewFilter(f.type)}
-              className={`relative aspect-square flex flex-col justify-end items-stretch rounded-2xl overflow-hidden border-2 transition-all duration-300 active:scale-95 hover:scale-[1.03] ${
+              className={`group relative aspect-[4/4.4] flex flex-col justify-end items-stretch rounded-2xl overflow-hidden border-2 transition-all duration-300 active:scale-95 hover:scale-[1.02] shadow-sm ${
                 isActive 
-                   ? "border-primary glow-primary-sm ring-1 ring-primary/20" 
-                   : "border-border/40 hover:border-primary/40 bg-card"
+                   ? "border-primary glow-primary-sm ring-2 ring-primary/25" 
+                   : "border-border/50 hover:border-primary/50 bg-card"
               }`}
+              style={isActive ? { borderColor: f.color, boxShadow: `0 0 14px ${f.color}45` } : undefined}
             >
-              {/* Color Swatch Grid representing the filter effect dynamically! */}
-              <ColorSwatchGrid cssFilter={f.cssFilter} />
+              {/* Promotional Image Preview with Live CSS Filter Applied */}
+              <FilterPromoPreview
+                cssFilter={f.cssFilter}
+                promoImg={f.characterImg}
+                useUnifiedImage={useUnifiedPromoImg}
+                isVignette={f.type === "fade-edge"}
+                accentColor={f.color}
+              />
 
-              {/* Gradient Overlay for subtitle legibility */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-black/5 pointer-events-none" />
+              {/* Gradient Vignette Overlay for Title & Badge Legibility */}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/15 to-black/25 pointer-events-none" />
 
-              {/* Filter Icon & Emoji Style at top-right */}
-              <div className="absolute top-1.5 right-1.5 w-6 h-6 rounded-lg bg-black/75 flex items-center justify-center text-xs shadow-sm">
-                {f.icon}
-              </div>
-
-              {/* Premium Tag Corner Badge */}
-              {badge && (
-                <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded-[4px] text-[7px] font-extrabold uppercase bg-black/85 text-white tracking-wider border border-white/5">
-                  {badge}
-                </span>
-              )}
-
-              {/* Active Checkmark overlay */}
-              {isActive && (
-                <div className="absolute top-1.5 right-1.5 w-6 h-6 rounded-lg gradient-primary flex items-center justify-center shadow-lg animate-scale-in z-20 border border-white/20">
+              {/* Modernized Filter LUT Ring Icon at top-right */}
+              {!isActive ? (
+                <div
+                  className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/65 backdrop-blur-md border border-white/20 flex items-center justify-center shadow-md transition-transform group-hover:scale-110"
+                  style={{ boxShadow: `0 0 8px ${f.color}55` }}
+                >
+                  <span
+                    className="w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px]"
+                    style={{
+                      background: `conic-gradient(from 45deg, ${f.color}, #ffffff, ${f.color})`,
+                    }}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-slate-950" />
+                  </span>
+                </div>
+              ) : (
+                <div className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full gradient-primary flex items-center justify-center shadow-lg animate-scale-in z-20 border border-white/30">
                   <Check className="w-3.5 h-3.5 text-white stroke-[3.5px]" />
                 </div>
               )}
 
-              {/* Label */}
-              <div className="relative px-2 py-1.5 text-center bg-black/80 border-t border-white/5">
-                <p className="text-[9px] font-extrabold text-white leading-tight truncate">
+              {/* Premium Tag Corner Badge */}
+              {badge && (
+                <span
+                  className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded-md text-[7px] font-extrabold uppercase text-white tracking-wider backdrop-blur-md border border-white/15 shadow-sm"
+                  style={{ backgroundColor: `${f.color}cc` }}
+                >
+                  {badge}
+                </span>
+              )}
+
+              {/* Bottom Title & Color Grade Accent Bar */}
+              <div className="relative px-2 py-1.5 bg-black/80 backdrop-blur-md border-t border-white/10 flex items-center justify-center gap-1.5">
+                <span
+                  className="w-1.5 h-1.5 rounded-full shrink-0 shadow-xs"
+                  style={{ backgroundColor: f.color }}
+                />
+                <p className="text-[9.5px] font-extrabold text-white leading-tight truncate">
                   {en ? f.labelEn : f.label}
                 </p>
               </div>
@@ -501,7 +713,7 @@ const FilterPanel = ({ open, onClose, currentTime }: Props) => {
         })}
       </div>
     );
-  }, [shown, filters, en, addNewFilter]);
+  }, [shown, filters, en, addNewFilter, useUnifiedPromoImg]);
 
   // Optimize Advanced Multi-Slider Customization Console with useMemo
   const renderedTuningConsole = useMemo(() => {
@@ -566,10 +778,19 @@ const FilterPanel = ({ open, onClose, currentTime }: Props) => {
               >
                 <div className="flex items-center gap-2.5">
                   <div 
-                    className="w-9 h-9 rounded-xl overflow-hidden border border-border/50 flex items-center justify-center shadow" 
-                    style={{ background: lib?.preview }}
+                    className="relative w-10 h-10 rounded-xl overflow-hidden border border-border/60 flex items-center justify-center shadow-sm bg-slate-950 shrink-0" 
                   >
-                    <span className="text-lg">{lib?.icon}</span>
+                    <img
+                      src={lib?.characterImg || UNIFIED_PROMO_IMAGE}
+                      alt=""
+                      referrerPolicy="no-referrer"
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = FALLBACK_PROMO_SCENE_SVG;
+                      }}
+                      className="w-full h-full object-cover"
+                      style={{ filter: lib?.cssFilter }}
+                    />
                   </div>
                   <div>
                     <p className="text-[11px] font-extrabold text-foreground">
@@ -905,6 +1126,30 @@ const FilterPanel = ({ open, onClose, currentTime }: Props) => {
           </span>
         ) : filters.length > 0 ? (
           <span className="text-[10px] text-primary font-bold font-mono">· {filters.length}</span>
+        ) : null
+      }
+      headerActions={
+        activeCategory !== "manual" ? (
+          <button
+            type="button"
+            onClick={() => {
+              playSfx("click");
+              setUseUnifiedPromoImg((prev) => !prev);
+            }}
+            className="h-7 px-2.5 rounded-lg bg-secondary/80 hover:bg-secondary text-foreground text-[9.5px] font-bold border border-border/50 flex items-center gap-1 transition-all active:scale-95"
+            title={
+              en
+                ? "Switch between custom promo photos per filter or a single unified reference photo"
+                : "التبديل بين صور إعلانية مخصصة لكل فلتر أو صورة موحدة لمقارنة عمل الفلاتر"
+            }
+          >
+            <ImageIcon className="w-3 h-3 text-primary" />
+            <span>
+              {useUnifiedPromoImg
+                ? (en ? "Promo Photos" : "صور إعلانية")
+                : (en ? "Unified Photo" : "صورة موحدة")}
+            </span>
+          </button>
         ) : null
       }
       subHeader={

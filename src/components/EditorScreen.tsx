@@ -484,6 +484,16 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
       case "gsap-3d-flip": return "animate-video-spin";
       case "gsap-stagger-wipe": return "animate-video-slide";
       case "gsap-elastic-bounce": return "animate-video-shutter";
+      case "gsap-vortex-portal": return "animate-video-spin";
+      case "gsap-whip-pan-blur": return "animate-video-slide";
+      case "gsap-shatter-prism": return "animate-video-zoom";
+      case "gsap-pendulum-swing": return "animate-video-spin";
+      case "diagonal-blade-split": return "animate-video-split";
+      case "shutter-blinds-wipe": return "animate-video-shutter";
+      case "cyber-datamosh-glitch": return "animate-video-glitch";
+      case "vhs-rewind-snap": return "animate-video-glitch";
+      case "supernova-burst": return "animate-video-flash";
+      case "origami-fold-3d": return "animate-video-split";
       default: return "";
     }
   }, [activeTransition]);
@@ -531,6 +541,12 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
         case "vaporwave-pastel": parts.push(`hue-rotate(${300 * i}deg) saturate(${1 + i * 0.35}) contrast(${1 + i * 0.08}) brightness(${1 + i * 0.06})`); break;
         case "polaroid-matte": parts.push(`contrast(${1 - i * 0.1}) brightness(${1 + i * 0.12}) sepia(${i * 0.2}) saturate(${1 - i * 0.15})`); break;
         case "monochrome-red": parts.push(`grayscale(${i * 0.75}) sepia(${i * 0.35}) hue-rotate(${320 * i}deg) contrast(${1 + i * 0.4}) brightness(${1 - i * 0.05})`); break;
+        case "cinematic-2383": parts.push(`contrast(${1 + i * 0.3}) saturate(${1 + i * 0.18}) sepia(${i * 0.18}) brightness(${1 - i * 0.04})`); break;
+        case "fuji-velvia": parts.push(`saturate(${1 + i * 0.6}) contrast(${1 + i * 0.18}) hue-rotate(${-6 * i}deg) brightness(${1 + i * 0.03})`); break;
+        case "bleach-bypass": parts.push(`grayscale(${i * 0.55}) contrast(${1 + i * 0.45}) brightness(${1 - i * 0.06}) saturate(${1 - i * 0.35})`); break;
+        case "sunset-miami": parts.push(`sepia(${i * 0.3}) saturate(${1 + i * 0.55}) hue-rotate(${315 * i}deg) contrast(${1 + i * 0.12}) brightness(${1 + i * 0.04})`); break;
+        case "matrix-cyber-green": parts.push(`sepia(${i * 0.45}) hue-rotate(${75 * i}deg) saturate(${1 + i * 0.5}) contrast(${1 + i * 0.25}) brightness(${1 - i * 0.05})`); break;
+        case "soft-peach-skin": parts.push(`brightness(${1 + i * 0.08}) contrast(${1 - i * 0.05}) saturate(${1 + i * 0.22}) sepia(${i * 0.15}) hue-rotate(${-8 * i}deg)`); break;
       }
 
       // 2. Custom Fine-tuning Slider Adjustments

@@ -69,7 +69,17 @@ export type TransitionType =
   | "glitch-rgb-shatter"
   | "burn-film"
   | "kaleido-spin"
-  | "heart-zoom";
+  | "heart-zoom"
+  | "gsap-vortex-portal"
+  | "gsap-whip-pan-blur"
+  | "gsap-shatter-prism"
+  | "gsap-pendulum-swing"
+  | "diagonal-blade-split"
+  | "shutter-blinds-wipe"
+  | "cyber-datamosh-glitch"
+  | "vhs-rewind-snap"
+  | "supernova-burst"
+  | "origami-fold-3d";
 
 export interface Transition {
   type: TransitionType;
@@ -311,7 +321,8 @@ export interface AudioTrackItem {
 export type FilterType = 
   | "brightness" | "contrast" | "saturate" | "grayscale" | "sepia" | "blur" | "hue-rotate" | "invert" 
   | "vintage" | "warm" | "cool" | "dramatic" | "noir" | "fade-edge" | "duotone" | "dream" | "neon" | "sepia-blue"
-  | "cyberpunk-teal-orange" | "emerald-forest" | "golden-hour" | "vaporwave-pastel" | "polaroid-matte" | "monochrome-red";
+  | "cyberpunk-teal-orange" | "emerald-forest" | "golden-hour" | "vaporwave-pastel" | "polaroid-matte" | "monochrome-red"
+  | "cinematic-2383" | "fuji-velvia" | "bleach-bypass" | "sunset-miami" | "matrix-cyber-green" | "soft-peach-skin";
 export interface FilterItem { 
   id: string; 
   type: FilterType; 
@@ -339,7 +350,9 @@ export type VfxType =
   // Dance & Music Party VFX
   | "disco-strobe" | "bass-shake-pulse" | "neon-equalizer" | "rgb-rave" | "laser-beams" | "kaleidoscope-dance"
   // Modern Special VFX
-  | "cyber-hologram" | "matrix-digital-rain" | "aurora-borealis" | "golden-dust" | "electric-sparks" | "rgb-echo";
+  | "cyber-hologram" | "matrix-digital-rain" | "aurora-borealis" | "golden-dust" | "electric-sparks" | "rgb-echo"
+  // Newly Added Pro VFX
+  | "cyber-portal-intro" | "shatter-glass-intro" | "cherry-blossom" | "autumn-leaves" | "confetti-celebration" | "neon-heart-rave" | "earthquake-tremor" | "speed-warp-lines" | "thermal-infrared" | "halftone-comic";
 export interface VfxItem { id: string; type: VfxType; start: number; end: number; intensity: number; keyframes?: Keyframe[]; }
 
 export interface OverlayItem {

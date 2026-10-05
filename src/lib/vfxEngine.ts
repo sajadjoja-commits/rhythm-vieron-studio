@@ -1022,6 +1022,253 @@ export function computeVfxState(
         });
         break;
       }
+      case "cyber-portal-intro": {
+        const pScale = 1 + (1 - progress) * 0.45 * i;
+        const pRot = (1 - progress) * 20 * i;
+        domTransforms.push(`scale(${pScale}) rotate(${pRot}deg)`);
+        domFilters.push(`contrast(${1 + (1 - progress) * 0.35 * i}) saturate(${1 + 0.4 * i})`);
+        overlayStyle = {
+          background: `radial-gradient(circle at center, transparent ${Math.min(75, progress * 90)}%, rgba(6, 182, 212, ${0.55 * (1 - progress) * i}) ${Math.min(90, progress * 100 + 15)}%, rgba(168, 85, 247, ${0.7 * (1 - progress) * i}) 100%)`,
+          pointerEvents: "none",
+        };
+        canvasTransforms.push((ctx) => {
+          ctx.scale(pScale, pScale);
+          ctx.rotate((pRot * Math.PI) / 180);
+        });
+        canvasOverlays.push((ctx, w, h) => {
+          ctx.save();
+          ctx.translate(w / 2, h / 2);
+          for (let r = 0; r < 5; r++) {
+            const rad = ((currentTime * 160 + r * 45) % (Math.max(w, h) * 0.6)) + 15;
+            ctx.strokeStyle = r % 2 === 0 ? `rgba(6, 182, 212, ${0.65 * (1 - progress * 0.6) * i})` : `rgba(168, 85, 247, ${0.65 * (1 - progress * 0.6) * i})`;
+            ctx.lineWidth = 3 * scaleFactorX;
+            ctx.beginPath();
+            ctx.arc(0, 0, rad, currentTime * 4 + r, currentTime * 4 + r + Math.PI * 1.4);
+            ctx.stroke();
+          }
+          ctx.restore();
+        });
+        break;
+      }
+      case "shatter-glass-intro": {
+        const flashA = Math.max(0, 1 - progress * 1.8) * i;
+        const gScale = 1 + (1 - progress) * 0.25 * i;
+        domTransforms.push(`scale(${gScale})`);
+        domFilters.push(`contrast(${1 + 0.35 * i}) brightness(${1 + flashA * 0.5})`);
+        overlayStyle = {
+          background: `linear-gradient(135deg, rgba(186,230,253,${0.45 * (1 - progress) * i}) 0%, transparent 45%, rgba(56,189,248,${0.35 * (1 - progress) * i}) 50%, transparent 100%)`,
+          pointerEvents: "none",
+        };
+        canvasTransforms.push((ctx) => {
+          ctx.scale(gScale, gScale);
+        });
+        canvasOverlays.push((ctx, w, h) => {
+          ctx.save();
+          ctx.strokeStyle = `rgba(186, 230, 253, ${0.75 * (1 - progress * 0.7) * i})`;
+          ctx.lineWidth = 2.5 * scaleFactorX;
+          const cx = w / 2, cy = h / 2;
+          for (let k = 0; k < 8; k++) {
+            const ang = (k * Math.PI * 2) / 8 + 0.3;
+            ctx.beginPath();
+            ctx.moveTo(cx, cy);
+            ctx.lineTo(cx + Math.cos(ang) * w * 0.7, cy + Math.sin(ang) * h * 0.7);
+            ctx.stroke();
+          }
+          ctx.restore();
+        });
+        break;
+      }
+      case "cherry-blossom": {
+        domFilters.push(`saturate(${1 + 0.2 * i}) brightness(${1 + 0.05 * i})`);
+        overlayStyle = {
+          background: `radial-gradient(circle at 20% 20%, rgba(244, 114, 182, ${0.22 * i}) 0%, transparent 65%)`,
+          pointerEvents: "none",
+        };
+        canvasOverlays.push((ctx, w, h) => {
+          ctx.save();
+          for (let pIdx = 0; pIdx < 28; pIdx++) {
+            const px = ((pIdx * 67 + currentTime * 75 + Math.sin(currentTime * 3 + pIdx) * 25) % w);
+            const py = ((pIdx * 53 + currentTime * 95) % h);
+            ctx.save();
+            ctx.translate(px, py);
+            ctx.rotate(currentTime * 2.5 + pIdx);
+            ctx.fillStyle = pIdx % 2 === 0 ? `rgba(244, 114, 182, ${0.85 * i})` : `rgba(251, 207, 232, ${0.9 * i})`;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 7 * scaleFactorX, 3.8 * scaleFactorX, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+          }
+          ctx.restore();
+        });
+        break;
+      }
+      case "autumn-leaves": {
+        domFilters.push(`sepia(${0.22 * i}) saturate(${1 + 0.35 * i})`);
+        overlayStyle = {
+          background: `linear-gradient(135deg, rgba(234, 88, 12, ${0.2 * i}) 0%, transparent 70%)`,
+          pointerEvents: "none",
+        };
+        canvasOverlays.push((ctx, w, h) => {
+          ctx.save();
+          const lCols = ["#ea580c", "#f59e0b", "#dc2626", "#d97706"];
+          for (let lIdx = 0; lIdx < 24; lIdx++) {
+            const lx = ((lIdx * 73 + currentTime * 85 + Math.sin(currentTime * 2.5 + lIdx) * 30) % w);
+            const ly = ((lIdx * 61 + currentTime * 90) % h);
+            ctx.save();
+            ctx.translate(lx, ly);
+            ctx.rotate(currentTime * 3 + lIdx);
+            ctx.fillStyle = lCols[lIdx % lCols.length];
+            ctx.globalAlpha = 0.85 * i;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 8.5 * scaleFactorX, 4.5 * scaleFactorX, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+          }
+          ctx.restore();
+        });
+        break;
+      }
+      case "confetti-celebration": {
+        overlayStyle = {
+          background: `radial-gradient(circle at 50% 15%, rgba(234, 179, 8, ${0.2 * i}) 0%, transparent 70%)`,
+          pointerEvents: "none",
+        };
+        canvasOverlays.push((ctx, w, h) => {
+          ctx.save();
+          const cCols = ["#eab308", "#ec4899", "#06b6d4", "#22c55e", "#a855f7", "#f97316"];
+          for (let ci = 0; ci < 36; ci++) {
+            const cx = ((ci * 59 + Math.sin(currentTime * 4 + ci) * 20) % w);
+            const cy = ((ci * 47 + currentTime * 130) % h);
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(currentTime * 5 + ci);
+            ctx.fillStyle = cCols[ci % cCols.length];
+            ctx.globalAlpha = 0.9 * i;
+            ctx.fillRect(-5 * scaleFactorX, -2.5 * scaleFactorX, 10 * scaleFactorX, 5 * scaleFactorX);
+            ctx.restore();
+          }
+          ctx.restore();
+        });
+        break;
+      }
+      case "neon-heart-rave": {
+        const hBeat = 1 + Math.abs(Math.sin(currentTime * 8)) * 0.05 * i;
+        domTransforms.push(`scale(${hBeat})`);
+        domFilters.push(`saturate(${1 + 0.35 * i}) contrast(${1 + 0.15 * i})`);
+        overlayStyle = {
+          boxShadow: `inset 0 0 35px rgba(236, 72, 153, ${0.45 * i})`,
+          pointerEvents: "none",
+        };
+        canvasTransforms.push((ctx) => {
+          ctx.scale(hBeat, hBeat);
+        });
+        canvasOverlays.push((ctx, w, h) => {
+          ctx.save();
+          for (let hi = 0; hi < 14; hi++) {
+            const hx = ((hi * 79 + Math.sin(currentTime * 3 + hi) * 20) % w);
+            const hy = h - ((hi * 63 + currentTime * 110) % h);
+            const hs = (8 + (hi % 4) * 3) * scaleFactorX;
+            ctx.fillStyle = hi % 2 === 0 ? `rgba(236, 72, 153, ${0.85 * i})` : `rgba(244, 63, 94, ${0.85 * i})`;
+            ctx.beginPath();
+            ctx.arc(hx - hs * 0.45, hy, hs * 0.55, 0, Math.PI * 2);
+            ctx.arc(hx + hs * 0.45, hy, hs * 0.55, 0, Math.PI * 2);
+            ctx.moveTo(hx - hs, hy + hs * 0.1);
+            ctx.lineTo(hx, hy + hs * 1.25);
+            ctx.lineTo(hx + hs, hy + hs * 0.1);
+            ctx.fill();
+          }
+          ctx.restore();
+        });
+        break;
+      }
+      case "earthquake-tremor": {
+        const eqX = Math.sin(currentTime * 75) * 14 * i;
+        const eqY = Math.cos(currentTime * 65) * 11 * i;
+        const eqRot = Math.sin(currentTime * 45) * 2.5 * i;
+        domTransforms.push(`scale(${1 + 0.08 * i}) translate(${eqX}px, ${eqY}px) rotate(${eqRot}deg)`);
+        domFilters.push(`contrast(${1 + 0.25 * i})`);
+        overlayStyle = {
+          boxShadow: `inset 0 0 30px rgba(220, 38, 38, ${0.4 * i})`,
+          pointerEvents: "none",
+        };
+        canvasTransforms.push((ctx) => {
+          ctx.scale(1 + 0.08 * i, 1 + 0.08 * i);
+          ctx.translate(eqX * scaleFactorX, eqY * scaleFactorY);
+          ctx.rotate((eqRot * Math.PI) / 180);
+        });
+        break;
+      }
+      case "speed-warp-lines": {
+        const swScale = 1 + Math.abs(Math.sin(currentTime * 12)) * 0.06 * i;
+        domTransforms.push(`scale(${swScale})`);
+        domFilters.push(`contrast(${1 + 0.2 * i}) saturate(${1 + 0.25 * i})`);
+        overlayStyle = {
+          background: `radial-gradient(circle at center, transparent 42%, rgba(245, 158, 11, ${0.28 * i}) 100%)`,
+          pointerEvents: "none",
+        };
+        canvasTransforms.push((ctx) => {
+          ctx.scale(swScale, swScale);
+        });
+        canvasOverlays.push((ctx, w, h) => {
+          ctx.save();
+          ctx.strokeStyle = `rgba(251, 191, 36, ${0.75 * i})`;
+          ctx.lineWidth = 2.5 * scaleFactorX;
+          const cx = w / 2, cy = h / 2;
+          const maxR = Math.hypot(w, h) * 0.55;
+          for (let si = 0; si < 28; si++) {
+            const ang = (si * Math.PI * 2) / 28;
+            const r1 = maxR * (0.45 + ((currentTime * 3 + si * 0.17) % 0.35));
+            const r2 = maxR;
+            ctx.beginPath();
+            ctx.moveTo(cx + Math.cos(ang) * r1, cy + Math.sin(ang) * r1);
+            ctx.lineTo(cx + Math.cos(ang) * r2, cy + Math.sin(ang) * r2);
+            ctx.stroke();
+          }
+          ctx.restore();
+        });
+        break;
+      }
+      case "thermal-infrared": {
+        domFilters.push(`invert(${0.85 * i}) hue-rotate(${195 * i}deg) saturate(${1 + 1.4 * i}) contrast(${1 + 0.45 * i})`);
+        overlayStyle = {
+          background: `radial-gradient(circle at 50% 50%, rgba(249, 115, 22, ${0.28 * i}) 0%, rgba(217, 70, 239, ${0.25 * i}) 55%, rgba(30, 58, 138, ${0.35 * i}) 100%)`,
+          mixBlendMode: "screen",
+          pointerEvents: "none",
+        };
+        canvasOverlays.push((ctx, w, h) => {
+          ctx.save();
+          const grad = ctx.createRadialGradient(w / 2, h / 2, w * 0.1, w / 2, h / 2, w * 0.7);
+          grad.addColorStop(0, `rgba(254, 240, 138, ${0.35 * i})`);
+          grad.addColorStop(0.5, `rgba(249, 115, 22, ${0.3 * i})`);
+          grad.addColorStop(1, `rgba(147, 51, 234, ${0.35 * i})`);
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, 0, w, h);
+          ctx.restore();
+        });
+        break;
+      }
+      case "halftone-comic": {
+        domFilters.push(`contrast(${1 + 0.55 * i}) saturate(${1 + 0.65 * i})`);
+        overlayStyle = {
+          backgroundImage: `radial-gradient(rgba(250, 204, 21, ${0.38 * i}) 1.5px, transparent 1.5px)`,
+          backgroundSize: "8px 8px",
+          pointerEvents: "none",
+        };
+        canvasOverlays.push((ctx, w, h) => {
+          ctx.save();
+          ctx.fillStyle = `rgba(250, 204, 21, ${0.32 * i})`;
+          const step = Math.max(8, Math.round(12 * scaleFactorX));
+          for (let y = step / 2; y < h; y += step) {
+            for (let x = step / 2; x < w; x += step) {
+              ctx.beginPath();
+              ctx.arc(x, y, 2 * scaleFactorX, 0, Math.PI * 2);
+              ctx.fill();
+            }
+          }
+          ctx.restore();
+        });
+        break;
+      }
       default:
         break;
     }

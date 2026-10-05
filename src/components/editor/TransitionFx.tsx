@@ -434,6 +434,87 @@ const TransitionFx = ({ triggerKey, type, durationMs }: Props) => {
         </div>
       );
       break;
+    case "gsap-vortex-portal":
+      inner = (
+        <div
+          className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_20%,rgba(6,182,212,0.75)_55%,rgba(168,85,247,0.85)_100%)] animate-fx-spin mix-blend-screen"
+          style={baseStyle}
+        />
+      );
+      break;
+    case "gsap-whip-pan-blur":
+      inner = (
+        <div
+          className="absolute inset-0 bg-gradient-to-r from-amber-500/80 via-white/95 to-orange-500/80 backdrop-blur-xl animate-fx-slide mix-blend-screen"
+          style={baseStyle}
+        />
+      );
+      break;
+    case "gsap-shatter-prism":
+      inner = (
+        <div
+          className="absolute inset-0 bg-[conic-gradient(from_45deg,rgba(56,189,248,0.7),rgba(255,255,255,0.9),rgba(168,85,247,0.7),rgba(56,189,248,0.7))] backdrop-blur-md animate-fx-zoom mix-blend-screen"
+          style={baseStyle}
+        />
+      );
+      break;
+    case "diagonal-blade-split":
+      inner = (
+        <div
+          className="absolute inset-0 bg-[linear-gradient(135deg,transparent_42%,rgba(236,72,153,0.95)_48%,rgba(255,255,255,1)_50%,rgba(236,72,153,0.95)_52%,transparent_58%)] animate-fx-wipe mix-blend-screen"
+          style={baseStyle}
+        />
+      );
+      break;
+    case "supernova-burst":
+      inner = (
+        <div
+          className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,1)_0%,rgba(250,204,21,0.9)_35%,rgba(249,115,22,0.5)_70%,transparent_100%)] animate-fx-flash mix-blend-screen"
+          style={baseStyle}
+        />
+      );
+      break;
+    case "cyber-datamosh-glitch":
+      inner = (
+        <div className="absolute inset-0 animate-fx-glitch overflow-hidden" style={baseStyle}>
+          <div className="absolute inset-0 bg-emerald-500/35 translate-x-3 mix-blend-screen" />
+          <div className="absolute inset-0 bg-purple-500/35 -translate-x-3 mix-blend-screen" />
+          <div className="absolute inset-0 bg-[repeating-linear-gradient(90deg,rgba(16,185,129,0.25)_0px,rgba(16,185,129,0.25)_12px,transparent_12px,transparent_24px)]" />
+        </div>
+      );
+      break;
+    case "gsap-pendulum-swing":
+      inner = (
+        <div
+          className="absolute inset-0 bg-gradient-to-b from-purple-600/50 via-transparent to-indigo-900/60 animate-fx-spin origin-top"
+          style={baseStyle}
+        />
+      );
+      break;
+    case "shutter-blinds-wipe":
+      inner = (
+        <div
+          className="absolute inset-0 bg-[repeating-linear-gradient(0deg,rgba(0,0,0,0.92)_0px,rgba(0,0,0,0.92)_18px,transparent_18px,transparent_36px)] animate-fx-shutter"
+          style={baseStyle}
+        />
+      );
+      break;
+    case "vhs-rewind-snap":
+      inner = (
+        <div className="absolute inset-0 animate-fx-glitch" style={baseStyle}>
+          <div className="absolute inset-0 bg-[repeating-linear-gradient(0deg,rgba(255,255,255,0.35)_0px,rgba(255,255,255,0.35)_3px,transparent_3px,transparent_12px)]" />
+          <div className="absolute inset-0 bg-red-500/20 mix-blend-screen" />
+        </div>
+      );
+      break;
+    case "origami-fold-3d":
+      inner = (
+        <div
+          className="absolute inset-0 bg-gradient-to-tr from-indigo-950/90 via-indigo-500/40 to-slate-950/90 animate-fx-split-right"
+          style={baseStyle}
+        />
+      );
+      break;
   }
 
   return (

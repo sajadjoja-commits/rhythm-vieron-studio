@@ -503,6 +503,12 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
         case "vaporwave-pastel": parts.push(`hue-rotate(${300 * i}deg) saturate(${1 + i * 0.35}) contrast(${1 + i * 0.08}) brightness(${1 + i * 0.06})`); break;
         case "polaroid-matte": parts.push(`contrast(${1 - i * 0.1}) brightness(${1 + i * 0.12}) sepia(${i * 0.2}) saturate(${1 - i * 0.15})`); break;
         case "monochrome-red": parts.push(`grayscale(${i * 0.75}) sepia(${i * 0.35}) hue-rotate(${320 * i}deg) contrast(${1 + i * 0.4}) brightness(${1 - i * 0.05})`); break;
+        case "cinematic-2383": parts.push(`contrast(${1 + i * 0.3}) saturate(${1 + i * 0.18}) sepia(${i * 0.18}) brightness(${1 - i * 0.04})`); break;
+        case "fuji-velvia": parts.push(`saturate(${1 + i * 0.6}) contrast(${1 + i * 0.18}) hue-rotate(${-6 * i}deg) brightness(${1 + i * 0.03})`); break;
+        case "bleach-bypass": parts.push(`grayscale(${i * 0.55}) contrast(${1 + i * 0.45}) brightness(${1 - i * 0.06}) saturate(${1 - i * 0.35})`); break;
+        case "sunset-miami": parts.push(`sepia(${i * 0.3}) saturate(${1 + i * 0.55}) hue-rotate(${315 * i}deg) contrast(${1 + i * 0.12}) brightness(${1 + i * 0.04})`); break;
+        case "matrix-cyber-green": parts.push(`sepia(${i * 0.45}) hue-rotate(${75 * i}deg) saturate(${1 + i * 0.5}) contrast(${1 + i * 0.25}) brightness(${1 - i * 0.05})`); break;
+        case "soft-peach-skin": parts.push(`brightness(${1 + i * 0.08}) contrast(${1 - i * 0.05}) saturate(${1 + i * 0.22}) sepia(${i * 0.15}) hue-rotate(${-8 * i}deg)`); break;
       }
       if (f.brightness !== undefined && f.brightness !== 1) parts.push(`brightness(${f.brightness})`);
       if (f.contrast !== undefined && f.contrast !== 1) parts.push(`contrast(${f.contrast})`);
@@ -1514,6 +1520,63 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
             ctx.beginPath();
             ctx.arc(exportWidth / 2, exportHeight / 2, (1 - tRatio) * exportWidth * 0.5, 0, Math.PI * 2);
             ctx.fill();
+          } else if (trans.type === "gsap-vortex-portal") {
+            const grad = ctx.createRadialGradient(exportWidth / 2, exportHeight / 2, exportWidth * 0.1, exportWidth / 2, exportHeight / 2, exportWidth * 0.7);
+            grad.addColorStop(0, "transparent");
+            grad.addColorStop(0.6, `rgba(6, 182, 212, ${invTRatio * 0.65})`);
+            grad.addColorStop(1, `rgba(168, 85, 247, ${invTRatio * 0.75})`);
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, exportWidth, exportHeight);
+          } else if (trans.type === "gsap-whip-pan-blur") {
+            const grad = ctx.createLinearGradient(0, 0, exportWidth, 0);
+            grad.addColorStop(0, `rgba(245, 158, 11, ${invTRatio * 0.6})`);
+            grad.addColorStop(0.5, `rgba(255, 255, 255, ${invTRatio * 0.8})`);
+            grad.addColorStop(1, `rgba(249, 115, 22, ${invTRatio * 0.6})`);
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, exportWidth * invTRatio, exportHeight);
+          } else if (trans.type === "gsap-shatter-prism") {
+            ctx.strokeStyle = `rgba(56, 189, 248, ${invTRatio * 0.85})`;
+            ctx.lineWidth = 6;
+            const cx = exportWidth / 2, cy = exportHeight / 2;
+            for (let i = 0; i < 6; i++) {
+              const ang = (i * Math.PI * 2) / 6 + tRatio;
+              ctx.beginPath();
+              ctx.moveTo(cx, cy);
+              ctx.lineTo(cx + Math.cos(ang) * exportWidth, cy + Math.sin(ang) * exportHeight);
+              ctx.stroke();
+            }
+          } else if (trans.type === "diagonal-blade-split") {
+            ctx.strokeStyle = `rgba(236, 72, 153, ${invTRatio * 0.9})`;
+            ctx.lineWidth = 14;
+            ctx.beginPath();
+            ctx.moveTo(exportWidth * Math.min(1, tRatio * 1.3), 0);
+            ctx.lineTo(0, exportHeight * Math.min(1, tRatio * 1.3));
+            ctx.stroke();
+          } else if (trans.type === "supernova-burst") {
+            const grad = ctx.createRadialGradient(exportWidth / 2, exportHeight / 2, 0, exportWidth / 2, exportHeight / 2, exportWidth * 0.75);
+            grad.addColorStop(0, `rgba(255, 255, 255, ${invTRatio * 0.95})`);
+            grad.addColorStop(0.45, `rgba(234, 179, 8, ${invTRatio * 0.75})`);
+            grad.addColorStop(1, "transparent");
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, exportWidth, exportHeight);
+          } else if (trans.type === "cyber-datamosh-glitch") {
+            ctx.fillStyle = `rgba(16, 185, 129, ${invTRatio * 0.35})`;
+            ctx.fillRect(0, exportHeight * 0.25, exportWidth, 24);
+            ctx.fillStyle = `rgba(168, 85, 247, ${invTRatio * 0.35})`;
+            ctx.fillRect(0, exportHeight * 0.65, exportWidth, 24);
+          } else if (trans.type === "gsap-pendulum-swing" || trans.type === "origami-fold-3d") {
+            ctx.fillStyle = `rgba(99, 102, 241, ${invTRatio * 0.45})`;
+            ctx.fillRect(0, 0, exportWidth * invTRatio, exportHeight);
+          } else if (trans.type === "shutter-blinds-wipe") {
+            ctx.fillStyle = "#000000";
+            const slats = 6;
+            const sh = exportHeight / slats;
+            for (let s = 0; s < slats; s++) {
+              ctx.fillRect(0, s * sh, exportWidth, sh * invTRatio);
+            }
+          } else if (trans.type === "vhs-rewind-snap") {
+            ctx.fillStyle = `rgba(239, 68, 68, ${invTRatio * 0.4})`;
+            ctx.fillRect(0, (tRatio * exportHeight) % exportHeight, exportWidth, 16);
           }
 
           ctx.restore();
