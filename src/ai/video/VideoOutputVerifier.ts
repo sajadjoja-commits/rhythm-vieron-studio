@@ -27,6 +27,7 @@ export interface VideoVerificationOptions {
   expectedHeight?: number;
   taskType?: "enhance-video" | "remove-video-background" | "video-denoise";
   inputSampleFrames?: VideoSampleFrame[];
+  expectedAlpha?: boolean;
 }
 
 export class VideoOutputVerifier {

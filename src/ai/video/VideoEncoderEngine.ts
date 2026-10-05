@@ -92,7 +92,6 @@ export class VideoEncoderEngine {
       width,
       height,
       fps,
-      bitrate,
       format,
       audioBuffer: preserveAudio ? audioBuffer : null,
       options,

@@ -22,7 +22,8 @@ export async function createSoftwareVideoSession(params: {
     await ffmpeg.load({ coreURL: "/ffmpeg/ffmpeg-core.js", wasmURL: "/ffmpeg/ffmpeg-core.wasm" });
   } catch (cause) {
     ffmpeg.terminate();
-    throw new Error("تعذر تشغيل حفظ الفيديو على هذا الجهاز. أعد فتح التطبيق مع اتصال بالإنترنت.", { cause });
+    console.error("[SoftwareVideoEncoder] FFmpeg load failed:", cause);
+    throw new Error("تعذر تشغيل حفظ الفيديو على هذا الجهاز. أعد فتح التطبيق مع اتصال بالإنترنت.");
   }
   state = "PROCESSING" as EncoderSession["state"];
 

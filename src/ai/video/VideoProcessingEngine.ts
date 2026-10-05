@@ -447,14 +447,6 @@ export class VideoProcessingEngine {
             try { activeVideoFrame?.close(); } catch {}
           }
 
-          // Quick canvas verification for sample frames
-          if (isSampleFrame) {
-            const checkPixel = ctx.getImageData(0, 0, 1, 1).data;
-            console.log(
-              `[VideoProcessingEngine] Frame ${frameIdx + 1} canvas ready: R=${checkPixel[0]}, G=${checkPixel[1]}, B=${checkPixel[2]}, A=${checkPixel[3]}`
-            );
-          }
-
           // Stream encoded frame into muxer with exact presentation timestamp
           await encoderSession.addFrame(processCanvas, timestampMicros, frameIdx === 0);
 
