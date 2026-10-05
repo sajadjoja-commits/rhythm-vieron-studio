@@ -11,6 +11,7 @@
     "build:android": "node scripts/vieron-sync.cjs",
     "native:build": "node scripts/build-android-web.cjs",
     "native:verify": "node scripts/verify-native-shell.cjs",
+    "native:pack": "node scripts/vieron-native-pack.cjs",
     "cap:sync": "vite build && cap sync android",
     "cap:copy": "vite build && cap copy android",
     "vieron:sync": "node scripts/vieron-sync.cjs",

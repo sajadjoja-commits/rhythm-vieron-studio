@@ -35,12 +35,14 @@ public class VieronNativeBridge {
             try {
                 JSONObject obj = new JSONObject();
                 obj.put("runtime", "APK_ASSET_LOADER");
-                obj.put("packaging", "NATIVE_ANDROID_SHELL");
+                obj.put("source", "APK_BUNDLED");
+                obj.put("remoteUrl", JSONObject.NULL);
+                obj.put("capacitorWebRuntime", false);
+                obj.put("ota", false);
                 obj.put("nativeVersion", "1.0.3");
-                obj.put("webVersion", "web-fallback");
                 cachedBuildInfo = obj.toString();
             } catch (Exception ignored) {
-                cachedBuildInfo = "{\"runtime\":\"APK_ASSET_LOADER\"}";
+                cachedBuildInfo = "{\"runtime\":\"APK_ASSET_LOADER\",\"source\":\"APK_BUNDLED\",\"remoteUrl\":null,\"capacitorWebRuntime\":false,\"ota\":false}";
             }
         }
     }
@@ -48,8 +50,44 @@ public class VieronNativeBridge {
     @JavascriptInterface
     public String getRuntimeInfo() {
         if (cachedBuildInfo != null) {
-            return cachedBuildInfo;
+            try {
+                JSONObject obj = new JSONObject(cachedBuildInfo);
+                obj.put("runtime", "APK_ASSET_LOADER");
+                obj.put("source", "APK_BUNDLED");
+                obj.put("remoteUrl", JSONObject.NULL);
+                obj.put("capacitorWebRuntime", false);
+                obj.put("ota", false);
+                return obj.toString();
+            } catch (Exception e) {
+                return cachedBuildInfo;
+            }
         }
-        return "{\"runtime\":\"APK_ASSET_LOADER\"}";
+        return "{\"runtime\":\"APK_ASSET_LOADER\",\"source\":\"APK_BUNDLED\",\"remoteUrl\":null,\"capacitorWebRuntime\":false,\"ota\":false}";
+    }
+
+    @JavascriptInterface
+    public boolean isNativeFeatureSupported(String feature) {
+        if (feature == null) return false;
+        switch (feature) {
+            case "whisper":
+            case "media":
+            case "mlkit":
+            case "camera":
+            case "storage":
+            case "background":
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    @JavascriptInterface
+    public String getAppVersion() {
+        return "1.0.3";
+    }
+
+    @JavascriptInterface
+    public String getBuildInfo() {
+        return getRuntimeInfo();
     }
 }

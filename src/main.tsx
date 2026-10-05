@@ -10,7 +10,7 @@ import { initializePerformanceOptimizations, logPerformanceMetrics, enableGarbag
 // Expose window.VieronNative bridge foundation for Native Android Shell
 if (typeof window !== "undefined") {
   (window as any).VieronNative = (window as any).VieronNative || {};
-  (window as any).VieronNative.app = {
+  const bridgeHandler = {
     getRuntimeInfo: async () => {
       try {
         if ((window as any).VieronNativeBridgeImpl && typeof (window as any).VieronNativeBridgeImpl.getRuntimeInfo === "function") {
@@ -19,15 +19,43 @@ if (typeof window !== "undefined") {
         }
         return {
           runtime: "APK_ASSET_LOADER",
-          nativeVersion: "1.0.3",
-          webVersion: "web-native",
-          packaging: "NATIVE_ANDROID_SHELL"
+          source: "APK_BUNDLED",
+          remoteUrl: null,
+          capacitorWebRuntime: false,
+          ota: false,
+          nativeVersion: "1.0.3"
         };
       } catch (e) {
-        return { runtime: "APK_ASSET_LOADER", error: String(e) };
+        return { runtime: "APK_ASSET_LOADER", source: "APK_BUNDLED", error: String(e) };
       }
+    },
+    isNativeFeatureSupported: async (feature: string) => {
+      try {
+        if ((window as any).VieronNativeBridgeImpl && typeof (window as any).VieronNativeBridgeImpl.isNativeFeatureSupported === "function") {
+          return (window as any).VieronNativeBridgeImpl.isNativeFeatureSupported(feature);
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    getAppVersion: async () => {
+      try {
+        if ((window as any).VieronNativeBridgeImpl && typeof (window as any).VieronNativeBridgeImpl.getAppVersion === "function") {
+          return (window as any).VieronNativeBridgeImpl.getAppVersion();
+        }
+        return "1.0.3";
+      } catch {
+        return "1.0.3";
+      }
+    },
+    getBuildInfo: async () => {
+      return (window as any).VieronNative.getRuntimeInfo();
     }
   };
+
+  Object.assign((window as any).VieronNative, bridgeHandler);
+  (window as any).VieronNative.app = bridgeHandler;
 }
 
 // Filter benign WebAssembly / TensorFlow Lite engine informational logs
