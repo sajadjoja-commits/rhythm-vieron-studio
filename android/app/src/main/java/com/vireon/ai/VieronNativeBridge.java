@@ -91,6 +91,20 @@ public class VieronNativeBridge {
         return "{\"ok\":true,\"data\":" + (jsonString != null ? jsonString : "{}") + "}";
     }
 
+    private String notMigrated() {
+        try {
+            JSONObject err = new JSONObject();
+            err.put("code", "NOT_MIGRATED");
+            err.put("message", "Real native implementation not yet connected");
+            JSONObject res = new JSONObject();
+            res.put("ok", false);
+            res.put("error", err);
+            return res.toString();
+        } catch (Exception e) {
+            return "{\"ok\":false,\"error\":{\"code\":\"NOT_MIGRATED\",\"message\":\"Real native implementation not yet connected\"}}";
+        }
+    }
+
     private String error(String code, String message) {
         try {
             JSONObject err = new JSONObject();
@@ -105,7 +119,7 @@ public class VieronNativeBridge {
         }
     }
 
-    // ==================== APP ====================
+    // ==================== APP (REAL) ====================
     @JavascriptInterface
     public String app_getRuntimeInfo() {
         try {
@@ -148,92 +162,26 @@ public class VieronNativeBridge {
         return app_getRuntimeInfo();
     }
 
-    // ==================== WHISPER ====================
+    // ==================== WHISPER (NOT_MIGRATED - NO STUBS) ====================
     @JavascriptInterface
-    public String whisper_getStatus() {
-        try {
-            JSONObject obj = new JSONObject();
-            obj.put("status", "ready");
-            obj.put("engine", "whisper.cpp");
-            File modelsDir = new File(context.getFilesDir(), "whisper_models");
-            obj.put("modelsDirExists", modelsDir.exists());
-            return success(obj);
-        } catch (Exception e) {
-            return error("WHISPER_ERROR", e.getMessage());
-        }
-    }
+    public String whisper_getStatus() { return notMigrated(); }
 
     @JavascriptInterface
-    public String whisper_isModelAvailable(String modelId) {
-        try {
-            File modelFile = new File(new File(context.getFilesDir(), "whisper_models"), modelId + ".bin");
-            boolean available = modelFile.exists() && modelFile.length() > 0;
-            JSONObject obj = new JSONObject();
-            obj.put("modelId", modelId);
-            obj.put("available", available);
-            return success(obj);
-        } catch (Exception e) {
-            return error("WHISPER_ERROR", e.getMessage());
-        }
-    }
+    public String whisper_isModelAvailable(String modelId) { return notMigrated(); }
 
     @JavascriptInterface
-    public String whisper_downloadModel(String modelId) {
-        try {
-            File modelsDir = new File(context.getFilesDir(), "whisper_models");
-            if (!modelsDir.exists()) modelsDir.mkdirs();
-            File modelFile = new File(modelsDir, modelId + ".bin");
-            if (!modelFile.exists()) {
-                FileOutputStream fos = new FileOutputStream(modelFile);
-                fos.write("whisper-model-placeholder".getBytes());
-                fos.close();
-            }
-            JSONObject obj = new JSONObject();
-            obj.put("modelId", modelId);
-            obj.put("status", "downloaded");
-            obj.put("path", modelFile.getAbsolutePath());
-            return success(obj);
-        } catch (Exception e) {
-            return error("WHISPER_DOWNLOAD_ERROR", e.getMessage());
-        }
-    }
+    public String whisper_downloadModel(String modelId) { return notMigrated(); }
 
     @JavascriptInterface
-    public String whisper_transcribe(String requestJson) {
-        try {
-            JSONObject req = new JSONObject(requestJson);
-            String fileUri = req.optString("fileUri", "");
-            JSONObject obj = new JSONObject();
-            obj.put("status", "completed");
-            obj.put("fileUri", fileUri);
-            obj.put("transcription", "[Real Native Transcription Ready]");
-            return success(obj);
-        } catch (Exception e) {
-            return error("WHISPER_TRANSCRIBE_ERROR", e.getMessage());
-        }
-    }
+    public String whisper_transcribe(String requestJson) { return notMigrated(); }
 
     @JavascriptInterface
-    public String whisper_cancel(String requestId) {
-        return success("{\"cancelled\":true,\"requestId\":\"" + requestId + "\"}");
-    }
+    public String whisper_cancel(String requestId) { return notMigrated(); }
 
     @JavascriptInterface
-    public String whisper_getModelInfo() {
-        try {
-            JSONArray arr = new JSONArray();
-            arr.put("tiny");
-            arr.put("base");
-            arr.put("small");
-            JSONObject obj = new JSONObject();
-            obj.put("models", arr);
-            return success(obj);
-        } catch (Exception e) {
-            return error("WHISPER_ERROR", e.getMessage());
-        }
-    }
+    public String whisper_getModelInfo() { return notMigrated(); }
 
-    // ==================== MEDIA ====================
+    // ==================== MEDIA (REAL METADATA RETRIEVER / OTHERS NOT_MIGRATED) ====================
     @JavascriptInterface
     public String media_getMetadata(String uriString) {
         MediaMetadataRetriever retriever = new MediaMetadataRetriever();
@@ -268,60 +216,34 @@ public class VieronNativeBridge {
     }
 
     @JavascriptInterface
-    public String media_createThumbnail(String uri, String optionsJson) {
-        return success("{\"success\":true,\"uri\":\"" + uri + "\"}");
-    }
+    public String media_createThumbnail(String uri, String optionsJson) { return notMigrated(); }
 
     @JavascriptInterface
-    public String media_createWaveform(String uri, String optionsJson) {
-        return success("{\"peaks\":[0.1,0.5,0.8,0.3]}");
-    }
+    public String media_createWaveform(String uri, String optionsJson) { return notMigrated(); }
 
     @JavascriptInterface
-    public String media_export(String requestJson) {
-        return success("{\"status\":\"exporting\",\"jobId\":\"real_export_1\"}");
-    }
+    public String media_export(String requestJson) { return notMigrated(); }
 
     @JavascriptInterface
-    public String media_cancelExport(String requestId) {
-        return success("{\"cancelled\":true,\"requestId\":\"" + requestId + "\"}");
-    }
+    public String media_cancelExport(String requestId) { return notMigrated(); }
 
-    // ==================== AI / ML KIT ====================
+    // ==================== AI / ML KIT (NOT_MIGRATED) ====================
     @JavascriptInterface
-    public String ai_removeBackground(String optionsJson) {
-        return success("{\"status\":\"success\",\"processed\":true}");
-    }
+    public String ai_removeBackground(String optionsJson) { return notMigrated(); }
 
     @JavascriptInterface
-    public String ai_detectFaces(String optionsJson) {
-        return success("{\"facesCount\":0,\"faces\":[]}");
-    }
+    public String ai_detectFaces(String optionsJson) { return notMigrated(); }
 
     @JavascriptInterface
-    public String ai_processImage(String optionsJson) {
-        return success("{\"success\":true}");
-    }
+    public String ai_processImage(String optionsJson) { return notMigrated(); }
 
     @JavascriptInterface
-    public String ai_getModelStatus(String model) {
-        try {
-            JSONObject obj = new JSONObject();
-            obj.put("model", model);
-            obj.put("status", "ready");
-            obj.put("mlkit", true);
-            return success(obj);
-        } catch (Exception e) {
-            return error("AI_ERROR", e.getMessage());
-        }
-    }
+    public String ai_getModelStatus(String model) { return notMigrated(); }
 
     @JavascriptInterface
-    public String ai_getCapabilities() {
-        return success("{\"mlkit\":true,\"onnx\":true,\"subjectSegmentation\":true}");
-    }
+    public String ai_getCapabilities() { return notMigrated(); }
 
-    // ==================== CAMERA ====================
+    // ==================== CAMERA (REAL AVAILABILITY / OTHERS NOT_MIGRATED) ====================
     @JavascriptInterface
     public String camera_isAvailable() {
         boolean hasCamera = context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY);
@@ -335,11 +257,9 @@ public class VieronNativeBridge {
     }
 
     @JavascriptInterface
-    public String camera_takePicture(String optionsJson) {
-        return success("{\"uri\":\"content://com.vireon.ai.fileprovider/camera_output.jpg\"}");
-    }
+    public String camera_takePicture(String optionsJson) { return notMigrated(); }
 
-    // ==================== STORAGE ====================
+    // ==================== STORAGE (REAL FILE STORAGE) ====================
     @JavascriptInterface
     public String storage_getProjects() {
         try {
@@ -394,81 +314,32 @@ public class VieronNativeBridge {
         }
     }
 
-    // ==================== MODELS ====================
+    // ==================== MODELS (NOT_MIGRATED) ====================
     @JavascriptInterface
-    public String models_getCatalog() {
-        try {
-            JSONArray arr = new JSONArray();
-            arr.put(new JSONObject().put("id", "rmbg2").put("name", "RMBG 2.0 Background Removal").put("installed", true));
-            arr.put(new JSONObject().put("id", "whisper_base").put("name", "Whisper Base STT").put("installed", true));
-            JSONObject obj = new JSONObject();
-            obj.put("catalog", arr);
-            return success(obj);
-        } catch (Exception e) {
-            return error("MODELS_ERROR", e.getMessage());
-        }
-    }
+    public String models_getCatalog() { return notMigrated(); }
 
     @JavascriptInterface
-    public String models_downloadModel(String modelId) {
-        return success("{\"modelId\":\"" + modelId + "\",\"downloaded\":true}");
-    }
+    public String models_downloadModel(String modelId) { return notMigrated(); }
 
     @JavascriptInterface
-    public String models_deleteModel(String modelId) {
-        return success("{\"modelId\":\"" + modelId + "\",\"deleted\":true}");
-    }
+    public String models_deleteModel(String modelId) { return notMigrated(); }
 
-    // ==================== BACKGROUND ====================
+    // ==================== BACKGROUND (NOT_MIGRATED) ====================
     @JavascriptInterface
-    public String background_createJob(String jobJson) {
-        try {
-            String jobId = "job_" + System.currentTimeMillis();
-            JSONObject obj = new JSONObject();
-            obj.put("jobId", jobId);
-            obj.put("status", "queued");
-            return success(obj);
-        } catch (Exception e) {
-            return error("JOB_ERROR", e.getMessage());
-        }
-    }
+    public String background_createJob(String jobJson) { return notMigrated(); }
 
     @JavascriptInterface
-    public String background_getJobStatus(String jobId) {
-        try {
-            JSONObject obj = new JSONObject();
-            obj.put("jobId", jobId);
-            obj.put("status", "running");
-            obj.put("progress", 50);
-            return success(obj);
-        } catch (Exception e) {
-            return error("JOB_ERROR", e.getMessage());
-        }
-    }
+    public String background_getJobStatus(String jobId) { return notMigrated(); }
 
     @JavascriptInterface
-    public String background_cancelJob(String jobId) {
-        return success("{\"cancelled\":true,\"jobId\":\"" + jobId + "\"}");
-    }
+    public String background_cancelJob(String jobId) { return notMigrated(); }
 
-    // ==================== EXPORT ====================
+    // ==================== EXPORT (NOT_MIGRATED) ====================
     @JavascriptInterface
-    public String export_startExport(String requestJson) {
-        try {
-            String exportId = "exp_" + System.currentTimeMillis();
-            JSONObject obj = new JSONObject();
-            obj.put("exportId", exportId);
-            obj.put("status", "processing");
-            return success(obj);
-        } catch (Exception e) {
-            return error("EXPORT_ERROR", e.getMessage());
-        }
-    }
+    public String export_startExport(String requestJson) { return notMigrated(); }
 
     @JavascriptInterface
-    public String export_cancelExport(String exportId) {
-        return success("{\"cancelled\":true,\"exportId\":\"" + exportId + "\"}");
-    }
+    public String export_cancelExport(String exportId) { return notMigrated(); }
 
     // Legacy support methods
     @JavascriptInterface
