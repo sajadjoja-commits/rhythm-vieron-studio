@@ -291,10 +291,14 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    let lastW = 0;
     const ro = new ResizeObserver(([entry]) => {
-      const w = entry.contentRect.width;
-      setContainerW((prev) => (Math.abs(prev - w) < 1 ? prev : w));
-      onWidthChange?.(w);
+      const w = Math.round(entry.contentRect.width);
+      if (Math.abs(lastW - w) >= 1) {
+        lastW = w;
+        setContainerW((prev) => (Math.abs(prev - w) < 1 ? prev : w));
+        onWidthChange?.(w);
+      }
     });
     ro.observe(el);
     return () => ro.disconnect();

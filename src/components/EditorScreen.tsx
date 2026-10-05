@@ -126,8 +126,6 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     videoRef.current = activeSlot === 0 ? videoRefA.current : videoRefB.current;
   }, [activeSlot]);
   const previewRef = useRef<HTMLDivElement>(null);
-  const stageBoxRef = useRef<HTMLDivElement>(null);
-  const [stageDims, setStageDims] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
   const rafRef = useRef<number>();
   const lastTickRef = useRef<number>(0);
   const tracksContainerRef = useRef<HTMLDivElement>(null);
@@ -1698,63 +1696,18 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     }
   }, [activeMedia?.width, activeMedia?.height, userHasSetRatio, autoDetectRatio]);
 
-  useEffect(() => {
-    const el = stageBoxRef.current;
-    if (!el) return;
-    const measure = () => {
-      const style = window.getComputedStyle(el);
-      const padX = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
-      const padY = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
-      const w = Math.max(0, el.clientWidth - padX);
-      const h = Math.max(0, el.clientHeight - padY);
-      setStageDims((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    window.addEventListener("resize", measure);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener("resize", measure);
-    };
-  }, [hasMedia, isFullscreen]);
-
   const previewFrameStyle = useMemo<React.CSSProperties>(() => {
     const ratioW = ASPECT_RATIOS[activeRatio]?.w ?? 16;
     const ratioH = ASPECT_RATIOS[activeRatio]?.h ?? 9;
-    const targetRatio = ratioW / ratioH;
-
-    if (stageDims.w > 0 && stageDims.h > 0) {
-      const stageRatio = stageDims.w / stageDims.h;
-      let boxW: number;
-      let boxH: number;
-      if (targetRatio >= stageRatio) {
-        boxW = stageDims.w;
-        boxH = stageDims.w / targetRatio;
-      } else {
-        boxH = stageDims.h;
-        boxW = stageDims.h * targetRatio;
-      }
-      return {
-        width: `${Math.round(boxW)}px`,
-        height: `${Math.round(boxH)}px`,
-        aspectRatio: `${ratioW} / ${ratioH}`,
-        maxWidth: "100%",
-        maxHeight: "100%",
-        position: "relative",
-      };
-    }
-
-    const isWide = ratioW >= ratioH;
     return {
+      width: `min(100cqw, calc(100cqh * ${ratioW} / ${ratioH}))`,
+      height: `min(100cqh, calc(100cqw * ${ratioH} / ${ratioW}))`,
       aspectRatio: `${ratioW} / ${ratioH}`,
-      width: isWide ? "100%" : "auto",
-      height: isWide ? "auto" : "100%",
       maxWidth: "100%",
       maxHeight: "100%",
       position: "relative",
     };
-  }, [activeRatio, stageDims.w, stageDims.h]);
+  }, [activeRatio]);
 
   const tools = [
     { id: "ai", icon: Sparkles, label: getLang() === "ar" ? "أدوات AI" : "AI Tools" },
@@ -2003,7 +1956,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
               className={
                 isFullscreen
                   ? "fixed inset-0 z-[100] bg-black/98 flex flex-col justify-between p-3 sm:p-5 select-none overflow-hidden animate-in fade-in duration-150"
-                  : "w-full h-full relative flex items-center justify-center select-none overflow-visible"
+                  : "flex-1 min-h-0 w-full h-full relative flex items-center justify-center select-none overflow-visible"
               }
             >
               {/* When Fullscreen: Dedicated Top Header Bar */}
@@ -2051,7 +2004,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
 
               {/* Video Stage Canvas (constrained by aspect ratio) */}
               <div
-                ref={stageBoxRef}
+                style={{ containerType: "size" }}
                 className={
                   isFullscreen
                     ? "flex-1 min-h-0 w-full flex items-center justify-center p-2 relative overflow-hidden"
