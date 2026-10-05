@@ -1,6 +1,7 @@
-# Video AI repair
-- [ ] Restore bundled MediaPipe runtime/model and offline caching.
-- [ ] Repair video processing routing, resource cleanup, resolution limits and progress.
-- [ ] Repair audio-safe encoding fallback and prevent false transparency claims.
-- [ ] Organize studio/editor tool controls and distinguish video operations.
-- [ ] Run targeted tests and real-browser processing checks.
+# Roadmap
+- [x] Bundle MediaPipe + model locally
+- [x] Audio/video sync via timestamped software encoder
+- [x] Downscaled processing for speed
+- [x] Progress bar no longer stalls
+- [x] Fix pipeline errors, bundle ffmpeg wasm
+- UI layout: skipped (user handles UI)
