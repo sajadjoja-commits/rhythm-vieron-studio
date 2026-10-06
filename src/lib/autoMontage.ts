@@ -177,6 +177,7 @@ async function analyzeVideoAdvanced(
     const cleanup = () => {
       if (isCleanedUp) return;
       isCleanedUp = true;
+      signal?.removeEventListener("abort", onAbort);
       try {
         if (typeof v.pause === "function") {
           v.pause();
@@ -193,12 +194,12 @@ async function analyzeVideoAdvanced(
       canvas.height = 1;
     };
 
-    if (signal) {
-      signal.addEventListener("abort", () => {
-        cleanup();
-        reject(new Error("Video analysis aborted"));
-      });
-    }
+    let started = false;
+    const onAbort = () => {
+      cleanup();
+      reject(new Error("Video analysis aborted"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
 
     const processFrame = () => {
       if (signal?.aborted) {
@@ -283,6 +284,7 @@ async function analyzeVideoAdvanced(
                 colorfulness: 0.5,
                 containsTransition: false,
                 overallQuality: 0.55,
+                fallback: true,
               }))
             );
           }
@@ -300,7 +302,16 @@ async function analyzeVideoAdvanced(
       }
     };
 
+    // Real browsers never fire "seeked" from load(); start sampling once metadata is ready.
+    v.addEventListener("loadedmetadata", () => {
+      if (started || isCleanedUp) return;
+      started = true;
+      processFrame();
+    });
+
     v.addEventListener("seeked", () => {
+      started = true;
+      if (isCleanedUp) return;
       if (signal?.aborted) {
         cleanup();
         reject(new Error("Video analysis aborted"));
@@ -361,6 +372,7 @@ async function analyzeVideoAdvanced(
           colorfulness: 0.5,
           containsTransition: false,
           overallQuality: 0.5,
+          fallback: true,
         }))
       );
     });
@@ -778,10 +790,12 @@ export async function runSmartBeatMontage({
   let lastMediaId = "";
   let consecutiveCountSameMedia = 0;
   const finalClips: Clip[] = [];
+  let beatCarry = 0;
 
   for (let i = 0; i < beatSlots.length; i++) {
     const slot = beatSlots[i];
-    const targetDur = slot.dur;
+    // Carry any previous shortfall forward so later cuts stay on the beat grid.
+    const targetDur = Math.max(0.1, slot.dur + beatCarry);
 
     let bestCandidate: Segment | null = null;
     let bestCandidateScore = -Infinity;
@@ -851,7 +865,10 @@ export async function runSmartBeatMontage({
         energyFitBonus = cand.faceScore * 0.25 + cand.temporalStability * 0.15;
       }
 
-      const totalScore = cand.score + diversityScore + fairDistributionBonus + energyFitBonus - overlapPenalty;
+      // Prefer sources long enough to fill the whole beat slot.
+      const shortfallPenalty = Math.max(0, targetDur - actualDur) / targetDur * 1.2;
+
+      const totalScore = cand.score - shortfallPenalty + diversityScore + fairDistributionBonus + energyFitBonus - overlapPenalty;
 
       if (totalScore > bestCandidateScore) {
         bestCandidateScore = totalScore;
@@ -869,6 +886,8 @@ export async function runSmartBeatMontage({
       bestSliceIn = 0;
       bestSliceOut = Math.min(mDur, targetDur);
     }
+
+    beatCarry = targetDur - Math.max(0.1, bestSliceOut - bestSliceIn);
 
     // Update consecutive tracker
     if (bestMedia.id === lastMediaId) {
