@@ -13,33 +13,77 @@ interface Props {
   currentTime: number;
 }
 
-const W = 88, H = 54;
+const W = 160, H = 96;
+
+// High-definition cinematic portrait/scene backdrop for VFX preview cards
+const VFX_SCENE_IMG_URL = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=360&auto=format&fit=crop&q=80";
+let sharedVfxSceneImg: HTMLImageElement | null = null;
+let sharedVfxSceneLoaded = false;
+
+function ensureVfxSceneImage(onLoad?: () => void) {
+  if (typeof window === "undefined") return;
+  if (!sharedVfxSceneImg) {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      sharedVfxSceneLoaded = true;
+      onLoad?.();
+    };
+    img.src = VFX_SCENE_IMG_URL;
+    sharedVfxSceneImg = img;
+  } else if (sharedVfxSceneLoaded) {
+    onLoad?.();
+  }
+}
+
+function drawCinematicSceneBackdrop(ctx: CanvasRenderingContext2D, color: string, p: number) {
+  if (sharedVfxSceneImg && sharedVfxSceneLoaded && sharedVfxSceneImg.naturalWidth > 0) {
+    // Subtle slow cinematic breathing zoom on the reference portrait
+    const zoom = 1.04 + Math.sin(p * Math.PI * 2) * 0.03;
+    const dw = W * zoom;
+    const dh = H * zoom;
+    const dx = (W - dw) / 2;
+    const dy = (H - dh) / 2;
+    ctx.drawImage(sharedVfxSceneImg, dx, dy, dw, dh);
+    // Subtle dark atmospheric grade so glowing particles & shaders pop vividly
+    const vignette = ctx.createRadialGradient(W / 2, H / 2, W * 0.15, W / 2, H / 2, W * 0.75);
+    vignette.addColorStop(0, "rgba(8, 12, 24, 0.12)");
+    vignette.addColorStop(1, "rgba(5, 8, 18, 0.58)");
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, W, H);
+    return;
+  }
+
+  // Rich procedural dusk skyline + neon bokeh fallback before image loads
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, "#090d1a");
+  sky.addColorStop(0.55, "#161f38");
+  sky.addColorStop(1, "#1e1b3a");
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, H);
+
+  const glow = ctx.createRadialGradient(W * 0.65, H * 0.38, 2, W * 0.65, H * 0.38, W * 0.55);
+  glow.addColorStop(0, color + "66");
+  glow.addColorStop(0.5, color + "22");
+  glow.addColorStop(1, "transparent");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  // Silhouette horizon & subject
+  ctx.fillStyle = "#0b1020";
+  ctx.beginPath();
+  ctx.moveTo(0, H);
+  ctx.lineTo(0, H * 0.72);
+  ctx.quadraticCurveTo(W * 0.28, H * 0.56, W * 0.55, H * 0.68);
+  ctx.quadraticCurveTo(W * 0.8, H * 0.78, W, H * 0.62);
+  ctx.lineTo(W, H);
+  ctx.closePath();
+  ctx.fill();
+}
 
 function renderVfxFrame(ctx: CanvasRenderingContext2D, type: VfxType, p: number, color: string) {
   ctx.clearRect(0, 0, W, H);
-  
-  // Base backdrop with subtle frame preview
-  const bg = ctx.createLinearGradient(0, 0, W, H);
-  bg.addColorStop(0, "#090d16");
-  bg.addColorStop(1, "#151e2e");
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, W, H);
-
-  // Background sample video dummy content (a hill and sun / abstract city)
-  ctx.save();
-  ctx.fillStyle = "#1e293b";
-  ctx.fillRect(6, 6, W - 12, H - 12);
-  ctx.fillStyle = "#334155";
-  ctx.beginPath();
-  ctx.arc(W * 0.7, H * 0.45, 10, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "#1e3a5f";
-  ctx.beginPath();
-  ctx.moveTo(6, H - 10);
-  ctx.lineTo(W * 0.4, H * 0.4);
-  ctx.lineTo(W - 6, H - 10);
-  ctx.fill();
-  ctx.restore();
+  drawCinematicSceneBackdrop(ctx, color, p);
 
   const sin = Math.sin(p * Math.PI * 2);
   const cos = Math.cos(p * Math.PI * 2);
@@ -167,38 +211,47 @@ function renderVfxFrame(ctx: CanvasRenderingContext2D, type: VfxType, p: number,
 
     // ================= 🌧️ WEATHER & NATURE =================
     case "rain-storm": {
-      ctx.fillStyle = "rgba(14, 165, 233, 0.15)";
+      const wash = ctx.createLinearGradient(0, 0, 0, H);
+      wash.addColorStop(0, "rgba(14, 165, 233, 0.28)");
+      wash.addColorStop(1, "rgba(15, 23, 42, 0.35)");
+      ctx.fillStyle = wash;
       ctx.fillRect(0, 0, W, H);
-      ctx.strokeStyle = "rgba(186, 230, 253, 0.7)";
-      ctx.lineWidth = 1;
-      for (let i = 0; i < 18; i++) {
-        const rx = (i * 19 + p * 80) % W;
-        const ry = (i * 23 + p * 120) % H;
+      ctx.strokeStyle = "rgba(186, 230, 253, 0.8)";
+      ctx.lineWidth = 1.2;
+      for (let i = 0; i < 24; i++) {
+        const rx = (i * 23 + p * 110) % W;
+        const ry = (i * 29 + p * 160) % H;
         ctx.beginPath();
         ctx.moveTo(rx, ry);
-        ctx.lineTo(rx - 3, ry + 6);
+        ctx.lineTo(rx - 4, ry + 10);
         ctx.stroke();
       }
-      // Splash ripple on bottom
-      ctx.strokeStyle = "rgba(186, 230, 253, 0.4)";
+      // Splash ripples on bottom
+      ctx.strokeStyle = "rgba(186, 230, 253, 0.55)";
       ctx.beginPath();
-      ctx.ellipse((p * 150) % W, H - 4, 4, 1.5, 0, 0, Math.PI * 2);
+      ctx.ellipse((p * 180) % W, H - 6, 7, 2.2, 0, 0, Math.PI * 2);
       ctx.stroke();
       break;
     }
 
     case "snow-blizzard": {
-      ctx.fillStyle = "rgba(186, 230, 253, 0.1)";
+      const wash = ctx.createLinearGradient(0, 0, 0, H);
+      wash.addColorStop(0, "rgba(186, 230, 253, 0.25)");
+      wash.addColorStop(1, "rgba(255, 255, 255, 0.08)");
+      ctx.fillStyle = wash;
       ctx.fillRect(0, 0, W, H);
-      for (let i = 0; i < 20; i++) {
-        const sx = (i * 17 + Math.sin(p * 4 + i) * 6 + p * 20) % W;
-        const sy = (i * 21 + p * 40) % H;
-        const sr = (i % 3) + 1;
-        ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+      for (let i = 0; i < 26; i++) {
+        const sx = (i * 23 + Math.sin(p * 4 + i) * 8 + p * 30) % W;
+        const sy = (i * 27 + p * 65) % H;
+        const sr = (i % 3) * 1.1 + 1.4;
+        ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+        ctx.shadowColor = "#ffffff";
+        ctx.shadowBlur = 4;
         ctx.beginPath();
         ctx.arc(sx, sy, sr, 0, Math.PI * 2);
         ctx.fill();
       }
+      ctx.shadowBlur = 0;
       break;
     }
 
@@ -854,35 +907,59 @@ function renderVfxFrame(ctx: CanvasRenderingContext2D, type: VfxType, p: number,
     }
 
     case "cherry-blossom": {
-      for (let i = 0; i < 14; i++) {
-        const px = (i * 19 + p * 45 + Math.sin(p * 5 + i) * 6) % W;
-        const py = (i * 17 + p * 35) % H;
+      const sakuraWash = ctx.createRadialGradient(W * 0.25, H * 0.2, 4, W * 0.5, H * 0.5, W * 0.75);
+      sakuraWash.addColorStop(0, "rgba(244, 114, 182, 0.28)");
+      sakuraWash.addColorStop(1, "transparent");
+      ctx.fillStyle = sakuraWash;
+      ctx.fillRect(0, 0, W, H);
+      for (let i = 0; i < 18; i++) {
+        const px = (i * 27 + p * 65 + Math.sin(p * 5 + i) * 9) % W;
+        const py = (i * 23 + p * 52) % H;
+        const sc = 0.8 + (i % 3) * 0.35;
         ctx.save();
         ctx.translate(px, py);
         ctx.rotate(p * 4 + i);
+        ctx.scale(sc, sc);
         ctx.fillStyle = i % 2 === 0 ? "#f472b6" : "#fbcfe8";
+        ctx.shadowColor = "#f472b6";
+        ctx.shadowBlur = 4;
         ctx.beginPath();
-        ctx.ellipse(0, 0, 2.8, 1.4, 0, 0, Math.PI * 2);
+        ctx.moveTo(0, -4);
+        ctx.bezierCurveTo(4, -3, 4, 3, 0, 4);
+        ctx.bezierCurveTo(-4, 3, -4, -3, 0, -4);
         ctx.fill();
         ctx.restore();
       }
+      ctx.shadowBlur = 0;
       break;
     }
 
     case "autumn-leaves": {
-      const leafColors = ["#ea580c", "#f59e0b", "#dc2626", "#d97706"];
-      for (let i = 0; i < 12; i++) {
-        const lx = (i * 23 + p * 50 + Math.sin(p * 4 + i) * 8) % W;
-        const ly = (i * 19 + p * 38) % H;
+      const warmWash = ctx.createLinearGradient(0, 0, W, H);
+      warmWash.addColorStop(0, "rgba(234, 88, 12, 0.24)");
+      warmWash.addColorStop(1, "rgba(245, 158, 11, 0.08)");
+      ctx.fillStyle = warmWash;
+      ctx.fillRect(0, 0, W, H);
+      const leafColors = ["#ea580c", "#f59e0b", "#ef4444", "#fbbf24"];
+      for (let i = 0; i < 16; i++) {
+        const lx = (i * 29 + p * 75 + Math.sin(p * 4 + i) * 11) % W;
+        const ly = (i * 23 + p * 58) % H;
+        const sc = 0.85 + (i % 3) * 0.3;
         ctx.save();
         ctx.translate(lx, ly);
         ctx.rotate(p * 5 + i);
+        ctx.scale(sc, sc);
         ctx.fillStyle = leafColors[i % leafColors.length];
+        ctx.shadowColor = "#ea580c";
+        ctx.shadowBlur = 3;
         ctx.beginPath();
-        ctx.ellipse(0, 0, 3.2, 1.8, 0, 0, Math.PI * 2);
+        ctx.moveTo(0, -4.5);
+        ctx.quadraticCurveTo(4.5, 0, 0, 4.5);
+        ctx.quadraticCurveTo(-4.5, 0, 0, -4.5);
         ctx.fill();
         ctx.restore();
       }
+      ctx.shadowBlur = 0;
       break;
     }
 
@@ -982,19 +1059,19 @@ function renderVfxFrame(ctx: CanvasRenderingContext2D, type: VfxType, p: number,
       break;
   }
 
-  // Accent edge border
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 1;
-  ctx.globalAlpha = 0.4 + p * 0.3;
-  ctx.strokeRect(1, 1, W - 2, H - 2);
-  ctx.globalAlpha = 1;
+  // Soft cinematic inner vignette glow
+  const edgeGrad = ctx.createLinearGradient(0, H * 0.55, 0, H);
+  edgeGrad.addColorStop(0, "transparent");
+  edgeGrad.addColorStop(1, "rgba(2, 6, 23, 0.65)");
+  ctx.fillStyle = edgeGrad;
+  ctx.fillRect(0, 0, W, H);
 }
 
-const VfxPreview = ({ type, color }: { type: VfxType; color: string }) => {
+const VfxPreview = ({ item, isActive }: { item: VfxMetadata; isActive: boolean }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number>(0);
   const startRef = useRef<number>(0);
-  const D = 1400;
+  const D = 1600;
 
   const animate = useCallback((ts: number) => {
     const canvas = canvasRef.current;
@@ -1004,17 +1081,34 @@ const VfxPreview = ({ type, color }: { type: VfxType; color: string }) => {
     if (!startRef.current) startRef.current = ts;
     const e = (ts - startRef.current) % (D * 2);
     const raw = e < D ? e / D : 1 - (e - D) / D;
-    renderVfxFrame(ctx, type, raw, color);
+    renderVfxFrame(ctx, item.id, raw, item.color);
     rafRef.current = requestAnimationFrame(animate);
-  }, [type, color]);
+  }, [item.id, item.color]);
 
   useEffect(() => {
+    ensureVfxSceneImage();
     startRef.current = 0;
     rafRef.current = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(rafRef.current);
   }, [animate]);
 
-  return <canvas ref={canvasRef} width={W} height={H} className="w-full h-full object-cover rounded-lg" />;
+  return (
+    <div className="relative w-full aspect-[16/10] overflow-hidden rounded-xl bg-slate-950">
+      <canvas
+        ref={canvasRef}
+        width={W}
+        height={H}
+        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+      />
+      {/* Subtle top-left glow orb */}
+      <div
+        className="pointer-events-none absolute -top-6 -left-6 w-20 h-20 rounded-full blur-xl opacity-35 transition-opacity group-hover:opacity-60"
+        style={{ backgroundColor: item.color }}
+      />
+      {/* Bottom gradient scrim for high-contrast title & badge */}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-black/15 to-black/10" />
+    </div>
+  );
 };
 
 const VfxPanel = ({ open, onClose, currentTime }: Props) => {
@@ -1103,29 +1197,29 @@ const VfxPanel = ({ open, onClose, currentTime }: Props) => {
         ) : null
       }
       subHeader={
-        <div className="space-y-1.5">
-          {/* Search bar */}
+        <div className="space-y-2">
+          {/* Sleek Search + Categories Row */}
           <div className="relative">
-            <Search className={`w-3.5 h-3.5 absolute ${en ? "left-2.5" : "right-2.5"} top-1/2 -translate-y-1/2 text-muted-foreground`} />
+            <Search className={`w-3.5 h-3.5 absolute ${en ? "left-3" : "right-3"} top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none`} />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={en ? "Search effects..." : "بحث في المؤثرات..."}
-              className={`w-full ${en ? "pl-8 pr-7" : "pr-8 pl-7"} py-1.5 text-xs rounded-xl bg-card border border-border/70 focus:border-primary focus:outline-none text-foreground placeholder:text-muted-foreground transition-all`}
+              placeholder={en ? "Search visual effects..." : "ابحث في المؤثرات البصرية..."}
+              className={`w-full h-8 ${en ? "pl-8 pr-7" : "pr-8 pl-7"} text-xs rounded-xl bg-secondary/45 border border-border/60 focus:border-primary focus:bg-secondary/70 focus:outline-none text-foreground placeholder:text-muted-foreground transition-all`}
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery("")}
-                className={`absolute ${en ? "right-2" : "left-2"} top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-[10px]`}
+                className={`absolute ${en ? "right-2.5" : "left-2.5"} top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-[10px]`}
               >
                 ✕
               </button>
             )}
           </div>
 
-          {/* Categories Pill Scroller */}
-          <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5">
+          {/* Categories Segmented Bar */}
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
             {VFX_CATEGORIES.map((cat) => {
               const isActive = activeCategory === cat.id;
               return (
@@ -1135,13 +1229,21 @@ const VfxPanel = ({ open, onClose, currentTime }: Props) => {
                     playSfx("click");
                     setActiveCategory(cat.id);
                   }}
-                  className={`px-2.5 py-1 rounded-full text-[10px] font-bold whitespace-nowrap transition-all flex items-center gap-1 shrink-0 ${
+                  className={`px-3 py-1.5 rounded-xl text-[10.5px] font-bold whitespace-nowrap transition-all flex items-center gap-1.5 shrink-0 ${
                     isActive
-                      ? "gradient-primary text-white shadow-xs scale-[1.02]"
-                      : "bg-secondary/70 border border-border/50 text-muted-foreground hover:text-foreground hover:bg-secondary"
+                      ? "text-white shadow-sm scale-[1.01]"
+                      : "bg-secondary/50 border border-border/40 text-muted-foreground hover:text-foreground hover:bg-secondary/80"
                   }`}
+                  style={
+                    isActive
+                      ? {
+                          background: `linear-gradient(135deg, ${cat.color}, ${cat.color}cc)`,
+                          boxShadow: `0 4px 14px ${cat.color}35`,
+                        }
+                      : undefined
+                  }
                 >
-                  <span className="text-xs">{cat.icon}</span>
+                  <span className="text-xs leading-none">{cat.icon}</span>
                   <span>{en ? cat.labelEn : cat.labelAr}</span>
                 </button>
               );
@@ -1178,72 +1280,84 @@ const VfxPanel = ({ open, onClose, currentTime }: Props) => {
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
               {filteredVfx.map((item) => {
                 const isCurrentlyActive = vfx.some((v) => v.type === item.id);
                 return (
                   <div
                     key={item.id}
-                    className="relative flex flex-col rounded-2xl bg-card border border-border/80 hover:border-primary/60 transition-all p-2 gap-1.5 shadow-sm group hover:shadow-md"
-                    style={{ borderColor: isCurrentlyActive ? item.color : undefined }}
+                    className={`group relative flex flex-col rounded-2xl bg-secondary/20 border transition-all duration-200 overflow-hidden shadow-sm hover:shadow-lg ${
+                      isCurrentlyActive
+                        ? "border-primary ring-1 ring-primary/30 bg-primary/5"
+                        : "border-border/60 hover:border-primary/40 hover:bg-secondary/35"
+                    }`}
+                    style={
+                      isCurrentlyActive
+                        ? { borderColor: item.color, boxShadow: `0 0 18px ${item.color}28` }
+                        : undefined
+                    }
                   >
-                    {/* Animated Canvas Preview */}
+                    {/* High-Definition Animated Cinema Preview */}
                     <div
                       onClick={() => handleAddVfxAtPlayhead(item)}
-                      className="relative h-20 w-full rounded-xl overflow-hidden cursor-pointer bg-slate-900 border border-border/40"
+                      className="relative w-full cursor-pointer overflow-hidden"
                     >
-                      <VfxPreview type={item.id} color={item.color} />
-                      
-                      {/* Badge */}
-                      <span
-                        className="absolute top-1.5 right-1.5 text-[9px] font-extrabold px-1.5 py-0.5 rounded-md text-white shadow-sm"
-                        style={{ backgroundColor: item.color + "dd" }}
-                      >
-                        {en ? item.badgeEn : item.badgeAr}
-                      </span>
+                      <VfxPreview item={item} isActive={isCurrentlyActive} />
 
-                      {/* Active Checkmark */}
-                      {isCurrentlyActive && (
-                        <div className="absolute top-1.5 left-1.5 w-5 h-5 rounded-full gradient-primary flex items-center justify-center shadow-md animate-scale-in z-20 border border-white/20">
-                          <Check className="w-2.5 h-2.5 text-white stroke-[3.5px]" />
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Metadata */}
-                    <div className="flex items-center justify-between gap-1 mt-0.5">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="text-sm shrink-0">{item.emoji}</span>
-                        <span className="text-xs font-bold text-foreground truncate">
-                          {en ? item.labelEn : item.labelAr}
+                      {/* Subtle Accent Top Kicker */}
+                      <div className="absolute top-2 inset-x-2.5 flex items-center justify-between pointer-events-none z-10">
+                        <span
+                          className="text-[9px] font-extrabold tracking-wide px-2 py-0.5 rounded-md text-white/95 backdrop-blur-md shadow-sm"
+                          style={{
+                            backgroundColor: `${item.color}cc`,
+                            border: "1px solid rgba(255,255,255,0.18)",
+                          }}
+                        >
+                          {en ? item.badgeEn : item.badgeAr}
                         </span>
+
+                        {isCurrentlyActive && (
+                          <div className="w-5 h-5 rounded-full gradient-primary flex items-center justify-center shadow-md animate-scale-in border border-white/30">
+                            <Check className="w-2.5 h-2.5 text-white stroke-[3.5px]" />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Overlaid Title Inside Bottom Scrim of Preview */}
+                      <div className="absolute bottom-2 inset-x-2.5 flex items-center gap-1.5 pointer-events-none z-10">
+                        <span className="text-sm leading-none drop-shadow">{item.emoji}</span>
+                        <h4 className="text-xs font-extrabold text-white truncate drop-shadow-sm">
+                          {en ? item.labelEn : item.labelAr}
+                        </h4>
                       </div>
                     </div>
 
-                    <p className="text-[10px] text-muted-foreground line-clamp-1 leading-tight">
-                      {en ? item.descEn : item.descAr}
-                    </p>
+                    {/* Description + Action Bar */}
+                    <div className="p-2.5 pt-2 flex-1 flex flex-col justify-between gap-2">
+                      <p className="text-[10px] text-muted-foreground line-clamp-2 leading-relaxed">
+                        {en ? item.descEn : item.descAr}
+                      </p>
 
-                    {/* Action Buttons: Add at Playhead & Add as Intro */}
-                    <div className="flex items-center gap-1 pt-1 border-t border-border/40 mt-auto">
-                      <button
-                        onClick={() => handleAddVfxAtPlayhead(item)}
-                        className="flex-1 py-1 rounded-lg bg-secondary/80 hover:bg-secondary text-foreground text-[10px] font-bold flex items-center justify-center gap-1 transition-all active:scale-95"
-                        title={en ? "Add at current time" : "إضافة عند المؤشر"}
-                      >
-                        <Plus className="w-3 h-3 text-primary" />
-                        <span>{en ? "Add" : "إضافة"}</span>
-                      </button>
+                      {/* Action Buttons: Add at Playhead & Add as Intro */}
+                      <div className="flex items-center gap-1.5 pt-1">
+                        <button
+                          onClick={() => handleAddVfxAtPlayhead(item)}
+                          className="flex-1 h-7 rounded-xl bg-primary/15 hover:bg-primary text-primary hover:text-primary-foreground border border-primary/25 text-[10px] font-bold flex items-center justify-center gap-1 transition-all active:scale-95"
+                          title={en ? "Add at current time" : "إضافة عند المؤشر"}
+                        >
+                          <Plus className="w-3 h-3" />
+                          <span>{en ? "Add" : "إضافة"}</span>
+                        </button>
 
-                      {/* Intro Opener Button */}
-                      <button
-                        onClick={() => handleAddAsIntro(item)}
-                        className="px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-500 text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95"
-                        title={en ? "Add as video opening intro (at 0.0s)" : "إضافة كافتتاحية أول الفيديو (عند البداية 0.0ث)"}
-                      >
-                        <Clapperboard className="w-3 h-3" />
-                        <span>{en ? "Intro" : "افتتاحية"}</span>
-                      </button>
+                        <button
+                          onClick={() => handleAddAsIntro(item)}
+                          className="h-7 px-2.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/25 text-amber-400 text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95"
+                          title={en ? "Add as video opening intro (at 0.0s)" : "إضافة كافتتاحية أول الفيديو (عند البداية 0.0ث)"}
+                        >
+                          <Clapperboard className="w-3 h-3" />
+                          <span>{en ? "Intro" : "افتتاحية"}</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );

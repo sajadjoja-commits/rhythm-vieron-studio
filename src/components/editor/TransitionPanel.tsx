@@ -1052,11 +1052,6 @@ export const TransitionPanel = ({ open, clipId, onClose }: Props) => {
       defaultVh={54}
       icon={<Wand2 className="w-3.5 h-3.5 text-primary-foreground animate-pulse" />}
       title={t("transition.library")}
-      badge={
-        <span className="text-[10px] text-primary px-1.5 py-0.2 rounded-md bg-primary/10 font-mono font-bold shrink-0">
-          {TRANSITIONS_DATA.length}
-        </span>
-      }
       headerActions={
         <button
           id="transition-apply-all-btn"
@@ -1140,24 +1135,6 @@ export const TransitionPanel = ({ open, clipId, onClose }: Props) => {
               onChange={(e) => handleDurationChange(parseFloat(e.target.value))}
               className="flex-1 h-1.5 rounded-lg bg-background/90 accent-primary cursor-pointer"
             />
-            <div className="flex items-center gap-1 shrink-0">
-              {[0.2, 0.5, 0.8, 1.2].map((val) => {
-                const isSelected = Math.abs(duration - val) < 0.05;
-                return (
-                  <button
-                    key={val}
-                    onClick={() => { playSfx("click"); handleDurationChange(val); }}
-                    className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold transition-all ${
-                      isSelected
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-background/60 text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {val}s
-                  </button>
-                );
-              })}
-            </div>
           </div>
         </div>
       }

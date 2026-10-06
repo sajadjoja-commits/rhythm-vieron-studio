@@ -1955,7 +1955,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
             <div
               className={
                 isFullscreen
-                  ? "fixed inset-0 z-[100] bg-black/98 flex flex-col justify-between p-3 sm:p-5 select-none overflow-hidden animate-in fade-in duration-150"
+                  ? "fixed inset-0 z-[100] bg-black/95 flex flex-col justify-between p-3 sm:p-5 select-none overflow-hidden animate-in fade-in duration-150"
                   : "flex-1 min-h-0 w-full h-full relative flex items-center justify-center select-none overflow-visible"
               }
             >
@@ -2346,7 +2346,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
             />
 
             {/* Extended CapCut-style Transform Bounding Box (Visible inside preview stage, clipped by stage container so it never overlaps top bar or timeline) */}
-            {((focusedTrack === "video" && !tool) || showFrame || isPanningPreview) && !isPlaying && !isFullscreen && Boolean(resolved?.clip) && (
+            {(((focusedTrack === "video" || showFrame) && !tool) || isPanningPreview) && !isPlaying && !isFullscreen && Boolean(resolved?.clip) && (
               <>
                 <div
                   className="absolute inset-0 pointer-events-none z-30"
@@ -2380,7 +2380,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
                   )}
                 </div>
 
-                {/* Unscaled HUD Pills anchored neatly inside the preview frame so they never overflow into workspace or timeline */}
+                {/* Unscaled HUD Pills anchored neatly inside the preview frame ONLY when modified */}
                 <div className="absolute inset-0 pointer-events-none z-40">
                   {Math.round(activeRotation) !== 0 && (
                     <div className="absolute top-2 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-slate-950/90 border border-cyan-400/80 px-2.5 py-0.5 rounded-full shadow-xl pointer-events-auto">
@@ -2391,12 +2391,12 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
                     </div>
                   )}
 
-                  <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-slate-950/90 border border-cyan-400/80 px-2.5 py-0.5 rounded-full shadow-xl pointer-events-auto whitespace-nowrap">
-                    <Maximize2 className="w-3 h-3 text-cyan-300" />
-                    <span className="text-[10px] text-cyan-200 font-extrabold font-mono">
-                      {Math.round(activeScale * 100)}%
-                    </span>
-                    {(Math.round(activeScale * 100) !== 100 || activePan.x !== 0 || activePan.y !== 0 || Math.round(activeRotation) !== 0) && (
+                  {(Math.round(activeScale * 100) !== 100 || Math.abs(activePan.x) >= 1 || Math.abs(activePan.y) >= 1 || Math.round(activeRotation) !== 0) && (
+                    <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-slate-950/90 border border-cyan-400/80 px-2.5 py-0.5 rounded-full shadow-xl pointer-events-auto whitespace-nowrap">
+                      <Maximize2 className="w-3 h-3 text-cyan-300" />
+                      <span className="text-[10px] text-cyan-200 font-extrabold font-mono">
+                        {Math.round(activeScale * 100)}%
+                      </span>
                       <button
                         type="button"
                         onClick={(e) => {
@@ -2408,8 +2408,8 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
                       >
                         {isRTL() ? "إعادة ضبط" : "Reset"}
                       </button>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               </>
             )}
@@ -2759,9 +2759,10 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
             })}
           </div>
         </div>
+      </div>
 
-        {/* Panels — pop from bottom */}
-        {tool === "ai" && (
+      {/* Panels — pop from bottom */}
+      {tool === "ai" && (
           <AIToolsPanel
             open={tool === "ai"}
             onClose={() => setTool(null)}
@@ -2853,7 +2854,6 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
             }}
           />
         )}
-      </div>
 
       {/* Smart cut animated overlay */}
       <SmartCutOverlay open={showSmartCut} onClose={() => setShowSmartCut(false)} />

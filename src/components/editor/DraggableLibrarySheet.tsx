@@ -135,7 +135,7 @@ export default function DraggableLibrarySheet({
     >
       <div
         style={{ height: `${heightVh}dvh` }}
-        className={`bg-card/98 backdrop-blur-2xl border-t border-border/80 rounded-t-3xl shadow-2xl flex flex-col overflow-hidden pb-2 ${
+        className={`bg-card border-t border-border/80 rounded-t-3xl shadow-2xl flex flex-col overflow-hidden pb-2 ${
           isDragging ? "transition-none" : "transition-[height] duration-200 ease-out"
         }`}
       >
