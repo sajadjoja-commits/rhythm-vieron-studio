@@ -47,11 +47,13 @@ export interface MontageResult {
     beatCount?: number;
     hasFacesDetected?: boolean;
     visionEngine?: "mediapipe" | "heuristic_fallback";
+    degradedSegments?: number;
   };
 }
 
 export interface Segment { 
   mediaId: string; 
+  fallback?: boolean;
   in: number; 
   out: number; 
   score: number; 
@@ -946,6 +948,7 @@ export async function runSmartBeatMontage({
       beatCount: resolvedBeatTimes.length,
       hasFacesDetected,
       visionEngine: visionStatus.lastEngineUsed === "mediapipe" ? "mediapipe" : "heuristic_fallback",
+      degradedSegments: allCandidateSegments.filter((sg) => sg.fallback).length,
     },
   };
 }
