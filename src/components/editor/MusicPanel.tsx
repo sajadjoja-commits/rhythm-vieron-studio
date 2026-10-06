@@ -10,6 +10,7 @@ import { getLang } from "@/lib/i18n";
 import { playSfx } from "@/lib/soundFx";
 import { AIToolsPanel } from "@/components/editor/AIToolsPanel";
 import { runSmartBeatMontage } from "@/lib/autoMontage";
+import { analyzeAudioTrack, type BeatAnalysisResult } from "@/lib/beatDetector";
 import DraggableLibrarySheet from "./DraggableLibrarySheet";
 
 interface Props {
@@ -589,9 +590,32 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
           setAudioBeats(targetBeats);
         }
       }
+      // Rich analysis (downbeats + musical sections), shifted onto the timeline.
+      let richAnalysis: BeatAnalysisResult | undefined;
+      try {
+        setBeatProgressText(en ? "Analyzing music structure..." : "تحليل بنية الموسيقى...");
+        const rich = await analyzeAudioTrack(t.url);
+        if (rich) {
+          const shift = (x: number) => t.start + (x - t.offset);
+          const inRange = (x: number) => x >= t.offset && x <= t.offset + t.duration;
+          const beats = rich.beats.filter((b) => inRange(b.time)).map((b) => ({ ...b, time: Number(shift(b.time).toFixed(3)) }));
+          if (beats.length > 1) {
+            richAnalysis = {
+              ...rich,
+              beats,
+              beatTimes: beats.map((b) => b.time),
+              downbeats: beats.filter((b) => b.isDownbeat).map((b) => b.time),
+              strongBeats: beats.filter((b) => b.isStrong).map((b) => b.time),
+              sections: rich.sections.filter((sc) => sc.end >= t.offset && sc.start <= t.offset + t.duration)
+                .map((sc) => ({ ...sc, start: shift(Math.max(t.offset, sc.start)), end: shift(Math.min(t.offset + t.duration, sc.end)) })),
+            };
+          }
+        }
+      } catch (err) { console.warn("[MusicPanel] rich beat analysis failed", err); }
       if (targetBeats && targetBeats.length > 0) {
         const res = await runSmartBeatMontage({
           media: targetMedia,
+          audioAnalysis: richAnalysis,
           beatTimes: targetBeats,
           targetDuration: effectiveTargetDuration,
           fastMode: true,
@@ -608,6 +632,9 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
           const aiBadge = isRealAi 
             ? (en ? " [⚡ Smart AI Vision]" : " [⚡ تحليل ذكي فائق]")
             : "";
+          if ((res.analysis?.degradedSegments ?? 0) > 0) {
+            toast.warning(en ? "Some videos couldn't be fully analyzed; their shot choice may be less accurate." : "بعض الفيديوهات ما تحللت بالكامل، فاختيار لقطاتها قد يكون أقل دقة.");
+          }
           toast.success(
             en
               ? `Smart Cut complete! ${res.clips.length} cuts synchronized across ${targetMedia.length} clips (${res.totalDuration.toFixed(1)}s).${aiBadge}`
