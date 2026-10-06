@@ -162,15 +162,19 @@ if (typeof window !== "undefined") {
 // Register PWA service worker in web browser environment (Production only, not in iframe)
 if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
   const isIframe = typeof window !== "undefined" && window.self !== window.top;
+  const isNativeShell = typeof window !== "undefined" && (
+    Boolean((window as any).VieronNativeBridgeImpl) ||
+    window.location.hostname === "appassets.androidplatform.net"
+  );
 
-  // Disable service worker in native platform to avoid conflict with local assets and clear old caches
-  if (import.meta.env.DEV || isIframe || Capacitor.isNativePlatform()) {
+  // Disable service worker in native platform / native shell to avoid conflict with local assets and clear old caches
+  if (import.meta.env.DEV || isIframe || Capacitor.isNativePlatform() || isNativeShell) {
     navigator.serviceWorker.getRegistrations().then((registrations) => {
       for (const registration of registrations) {
         registration.unregister().catch(() => {});
       }
     }).catch(() => {});
-    if (typeof caches !== "undefined" && Capacitor.isNativePlatform()) {
+    if (typeof caches !== "undefined") {
       caches.keys().then((names) => {
         for (const name of names) {
           caches.delete(name).catch(() => {});
