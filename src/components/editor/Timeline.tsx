@@ -23,7 +23,7 @@ interface Props {
   onDeselect?: () => void;
 }
 
-const TRANSITION_ICON: Record<TransitionType, string> = {
+const TRANSITION_ICON: Partial<Record<TransitionType, string>> = {
   none: "—", fade: "◐", slide: "▶", zoom: "⊕", wipe: "▤", blur: "✦", dissolve: "❄",
   glitch: "⚡", spin: "🔄", flash: "💥", shutter: "📷", iris: "👁",
   split: "♊", mosaic: "▧", ripple: "≋", radar: "⎋",
