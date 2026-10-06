@@ -35,6 +35,8 @@ const MEDIAPIPE_INIT_TIMEOUT_MS = 10000;
 
 // Local bundled assets vs CDN fallback urls
 const WASM_SOURCES = [
+  typeof window !== "undefined" ? `${window.location.origin}/wasm/mediapipe` : "/wasm/mediapipe",
+  "/wasm/mediapipe",
   typeof window !== "undefined" ? `${window.location.origin}/mediapipe/wasm` : "/mediapipe/wasm",
   "/mediapipe/wasm",
   "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm",
@@ -51,12 +53,32 @@ const HAND_MODEL_SOURCES = [
 ];
 
 /**
+ * Verifies that a WASM or model URL actually exists and does not return SPA HTML fallback
+ */
+async function isAssetReachable(url: string): Promise<boolean> {
+  if (typeof fetch !== "function") return true;
+  try {
+    const res = await fetch(url, { method: "HEAD" });
+    if (!res.ok) return false;
+    const ct = res.headers?.get?.("content-type") || "";
+    return !ct.includes("text/html");
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Loads the MediaPipe vision fileset trying local static assets first, then CDN fallback
  */
 async function loadVisionFileset(): Promise<any> {
   let lastErr: any = null;
   for (const wasmPath of WASM_SOURCES) {
     try {
+      const wasmBinaryUrl = `${wasmPath.replace(/\/+$/, "")}/vision_wasm_internal.wasm`;
+      const exists = await isAssetReachable(wasmBinaryUrl);
+      if (!exists) {
+        continue;
+      }
       const vision = await FilesetResolver.forVisionTasks(wasmPath);
       const isLocal = !wasmPath.includes("cdn");
       console.log(`[VisionAnalyzer] 🟢 MediaPipe WASM Fileset resolved from ${isLocal ? "LOCAL static assets" : "CDN fallback"} (${wasmPath})`);
@@ -66,17 +88,22 @@ async function loadVisionFileset(): Promise<any> {
       console.warn(`[VisionAnalyzer] WASM load attempt failed for ${wasmPath}, trying next...`, e);
     }
   }
-  throw lastErr || new Error("Unable to resolve MediaPipe vision tasks fileset");
+  // Fallback if HEAD probes were blocked by environment/test runner
+  const fallbackPath = WASM_SOURCES[0];
+  return FilesetResolver.forVisionTasks(fallbackPath);
 }
 
 /**
  * Initializes FaceDetector trying local model assets and GPU/CPU delegates
  */
 async function createFaceDetector(vision: any): Promise<FaceDetector> {
-  const delegates: ("GPU" | "CPU")[] = ["GPU", "CPU"];
+  const delegates: ("CPU" | "GPU")[] = ["CPU", "GPU"];
   let lastErr: any = null;
 
   for (const modelPath of FACE_MODEL_SOURCES) {
+    if (modelPath.startsWith("/") && !(await isAssetReachable(modelPath))) {
+      continue;
+    }
     for (const delegate of delegates) {
       try {
         const detector = await FaceDetector.createFromOptions(vision, {
@@ -102,10 +129,13 @@ async function createFaceDetector(vision: any): Promise<FaceDetector> {
  * Initializes HandLandmarker trying local model assets and GPU/CPU delegates
  */
 async function createHandLandmarker(vision: any): Promise<HandLandmarker> {
-  const delegates: ("GPU" | "CPU")[] = ["GPU", "CPU"];
+  const delegates: ("CPU" | "GPU")[] = ["CPU", "GPU"];
   let lastErr: any = null;
 
   for (const modelPath of HAND_MODEL_SOURCES) {
+    if (modelPath.startsWith("/") && !(await isAssetReachable(modelPath))) {
+      continue;
+    }
     for (const delegate of delegates) {
       try {
         const landmarker = await HandLandmarker.createFromOptions(vision, {
@@ -180,22 +210,17 @@ async function initVisionTasks(): Promise<void> {
       const loadPromise = (async () => {
         const vision = await loadVisionFileset();
 
-        // Concurrently initialize Face Detector and Hand Landmarker
-        const [faceRes, handRes] = await Promise.allSettled([
-          createFaceDetector(vision),
-          createHandLandmarker(vision),
-        ]);
-
-        if (faceRes.status === "fulfilled") {
-          faceDetectorInstance = faceRes.value;
-        } else {
-          console.warn("[VisionAnalyzer] FaceDetector init non-fatal warning:", faceRes.reason);
+        // Initialize Face Detector and Hand Landmarker sequentially to prevent concurrent WASM compilation races
+        try {
+          faceDetectorInstance = await createFaceDetector(vision);
+        } catch (faceErr) {
+          console.warn("[VisionAnalyzer] FaceDetector init non-fatal warning:", faceErr);
         }
 
-        if (handRes.status === "fulfilled") {
-          handLandmarkerInstance = handRes.value;
-        } else {
-          console.warn("[VisionAnalyzer] HandLandmarker init non-fatal warning:", handRes.reason);
+        try {
+          handLandmarkerInstance = await createHandLandmarker(vision);
+        } catch (handErr) {
+          console.warn("[VisionAnalyzer] HandLandmarker init non-fatal warning:", handErr);
         }
 
         if (!faceDetectorInstance && !handLandmarkerInstance) {

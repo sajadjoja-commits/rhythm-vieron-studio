@@ -24,7 +24,7 @@ import { ImagePostprocessor } from "./ImagePostprocessor";
 import { ImageMemoryManager } from "./ImageMemoryManager";
 import { ImageOutputVerifier } from "./ImageOutputVerifier";
 
-const MEDIAPIPE_WASM_PATH = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm";
+const MEDIAPIPE_WASM_PATH = "/wasm/mediapipe";
 
 export class ImageInferenceEngine {
   private static instance: ImageInferenceEngine;

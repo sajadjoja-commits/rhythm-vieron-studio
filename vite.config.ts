@@ -28,7 +28,8 @@ function missingStaticAssets404Plugin(): Plugin {
         if (
           pathname.startsWith("/models/") ||
           pathname.startsWith("/wasm/") ||
-          /\.(wasm|onnx|bin|safetensors|pt)$/i.test(pathname)
+          pathname.startsWith("/mediapipe/") ||
+          /\.(wasm|onnx|bin|safetensors|pt|tflite|task)$/i.test(pathname)
         ) {
           const cleanPath = pathname.replace(/^\/+/, "");
           const publicFile = path.resolve(__dirname, "public", cleanPath);
@@ -80,10 +81,18 @@ function ensureMediaPipeAssetsPlugin(): Plugin {
     name: "ensure-mediapipe-assets",
     buildStart() {
       const source = path.resolve(__dirname, "node_modules/@mediapipe/tasks-vision/wasm");
-      const target = path.resolve(__dirname, "public/wasm/mediapipe");
-      fs.mkdirSync(target, { recursive: true });
-      for (const file of fs.readdirSync(source)) {
-        if (/\.(js|wasm)$/.test(file)) fs.copyFileSync(path.join(source, file), path.join(target, file));
+      if (!fs.existsSync(source)) return;
+      const targets = [
+        path.resolve(__dirname, "public/wasm/mediapipe"),
+        path.resolve(__dirname, "public/mediapipe/wasm"),
+      ];
+      for (const target of targets) {
+        fs.mkdirSync(target, { recursive: true });
+        for (const file of fs.readdirSync(source)) {
+          if (/\.(js|wasm)$/.test(file)) {
+            fs.copyFileSync(path.join(source, file), path.join(target, file));
+          }
+        }
       }
     },
   };
