@@ -136,6 +136,9 @@ async function analyzeVideoAdvanced(
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     
     if (!ctx) { 
+      canvas.width = 0;
+      canvas.height = 0;
+      canvas.remove();
       resolve([]); 
       return; 
     }
@@ -175,11 +178,27 @@ async function analyzeVideoAdvanced(
     const extractedFrames: FrameBufferData[] = [];
     const visionPromises: Promise<{ time: number; analysis: VisionFrameAnalysis }>[] = [];
     let isCleanedUp = false;
+    let safetyTimer: ReturnType<typeof setTimeout> | null = null;
+    let stepTimer: ReturnType<typeof setTimeout> | null = null;
 
     const cleanup = () => {
       if (isCleanedUp) return;
       isCleanedUp = true;
+      if (safetyTimer) {
+        clearTimeout(safetyTimer);
+        safetyTimer = null;
+      }
+      if (stepTimer) {
+        clearTimeout(stepTimer);
+        stepTimer = null;
+      }
       signal?.removeEventListener("abort", onAbort);
+      v.removeEventListener("loadedmetadata", onLoadedMetadata);
+      v.removeEventListener("seeked", onSeeked);
+      v.removeEventListener("error", onError);
+      v.onloadedmetadata = null;
+      v.onseeked = null;
+      v.onerror = null;
       try {
         if (typeof v.pause === "function") {
           v.pause();
@@ -191,21 +210,55 @@ async function analyzeVideoAdvanced(
         if (typeof v.load === "function") {
           v.load();
         }
+        v.remove();
       } catch {}
-      canvas.width = 1;
-      canvas.height = 1;
+      try {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      } catch {}
+      canvas.width = 0;
+      canvas.height = 0;
+      try {
+        canvas.remove();
+      } catch {}
     };
 
     let started = false;
     const onAbort = () => {
       cleanup();
+      extractedFrames.length = 0;
+      visionPromises.length = 0;
       reject(new Error("Video analysis aborted"));
     };
     signal?.addEventListener("abort", onAbort, { once: true });
 
+    const buildFallbackSegments = (): Segment[] =>
+      segmentTimes.map((st) => ({
+        mediaId: "",
+        in: st.in,
+        out: st.out,
+        score: 0.12,
+        motion: 0.25,
+        sharpness: 0.3,
+        blurPenalty: 0.6,
+        exposureQuality: 0.7,
+        actionIntensity: 0.25,
+        temporalStability: 0.5,
+        audioEnergy: 0.2,
+        faceScore: 0,
+        handScore: 0,
+        handVelocityScore: 0,
+        brightness: 0.5,
+        colorfulness: 0.3,
+        containsTransition: false,
+        overallQuality: 0.15,
+        fallback: true,
+      }));
+
     const processFrame = () => {
       if (signal?.aborted) {
         cleanup();
+        extractedFrames.length = 0;
+        visionPromises.length = 0;
         reject(new Error("Video analysis aborted"));
         return;
       }
@@ -222,8 +275,6 @@ async function analyzeVideoAdvanced(
               calculateSegmentAudioEnergiesBatch(url, segmentTimes),
               Promise.all(visionPromises)
             ]);
-
-            cleanup();
 
             const finalSegments: Segment[] = workerResults.map((wr: WorkerSegmentResult, i: number) => {
               const seg = segmentTimes[i];
@@ -265,30 +316,11 @@ async function analyzeVideoAdvanced(
             resolve(finalSegments);
           } catch (err) {
             console.warn("[AutoMontage] Worker analysis failed, using fallback segments:", err);
+            resolve(buildFallbackSegments());
+          } finally {
             cleanup();
-            resolve(
-              segmentTimes.map((st) => ({
-                mediaId: "",
-                in: st.in,
-                out: st.out,
-                score: 0.5,
-                motion: 0.5,
-                sharpness: 0.6,
-                blurPenalty: 1.0,
-                exposureQuality: 1.0,
-                actionIntensity: 0.5,
-                temporalStability: 0.8,
-                audioEnergy: 0.5,
-                faceScore: 0,
-                handScore: 0,
-                handVelocityScore: 0,
-                brightness: 0.6,
-                colorfulness: 0.5,
-                containsTransition: false,
-                overallQuality: 0.55,
-                fallback: true,
-              }))
-            );
+            extractedFrames.length = 0;
+            visionPromises.length = 0;
           }
         })();
         return;
@@ -300,22 +332,23 @@ async function analyzeVideoAdvanced(
         v.currentTime = targetTime;
       } catch {
         sampleIdx++;
-        setTimeout(processFrame, 4);
+        stepTimer = setTimeout(processFrame, 4);
       }
     };
 
-    // Real browsers never fire "seeked" from load(); start sampling once metadata is ready.
-    v.addEventListener("loadedmetadata", () => {
+    const onLoadedMetadata = () => {
       if (started || isCleanedUp) return;
       started = true;
       processFrame();
-    });
+    };
 
-    v.addEventListener("seeked", () => {
+    const onSeeked = () => {
       started = true;
       if (isCleanedUp) return;
       if (signal?.aborted) {
         cleanup();
+        extractedFrames.length = 0;
+        visionPromises.length = 0;
         reject(new Error("Video analysis aborted"));
         return;
       }
@@ -332,13 +365,26 @@ async function analyzeVideoAdvanced(
           buffer: bufferCopy,
         });
 
+        const frameCanvasCopy = document.createElement("canvas");
+        frameCanvasCopy.width = W;
+        frameCanvasCopy.height = H;
+        const copyCtx = frameCanvasCopy.getContext("2d");
+        if (copyCtx) {
+          copyCtx.putImageData(imgData, 0, 0);
+        }
+
         visionPromises.push(
-          analyzeFrameVision(canvas)
+          analyzeFrameVision(frameCanvasCopy)
             .then((analysis) => ({ time: frameTime, analysis }))
             .catch(() => ({
               time: frameTime,
               analysis: { faceCount: 0, faceConfidence: 0, hasHands: false, handCount: 0, handPositions: [] },
             }))
+            .finally(() => {
+              frameCanvasCopy.width = 0;
+              frameCanvasCopy.height = 0;
+              frameCanvasCopy.remove();
+            })
         );
       } catch {
         extractedFrames.push({
@@ -349,35 +395,29 @@ async function analyzeVideoAdvanced(
         });
       }
       sampleIdx++;
-      setTimeout(processFrame, 4);
-    });
+      stepTimer = setTimeout(processFrame, 4);
+    };
 
-    v.addEventListener("error", () => {
+    const onError = () => {
       cleanup();
-      resolve(
-        segmentTimes.map((st) => ({
-          mediaId: "",
-          in: st.in,
-          out: st.out,
-          score: 0.5,
-          motion: 0.5,
-          sharpness: 0.5,
-          blurPenalty: 1.0,
-          exposureQuality: 1.0,
-          actionIntensity: 0.5,
-          temporalStability: 0.8,
-          audioEnergy: 0.5,
-          faceScore: 0,
-          handScore: 0,
-          handVelocityScore: 0,
-          brightness: 0.6,
-          colorfulness: 0.5,
-          containsTransition: false,
-          overallQuality: 0.5,
-          fallback: true,
-        }))
-      );
-    });
+      extractedFrames.length = 0;
+      visionPromises.length = 0;
+      resolve(buildFallbackSegments());
+    };
+
+    // Real browsers never fire "seeked" from load(); start sampling once metadata is ready.
+    v.addEventListener("loadedmetadata", onLoadedMetadata);
+    v.addEventListener("seeked", onSeeked);
+    v.addEventListener("error", onError);
+
+    safetyTimer = setTimeout(() => {
+      if (!isCleanedUp) {
+        cleanup();
+        extractedFrames.length = 0;
+        visionPromises.length = 0;
+        resolve(buildFallbackSegments());
+      }
+    }, 15000);
 
     v.src = url;
     v.load();
@@ -405,25 +445,45 @@ export function buildMusicalBeatSlots(
   minShotDuration: number = 0.65,
   maxShotDuration: number = 3.8
 ): BeatSlot[] {
-  const effectiveDur = targetDuration > 0 ? targetDuration : 30;
+  const rawEffectiveDur = targetDuration > 0 ? targetDuration : 30;
+  const allSourceBeats =
+    beatResult && beatResult.beats.length > 0
+      ? beatResult.beats.map((b) => b.time)
+      : rawBeatTimes.filter((b) => b > 0.05);
+  const maxBeatInTrack = allSourceBeats.length > 0 ? Math.max(...allSourceBeats) : 0;
+  // If montage target is shorter than the selected music track, snap the end to the last beat at/before targetDuration
+  const beatsUpToTarget = allSourceBeats.filter((t) => t <= rawEffectiveDur + 0.05).sort((a, b) => a - b);
+  const lastBeatBeforeTarget = beatsUpToTarget.length > 0 ? beatsUpToTarget[beatsUpToTarget.length - 1] : 0;
+  const effectiveDur =
+    maxBeatInTrack > rawEffectiveDur + 0.15 && lastBeatBeforeTarget >= minShotDuration
+      ? lastBeatBeforeTarget
+      : rawEffectiveDur;
 
-  // Case 1: Rich Musical Analysis available
+  // Case 1: Rich Musical Analysis available (takes strict precedence over rawBeatTimes)
   if (beatResult && beatResult.beats.length > 0) {
     const slots: BeatSlot[] = [];
     const beats = beatResult.beats.filter((b) => b.time <= effectiveDur + 0.5);
-    
+    const sections = beatResult.sections || [];
+    const downbeatSet = new Set((beatResult.downbeats || []).map((t) => Number(t.toFixed(2))));
+    const strongBeatSet = new Set((beatResult.strongBeats || []).map((t) => Number(t.toFixed(2))));
+
+    const resolveSectionAt = (t: number, fallbackSec: BeatSlot["section"]): BeatSlot["section"] => {
+      const found = sections.find((s) => t >= s.start - 0.05 && t <= s.end + 0.05);
+      return found ? found.type : fallbackSec;
+    };
+
+    const isNearSectionBoundary = (t: number): boolean =>
+      sections.some((s) => Math.abs(s.start - t) <= 0.18 || Math.abs(s.end - t) <= 0.18);
+
     let currentSlotStart = 0;
     let bIdx = 0;
 
     while (bIdx < beats.length && currentSlotStart < effectiveDur - 0.3) {
       const b = beats[bIdx];
-      const secType = b.section;
+      const secType = resolveSectionAt(b.time, b.section);
+      const isDownbeat = Boolean(b.isDownbeat || downbeatSet.has(Number(b.time.toFixed(2))));
+      const isStrong = Boolean(isDownbeat || b.isStrong || strongBeatSet.has(Number(b.time.toFixed(2))));
 
-      // Grouping rules based on musical section:
-      // Calm: 4 beats (1 measure) or 2 beats. Min dur: 1.4s, Max dur: 3.5s
-      // Buildup: accelerating 2 beats -> 1 beat. Min dur: 0.8s
-      // Drop: downbeats and strong beats (0.65s - 1.2s)
-      // Verse: 2 beats (1.1s - 2.2s)
       let beatsToAdvance = 2;
       if (secType === "calm") {
         beatsToAdvance = 4;
@@ -435,8 +495,22 @@ export function buildMusicalBeatSlots(
         beatsToAdvance = 2;
       }
 
-      // Find next candidate cut point
+      // Find next candidate cut point, snapping within ±1 beat to a section boundary or downbeat if valid
       let targetNextBeatIdx = Math.min(beats.length - 1, bIdx + beatsToAdvance);
+      for (const offset of [0, -1, 1]) {
+        const candIdx = targetNextBeatIdx + offset;
+        if (candIdx <= bIdx || candIdx >= beats.length) continue;
+        const candBeat = beats[candIdx];
+        const candDur = candBeat.time - currentSlotStart;
+        if (candDur >= minShotDuration && candDur <= maxShotDuration) {
+          const candIsDown = Boolean(candBeat.isDownbeat || downbeatSet.has(Number(candBeat.time.toFixed(2))));
+          if (isNearSectionBoundary(candBeat.time) || candIsDown) {
+            targetNextBeatIdx = candIdx;
+            break;
+          }
+        }
+      }
+
       let cutTime = beats[targetNextBeatIdx].time;
 
       // Ensure min and max shot duration constraints
@@ -469,8 +543,8 @@ export function buildMusicalBeatSlots(
           in: Number(currentSlotStart.toFixed(3)),
           out: Number(cutTime.toFixed(3)),
           dur: Number(shotDur.toFixed(3)),
-          isDownbeat: b.isDownbeat,
-          isStrong: b.isStrong,
+          isDownbeat,
+          isStrong,
           section: secType,
           targetEnergy: b.energy,
         });
@@ -574,6 +648,7 @@ export interface SmartBeatMontageParams {
   fastMode?: boolean;
   minShotDuration?: number;
   maxShotDuration?: number;
+  interleave?: boolean;
   signal?: AbortSignal;
   onProgress?: MontageProgressCallback;
 }
@@ -581,6 +656,7 @@ export interface SmartBeatMontageParams {
 /**
  * High-Performance Smart Beat Montage Engine
  * Synchronizes candidate video moments with musical rhythm and energy.
+ * Default mode (interleave = false) cuts sequentially video-by-video in upload order.
  */
 export async function runSmartBeatMontage({
   media,
@@ -591,6 +667,7 @@ export async function runSmartBeatMontage({
   fastMode = true,
   minShotDuration = 0.65,
   maxShotDuration = 3.8,
+  interleave = false,
   signal,
   onProgress,
 }: SmartBeatMontageParams): Promise<MontageResult> {
@@ -633,19 +710,29 @@ export async function runSmartBeatMontage({
     messageEn: isLongFootage ? "Adaptive turbo beat analysis for long footage..." : "Starting beat & moment analysis...",
   });
 
-  // 1. Analyze Audio if URL provided and not yet analyzed
-  let computedAudioAnalysis = audioAnalysis || null;
+  // 1. Analyze Audio if URL provided and not yet analyzed.
+  // Precedence rule: audioAnalysis (downbeats, strongBeats, sections) strictly wins over legacy beatTimes.
+  let computedAudioAnalysis =
+    audioAnalysis && audioAnalysis.beats && audioAnalysis.beats.length > 0
+      ? audioAnalysis
+      : null;
   if (!computedAudioAnalysis && audioTrackUrl) {
     try {
-      computedAudioAnalysis = await analyzeAudioTrack(audioTrackUrl, { signal: activeSignal });
+      const analyzed = await analyzeAudioTrack(audioTrackUrl, { signal: activeSignal });
+      if (analyzed && analyzed.beats && analyzed.beats.length > 0) {
+        computedAudioAnalysis = analyzed;
+      }
     } catch {
       computedAudioAnalysis = null;
     }
   }
 
-  const resolvedBeatTimes = computedAudioAnalysis
-    ? computedAudioAnalysis.beatTimes
-    : beatTimes;
+  const resolvedBeatTimes =
+    computedAudioAnalysis && computedAudioAnalysis.beats.length > 0
+      ? (computedAudioAnalysis.beatTimes?.length
+          ? computedAudioAnalysis.beatTimes
+          : computedAudioAnalysis.beats.map((b) => b.time))
+      : beatTimes;
 
   // 2. Candidate Extraction with Intelligent Caching
   const allCandidateSegments: Segment[] = [];
@@ -763,8 +850,10 @@ export async function runSmartBeatMontage({
         colorVal * 0.10;
     }
 
-    // Strictly apply blur, exposure, transition penalties
-    seg.score = baseScore * blurPen * expoQual * transitionPen;
+    // Strictly apply blur, exposure, transition, and fallback penalties.
+    // Fallback segments (from videos whose analysis failed) get the lowest selection priority.
+    const fallbackPen = seg.fallback ? 0.15 : 1.0;
+    seg.score = baseScore * blurPen * expoQual * transitionPen * fallbackPen;
   }
 
   // 4. Build Musical Beat Slots
@@ -780,138 +869,470 @@ export async function runSmartBeatMontage({
     maxShotDuration
   );
 
-  // 5. Diversity-Aware Selection & Maximum Marginal Relevance
-  // Enforces round-robin across source media, prevents repeat cuts, and matches energy to slots
-  const usedRanges = new Map<string, Array<{ in: number; out: number }>>();
-  const mediaUsageCount = new Map<string, number>();
-  validMedia.forEach((m) => {
-    usedRanges.set(m.id, []);
-    mediaUsageCount.set(m.id, 0);
-  });
+  // Helper to expand fine-grained candidate anchors for a video so short or few-segment videos
+  // can still yield all distinct non-overlapping slices before any repetition occurs.
+  const getExpandedCandidatesForMedia = (m: MediaItem): Segment[] => {
+    const mDur = Math.max(0.1, m.duration || (m.type === "image" ? 5 : 3));
+    const baseCands = allCandidateSegments.filter((s) => s.mediaId === m.id);
+    if (baseCands.length === 0) return [];
+    const step = Math.max(0.45, Math.min(0.9, minShotDuration));
+    if (mDur <= step * 1.5 || baseCands.length >= Math.ceil(mDur / step)) {
+      return baseCands;
+    }
+    const expanded: Segment[] = [...baseCands];
+    for (let t = step / 2; t < mDur - step / 2; t += step) {
+      const hasNearby = expanded.some((c) => Math.abs((c.in + c.out) / 2 - t) < step * 0.45);
+      if (hasNearby) continue;
+      // Inherit quality metrics from enclosing or nearest analyzed segment
+      const parent =
+        baseCands.find((c) => t >= c.in && t <= c.out) ||
+        baseCands.reduce((best, c) =>
+          Math.abs((c.in + c.out) / 2 - t) < Math.abs((best.in + best.out) / 2 - t) ? c : best
+        , baseCands[0]);
+      const winHalf = Math.min(step / 2, t, mDur - t);
+      expanded.push({
+        ...parent,
+        in: Number(Math.max(0, t - winHalf).toFixed(3)),
+        out: Number(Math.min(mDur, t + winHalf).toFixed(3)),
+      });
+    }
+    return expanded;
+  };
 
-  let lastMediaId = "";
-  let consecutiveCountSameMedia = 0;
   const finalClips: Clip[] = [];
   let beatCarry = 0;
 
-  for (let i = 0; i < beatSlots.length; i++) {
-    const slot = beatSlots[i];
-    // Carry any previous shortfall forward so later cuts stay on the beat grid.
-    const targetDur = Math.max(0.1, slot.dur + beatCarry);
+  if (!interleave && validMedia.length > 1) {
+    // 5A. Sequential Mode (Default for multiple videos):
+    // - Keeps videos in exact upload order.
+    // - Distributes contiguous beat slots proportionally to each video's usable duration.
+    // - Snaps inter-video transition boundaries within ±1 beat to a section boundary or downbeat.
+    // - Inside each video: selects highest-scoring non-overlapping moments and orders them chronologically.
+    // - Carries any shortfall (beatCarry or unfilled slots) forward to the next video; if the last video is short,
+    //   repeats minimally (exhausting non-overlapping segments per pass) without two identical consecutive cuts.
+    const S = beatSlots.length;
+    const N = validMedia.length;
+    const activeVideoCount = Math.min(N, S);
 
-    let bestCandidate: Segment | null = null;
-    let bestCandidateScore = -Infinity;
-    let bestSliceIn = 0;
-    let bestSliceOut = targetDur;
-    let bestMedia: MediaItem = validMedia[0];
-
-    for (const cand of allCandidateSegments) {
-      const m = validMedia.find((vm) => vm.id === cand.mediaId);
-      if (!m) continue;
-
-      const mDur = m.duration || (m.type === "image" ? 5 : 3);
-      const candMid = (cand.in + cand.out) / 2;
-
-      // Center slice around candidate midpoint
-      let sliceIn = Math.max(0, candMid - targetDur / 2);
-      if (sliceIn + targetDur > mDur) {
-        sliceIn = Math.max(0, mDur - targetDur);
-      }
-      const sliceOut = Math.min(mDur, sliceIn + targetDur);
-      const actualDur = Math.max(0.1, sliceOut - sliceIn);
-
-      // Overlap with previously chosen ranges in this media item
-      const curRanges = usedRanges.get(m.id) || [];
-      let overlapSec = 0;
-      for (const r of curRanges) {
-        const oStart = Math.max(sliceIn, r.in);
-        const oEnd = Math.min(sliceOut, r.out);
-        if (oEnd > oStart) {
-          overlapSec += (oEnd - oStart);
-        }
-      }
-      const overlapRatio = actualDur > 0 ? overlapSec / actualDur : 0;
-
-      // Disqualify already used ranges if we have enough total footage
-      let overlapPenalty = 0;
-      if (totalFootageDur >= effectiveTargetDuration * 0.85) {
-        if (overlapRatio > 0.08) {
-          overlapPenalty = 10.0; // strict exclusion
-        }
-      } else {
-        overlapPenalty = overlapRatio * 0.8;
-      }
-
-      // Diversity Bonus / Penalty:
-      // Max 1 consecutive cut from same media if multiple videos exist
-      let diversityScore = 0;
-      if (validMedia.length > 1) {
-        if (m.id === lastMediaId) {
-          diversityScore = consecutiveCountSameMedia >= 1 ? -1.5 : -0.3;
-        } else {
-          diversityScore = 0.25;
-        }
-      }
-
-      // Usage fairness bonus (boost less-used media items)
-      const usageCount = mediaUsageCount.get(m.id) || 0;
-      const fairDistributionBonus = -usageCount * 0.08;
-
-      // Music Energy Match:
-      // In drops / downbeats: high action intensity, motion, and hand velocity
-      // In calm / verse: clear faces, stability, and sharpness
-      let energyFitBonus = 0;
-      if (slot.section === "drop" || slot.isDownbeat) {
-        energyFitBonus = cand.actionIntensity * 0.25 + cand.motion * 0.15;
-      } else if (slot.section === "calm") {
-        energyFitBonus = cand.faceScore * 0.25 + cand.temporalStability * 0.15;
-      }
-
-      // Prefer sources long enough to fill the whole beat slot.
-      const shortfallPenalty = Math.max(0, targetDur - actualDur) / targetDur * 1.2;
-
-      const totalScore = cand.score - shortfallPenalty + diversityScore + fairDistributionBonus + energyFitBonus - overlapPenalty;
-
-      if (totalScore > bestCandidateScore) {
-        bestCandidateScore = totalScore;
-        bestCandidate = cand;
-        bestMedia = m;
-        bestSliceIn = sliceIn;
-        bestSliceOut = sliceOut;
-      }
-    }
-
-    // Fallback if all candidates heavily penalized
-    if (!bestCandidate) {
-      bestMedia = validMedia.find((m) => m.id !== lastMediaId) || validMedia[0];
-      const mDur = bestMedia.duration || 5;
-      bestSliceIn = 0;
-      bestSliceOut = Math.min(mDur, targetDur);
-    }
-
-    beatCarry = targetDur - Math.max(0.1, bestSliceOut - bestSliceIn);
-
-    // Update consecutive tracker
-    if (bestMedia.id === lastMediaId) {
-      consecutiveCountSameMedia++;
-    } else {
-      consecutiveCountSameMedia = 1;
-      lastMediaId = bestMedia.id;
-    }
-
-    // Record usage
-    const mRanges = usedRanges.get(bestMedia.id) || [];
-    mRanges.push({ in: bestSliceIn, out: bestSliceOut });
-    usedRanges.set(bestMedia.id, mRanges);
-    mediaUsageCount.set(bestMedia.id, (mediaUsageCount.get(bestMedia.id) || 0) + 1);
-
-    finalClips.push({
-      id: `beat-clip-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
-      mediaId: bestMedia.id,
-      in: Number(bestSliceIn.toFixed(3)),
-      out: Number(bestSliceOut.toFixed(3)),
-      transitionIn: i > 0 && i % 4 === 0 ? { type: "fade", duration: 0.15 } : undefined,
+    const usableDurs = validMedia.map((m) => {
+      const rawDur = Math.max(0.1, m.duration || (m.type === "image" ? 5 : 3));
+      const mCands = allCandidateSegments.filter((s) => s.mediaId === m.id);
+      if (mCands.length === 0) return rawDur;
+      const goodCands = mCands.filter((s) => !s.containsTransition && s.blurPenalty >= 0.35);
+      const ratio = goodCands.length > 0 ? goodCands.length / mCands.length : 0.25;
+      return Math.max(0.1, rawDur * ratio);
     });
+
+    const totalUsable = usableDurs.slice(0, activeVideoCount).reduce((a, b) => a + b, 0) || 1;
+    const exactShares = usableDurs
+      .slice(0, activeVideoCount)
+      .map((u) => (u / totalUsable) * S);
+    const slotCounts = exactShares.map((sh) => Math.max(1, Math.floor(sh)));
+    let currentSum = slotCounts.reduce((a, b) => a + b, 0);
+
+    if (currentSum < S) {
+      const orderByRemainder = exactShares
+        .map((sh, idx) => ({ idx, rem: sh - slotCounts[idx] }))
+        .sort((a, b) => b.rem - a.rem);
+      let rIdx = 0;
+      while (currentSum < S) {
+        slotCounts[orderByRemainder[rIdx % orderByRemainder.length].idx]++;
+        currentSum++;
+        rIdx++;
+      }
+    } else if (currentSum > S) {
+      const orderByCount = slotCounts
+        .map((cnt, idx) => ({ idx, cnt, sh: exactShares[idx] }))
+        .sort((a, b) => b.cnt - a.cnt || a.sh - b.sh);
+      let rIdx = 0;
+      while (currentSum > S && rIdx < orderByCount.length * S) {
+        const target = orderByCount[rIdx % orderByCount.length].idx;
+        if (slotCounts[target] > 1) {
+          slotCounts[target]--;
+          currentSum--;
+        }
+        rIdx++;
+      }
+    }
+
+    const boundaries: number[] = [0];
+    for (let i = 0; i < activeVideoCount; i++) {
+      boundaries.push(boundaries[i] + slotCounts[i]);
+    }
+    boundaries[activeVideoCount] = S;
+
+    // Snap inter-video transition boundaries within ±1 beat to a section boundary or downbeat
+    const boundaryPriority = (slotIdx: number): number => {
+      if (slotIdx <= 0 || slotIdx >= S) return 0;
+      const t = beatSlots[slotIdx].in;
+      const hasSectionBoundary =
+        Boolean(
+          computedAudioAnalysis?.sections?.some(
+            (sc) => Math.abs(sc.start - t) <= 0.22 || Math.abs(sc.end - t) <= 0.22
+          )
+        ) || beatSlots[slotIdx].section !== beatSlots[slotIdx - 1].section;
+      if (hasSectionBoundary) return 3;
+      const isDown =
+        beatSlots[slotIdx].isDownbeat ||
+        Boolean(computedAudioAnalysis?.downbeats?.some((d) => Math.abs(d - t) <= 0.12));
+      if (isDown) return 2;
+      const isStr =
+        beatSlots[slotIdx].isStrong ||
+        Boolean(computedAudioAnalysis?.strongBeats?.some((sb) => Math.abs(sb - t) <= 0.12));
+      return isStr ? 1 : 0;
+    };
+
+    for (let bIdx = 1; bIdx < activeVideoCount; bIdx++) {
+      const orig = boundaries[bIdx];
+      const minIdx = boundaries[bIdx - 1] + 1;
+      const maxIdx = boundaries[bIdx + 1] - 1;
+      let bestIdx = orig;
+      let bestPrio = boundaryPriority(orig);
+      for (const offset of [-1, 1]) {
+        const candIdx = orig + offset;
+        if (candIdx < minIdx || candIdx > maxIdx) continue;
+        const prio = boundaryPriority(candIdx);
+        if (prio > bestPrio) {
+          bestPrio = prio;
+          bestIdx = candIdx;
+        }
+      }
+      boundaries[bIdx] = bestIdx;
+    }
+
+    let currentSlotIdx = 0;
+
+    for (let vIdx = 0; vIdx < N && currentSlotIdx < S; vIdx++) {
+      const m = validMedia[vIdx];
+      const isLastVideo = vIdx === N - 1 || vIdx === activeVideoCount - 1;
+      const targetEndSlot = isLastVideo
+        ? S
+        : Math.min(S, Math.max(currentSlotIdx + 1, boundaries[vIdx + 1]));
+      const mDur = Math.max(0.1, m.duration || (m.type === "image" ? 5 : 3));
+      const mCands = getExpandedCandidatesForMedia(m);
+      const videoUsedRanges: Array<{ in: number; out: number }> = [];
+      let passNumber = 0;
+
+      while (currentSlotIdx < targetEndSlot) {
+        const remainingSlots = beatSlots.slice(currentSlotIdx, targetEndSlot);
+        if (remainingSlots.length === 0) break;
+
+        // Determine how many upcoming slots can fit in a single non-overlapping pass of mDur
+        let passSlotCount = 1;
+        let cumReqDur = Math.max(0.1, remainingSlots[0].dur + beatCarry);
+        for (let k = 1; k < remainingSlots.length; k++) {
+          const nextDur = remainingSlots[k].dur;
+          if (cumReqDur + nextDur <= mDur + 0.05) {
+            cumReqDur += nextDur;
+            passSlotCount++;
+          } else if (mDur - cumReqDur >= minShotDuration && !isLastVideo) {
+            // Allow non-last video to contribute its remaining usable non-overlapping tail (>= minShotDuration)
+            cumReqDur += nextDur;
+            passSlotCount++;
+            break;
+          } else {
+            break;
+          }
+        }
+
+        const passSlots = remainingSlots.slice(0, passSlotCount);
+        const avgSlotDur =
+          passSlots.reduce((acc, sl, idx) => acc + sl.dur + (idx === 0 ? beatCarry : 0), 0) /
+          passSlots.length;
+        const repSlot = passSlots[0];
+        const prevClipOnThisVideo =
+          finalClips.length > 0 && finalClips[finalClips.length - 1].mediaId === m.id
+            ? finalClips[finalClips.length - 1]
+            : null;
+
+        // Score all candidates in mCands for this pass
+        const scoredCands = mCands.map((cand) => {
+          const candMid = (cand.in + cand.out) / 2;
+          let estIn = Math.max(0, candMid - avgSlotDur / 2);
+          if (estIn + avgSlotDur > mDur) estIn = Math.max(0, mDur - avgSlotDur);
+          const estOut = Math.min(mDur, estIn + avgSlotDur);
+          const estDur = Math.max(0.1, estOut - estIn);
+
+          let overlapSec = 0;
+          for (const r of videoUsedRanges) {
+            const oStart = Math.max(estIn, r.in);
+            const oEnd = Math.min(estOut, r.out);
+            if (oEnd > oStart) overlapSec += oEnd - oStart;
+          }
+          const overlapUnits = overlapSec / estDur;
+          const overlapPenalty =
+            overlapUnits > 0.08 ? Math.ceil(overlapUnits - 0.08) * 10.0 + overlapUnits * 2.0 : 0;
+
+          let consecutiveIdenticalPenalty = 0;
+          if (
+            prevClipOnThisVideo &&
+            Math.abs(estIn - prevClipOnThisVideo.in) < 0.25 &&
+            Math.abs(estOut - prevClipOnThisVideo.out) < 0.25
+          ) {
+            consecutiveIdenticalPenalty = 25.0;
+          }
+
+          let energyFitBonus = 0;
+          if (repSlot.section === "drop" || repSlot.isDownbeat) {
+            energyFitBonus = cand.actionIntensity * 0.25 + cand.motion * 0.15;
+          } else if (repSlot.section === "calm") {
+            energyFitBonus = cand.faceScore * 0.25 + cand.temporalStability * 0.15;
+          }
+
+          return {
+            cand,
+            mid: candMid,
+            totalScore: cand.score + energyFitBonus - overlapPenalty - consecutiveIdenticalPenalty,
+          };
+        });
+
+        scoredCands.sort((a, b) => b.totalScore - a.totalScore);
+
+        // Greedily pick top passSlotCount non-overlapping moments
+        const chosenMoments: Array<{ cand: Segment; mid: number; totalScore: number }> = [];
+        const minCenterSep = Math.max(0.35, avgSlotDur * 0.75);
+        for (const item of scoredCands) {
+          if (chosenMoments.length >= passSlotCount) break;
+          const tooClose = chosenMoments.some((ch) => Math.abs(ch.mid - item.mid) < minCenterSep);
+          if (!tooClose) {
+            chosenMoments.push(item);
+          }
+        }
+        if (chosenMoments.length < passSlotCount) {
+          for (const item of scoredCands) {
+            if (chosenMoments.length >= passSlotCount) break;
+            if (!chosenMoments.includes(item)) {
+              chosenMoments.push(item);
+            }
+          }
+        }
+        while (chosenMoments.length < passSlotCount) {
+          const idx = chosenMoments.length;
+          const frac = (idx + 0.5) / passSlotCount;
+          chosenMoments.push({
+            cand: mCands[0],
+            mid: frac * mDur,
+            totalScore: 0,
+          });
+        }
+
+        // Order chosen moments chronologically by position inside the video
+        chosenMoments.sort((a, b) => a.mid - b.mid);
+
+        // Slice each slot in chronological order without overlap
+        let cursor = 0;
+        for (let j = 0; j < passSlots.length; j++) {
+          const slot = passSlots[j];
+          const targetDur = Math.max(0.1, slot.dur + beatCarry);
+          const remainingRequiredAfterJ = passSlots
+            .slice(j + 1)
+            .reduce((acc, s) => acc + s.dur, 0);
+
+          if (!isLastVideo && j > 0 && mDur - cursor < minShotDuration) {
+            // Non-last video has exhausted its usable non-overlapping footage; transfer remaining slots to next video
+            break;
+          }
+
+          const maxSliceOut = Math.min(
+            mDur,
+            Math.max(cursor + Math.min(targetDur, mDur - cursor), mDur - remainingRequiredAfterJ)
+          );
+          let sliceIn = chosenMoments[j].mid - targetDur / 2;
+          if (sliceIn + targetDur > maxSliceOut) {
+            sliceIn = maxSliceOut - targetDur;
+          }
+          sliceIn = Math.max(cursor, sliceIn);
+
+          // Prevent two consecutive identical cuts when repeating on the last video
+          const lastClip = finalClips.length > 0 ? finalClips[finalClips.length - 1] : null;
+          if (lastClip && lastClip.mediaId === m.id) {
+            const tentativeOut = Math.min(mDur, sliceIn + targetDur);
+            if (
+              Math.abs(sliceIn - lastClip.in) < 0.2 &&
+              Math.abs(tentativeOut - lastClip.out) < 0.2
+            ) {
+              const altStart = lastClip.in > cursor + 0.25 ? cursor : Math.min(maxSliceOut - targetDur, lastClip.in + Math.max(0.35, targetDur * 0.5));
+              if (altStart >= cursor && Math.abs(altStart - lastClip.in) >= 0.15) {
+                sliceIn = altStart;
+              } else if (mDur > 0.4) {
+                const microShift = ((passNumber + j + 1) % 2 === 1) ? Math.min(0.2, mDur * 0.18) : 0;
+                sliceIn = Math.max(cursor, Math.min(mDur - 0.1, microShift));
+              }
+            }
+          }
+
+          const sliceOut = Math.min(mDur, sliceIn + targetDur);
+          const actualDur = Math.max(0.1, sliceOut - sliceIn);
+
+          beatCarry = targetDur - actualDur;
+          cursor = sliceOut;
+
+          videoUsedRanges.push({ in: sliceIn, out: sliceOut });
+          const clipIdx = finalClips.length;
+          finalClips.push({
+            id: `beat-clip-${Date.now()}-${clipIdx}-${Math.random().toString(36).slice(2, 6)}`,
+            mediaId: m.id,
+            in: Number(sliceIn.toFixed(3)),
+            out: Number(sliceOut.toFixed(3)),
+            transitionIn: clipIdx > 0 && clipIdx % 4 === 0 ? { type: "fade", duration: 0.15 } : undefined,
+          });
+          currentSlotIdx++;
+        }
+
+        passNumber++;
+        if (!isLastVideo) {
+          // Non-last videos never repeat; any unfilled slots in targetEndSlot transfer to the next video
+          break;
+        }
+      }
+    }
+  } else {
+    // 5B. Single-Video Mode (validMedia.length === 1) or Legacy Interleaved Mode (interleave === true)
+    const expandedPool: Segment[] = [];
+    validMedia.forEach((m) => {
+      expandedPool.push(...getExpandedCandidatesForMedia(m));
+    });
+
+    const usedRanges = new Map<string, Array<{ in: number; out: number }>>();
+    const mediaUsageCount = new Map<string, number>();
+    validMedia.forEach((m) => {
+      usedRanges.set(m.id, []);
+      mediaUsageCount.set(m.id, 0);
+    });
+
+    let lastMediaId = "";
+    let consecutiveCountSameMedia = 0;
+
+    for (let i = 0; i < beatSlots.length; i++) {
+      const slot = beatSlots[i];
+      // Carry any previous shortfall forward so later cuts stay on the beat grid.
+      const targetDur = Math.max(0.1, slot.dur + beatCarry);
+
+      let bestCandidate: Segment | null = null;
+      let bestCandidateScore = -Infinity;
+      let bestSliceIn = 0;
+      let bestSliceOut = targetDur;
+      let bestMedia: MediaItem = validMedia[0];
+      const lastClip = finalClips.length > 0 ? finalClips[finalClips.length - 1] : null;
+
+      for (const cand of expandedPool) {
+        const m = validMedia.find((vm) => vm.id === cand.mediaId);
+        if (!m) continue;
+
+        const mDur = m.duration || (m.type === "image" ? 5 : 3);
+        const candMid = (cand.in + cand.out) / 2;
+
+        // Center slice around candidate midpoint
+        let sliceIn = Math.max(0, candMid - targetDur / 2);
+        if (sliceIn + targetDur > mDur) {
+          sliceIn = Math.max(0, mDur - targetDur);
+        }
+        const sliceOut = Math.min(mDur, sliceIn + targetDur);
+        const actualDur = Math.max(0.1, sliceOut - sliceIn);
+
+        // Cumulative overlap across all passes so no segment repeats until all non-overlapping segments are exhausted
+        const curRanges = usedRanges.get(m.id) || [];
+        let overlapSec = 0;
+        for (const r of curRanges) {
+          const oStart = Math.max(sliceIn, r.in);
+          const oEnd = Math.min(sliceOut, r.out);
+          if (oEnd > oStart) {
+            overlapSec += (oEnd - oStart);
+          }
+        }
+        const overlapUnits = actualDur > 0 ? overlapSec / actualDur : 0;
+        const overlapPenalty =
+          overlapUnits > 0.08 ? Math.ceil(overlapUnits - 0.08) * 10.0 + overlapUnits * 2.0 : 0;
+
+        // Prevent two consecutive identical cuts
+        let consecutiveIdenticalPenalty = 0;
+        if (
+          lastClip &&
+          lastClip.mediaId === m.id &&
+          Math.abs(sliceIn - lastClip.in) < 0.25 &&
+          Math.abs(sliceOut - lastClip.out) < 0.25
+        ) {
+          consecutiveIdenticalPenalty = 25.0;
+        }
+
+        // Diversity Bonus / Penalty:
+        // Max 1 consecutive cut from same media if multiple videos exist
+        let diversityScore = 0;
+        if (validMedia.length > 1) {
+          if (m.id === lastMediaId) {
+            diversityScore = consecutiveCountSameMedia >= 1 ? -1.5 : -0.3;
+          } else {
+            diversityScore = 0.25;
+          }
+        }
+
+        // Usage fairness bonus (boost less-used media items)
+        const usageCount = mediaUsageCount.get(m.id) || 0;
+        const fairDistributionBonus = -usageCount * 0.08;
+
+        // Music Energy Match:
+        // In drops / downbeats: high action intensity, motion, and hand velocity
+        // In calm / verse: clear faces, stability, and sharpness
+        let energyFitBonus = 0;
+        if (slot.section === "drop" || slot.isDownbeat) {
+          energyFitBonus = cand.actionIntensity * 0.25 + cand.motion * 0.15;
+        } else if (slot.section === "calm") {
+          energyFitBonus = cand.faceScore * 0.25 + cand.temporalStability * 0.15;
+        }
+
+        // Prefer sources long enough to fill the whole beat slot.
+        const shortfallPenalty = Math.max(0, targetDur - actualDur) / targetDur * 1.2;
+
+        const totalScore =
+          cand.score -
+          shortfallPenalty +
+          diversityScore +
+          fairDistributionBonus +
+          energyFitBonus -
+          overlapPenalty -
+          consecutiveIdenticalPenalty;
+
+        if (totalScore > bestCandidateScore) {
+          bestCandidateScore = totalScore;
+          bestCandidate = cand;
+          bestMedia = m;
+          bestSliceIn = sliceIn;
+          bestSliceOut = sliceOut;
+        }
+      }
+
+      // Fallback if all candidates heavily penalized
+      if (!bestCandidate) {
+        bestMedia = validMedia.find((m) => m.id !== lastMediaId) || validMedia[0];
+        const mDur = bestMedia.duration || 5;
+        bestSliceIn = 0;
+        bestSliceOut = Math.min(mDur, targetDur);
+      }
+
+      beatCarry = targetDur - Math.max(0.1, bestSliceOut - bestSliceIn);
+
+      // Update consecutive tracker
+      if (bestMedia.id === lastMediaId) {
+        consecutiveCountSameMedia++;
+      } else {
+        consecutiveCountSameMedia = 1;
+        lastMediaId = bestMedia.id;
+      }
+
+      // Record usage
+      const mRanges = usedRanges.get(bestMedia.id) || [];
+      mRanges.push({ in: bestSliceIn, out: bestSliceOut });
+      usedRanges.set(bestMedia.id, mRanges);
+      mediaUsageCount.set(bestMedia.id, (mediaUsageCount.get(bestMedia.id) || 0) + 1);
+
+      finalClips.push({
+        id: `beat-clip-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
+        mediaId: bestMedia.id,
+        in: Number(bestSliceIn.toFixed(3)),
+        out: Number(bestSliceOut.toFixed(3)),
+        transitionIn: i > 0 && i % 4 === 0 ? { type: "fade", duration: 0.15 } : undefined,
+      });
+    }
   }
 
   const totalDur = finalClips.reduce((acc, c) => acc + (c.out - c.in), 0);
