@@ -149,9 +149,12 @@ async function analyzeVideoAdvanced(
     v.playsInline = true;
     (v as any).disablePictureInPicture = true;
 
-    // Adaptive frame sampling: coarse sampling for long video, refined for short video
-    const maxFrames = coarseSampling ? 5 : (fastMode ? 7 : 12);
-    const frameCount = Math.min(maxFrames, Math.max(3, Math.floor(duration / (coarseSampling ? 3.5 : 1.8))));
+    const analysisStartMs = performance.now();
+
+    // Adaptive frame sampling: coarse sampling for long video, ~0.9s step (cap 24) for fastMode, higher cap (36) for full mode
+    const maxFrames = coarseSampling ? 5 : (fastMode ? 24 : 36);
+    const targetStepSec = coarseSampling ? 3.5 : (fastMode ? 0.9 : 0.75);
+    const frameCount = Math.min(maxFrames, Math.max(3, Math.floor(duration / targetStepSec)));
     const frameInterval = duration / (frameCount + 1);
 
     // Key sample timestamps (excluding first 0.35s and last 0.35s to prevent mobile camera button shakes)
@@ -175,8 +178,9 @@ async function analyzeVideoAdvanced(
     }
     
     let sampleIdx = 0;
+    let visionFrameCalls = 0;
     const extractedFrames: FrameBufferData[] = [];
-    const visionPromises: Promise<{ time: number; analysis: VisionFrameAnalysis }>[] = [];
+    const visionPromises: Promise<{ time: number; analysis: VisionFrameAnalysis } | null>[] = [];
     let isCleanedUp = false;
     let safetyTimer: ReturnType<typeof setTimeout> | null = null;
     let stepTimer: ReturnType<typeof setTimeout> | null = null;
@@ -294,13 +298,23 @@ async function analyzeVideoAdvanced(
               Promise.all(visionPromises)
             ]);
 
+            const isMediaPipeEngine = getVisionAnalysisStatus().lastEngineUsed === "mediapipe";
+            const validVisionResults = visionResults.filter(
+              (vf): vf is { time: number; analysis: VisionFrameAnalysis } => vf !== null
+            );
+
             const finalSegments: Segment[] = workerResults.map((wr: WorkerSegmentResult, i: number) => {
               const seg = segmentTimes[i];
-              const segVisionFrames = visionResults
-                .filter((vf) => seg && vf.time >= seg.in - 0.25 && vf.time <= seg.out + 0.25)
-                .map((vf) => vf.analysis);
+              const segVisionFrames = isMediaPipeEngine
+                ? validVisionResults
+                    .filter((vf) => seg && vf.time >= seg.in - 0.25 && vf.time <= seg.out + 0.25)
+                    .map((vf) => vf.analysis)
+                : [];
 
-              const visionScore = computeVisionSegmentScore(segVisionFrames);
+              const hasMediaPipeForSegment = segVisionFrames.length > 0;
+              const visionScore = hasMediaPipeForSegment
+                ? computeVisionSegmentScore(segVisionFrames)
+                : { faceScore: 0, handScore: 0, handVelocityScore: 0 };
 
               // Boundary penalty: penalize segments that start within the first 0.3s or end within the last 0.3s
               let boundaryPenalty = 1.0;
@@ -321,15 +335,20 @@ async function analyzeVideoAdvanced(
                 actionIntensity: wr.actionIntensity,
                 temporalStability: wr.temporalStability,
                 audioEnergy: audioEnergies[i] ?? 0.5,
-                faceScore: Math.max(wr.faceScore, visionScore.faceScore),
-                handScore: Math.max(wr.handScore, visionScore.handScore),
-                handVelocityScore: Math.max(wr.handVelocityScore, visionScore.handVelocityScore),
+                faceScore: hasMediaPipeForSegment ? visionScore.faceScore : wr.faceScore * 0.5,
+                handScore: hasMediaPipeForSegment ? visionScore.handScore : wr.handScore * 0.5,
+                handVelocityScore: hasMediaPipeForSegment ? visionScore.handVelocityScore : 0,
                 brightness: wr.brightness,
                 colorfulness: wr.colorfulness,
                 containsTransition: wr.containsTransition,
                 overallQuality: combinedQuality,
               };
             });
+
+            const elapsedMs = Number((performance.now() - analysisStartMs).toFixed(1));
+            console.info(
+              `[AutoMontage] Video analysis completed: frames=${extractedFrames.length}, visionCalls=${visionPromises.length}, totalTimeMs=${elapsedMs}`
+            );
 
             resolve(finalSegments);
           } catch (err) {
@@ -387,27 +406,33 @@ async function analyzeVideoAdvanced(
           buffer: bufferCopy,
         });
 
-        const frameCanvasCopy = document.createElement("canvas");
-        frameCanvasCopy.width = W;
-        frameCanvasCopy.height = H;
-        const copyCtx = frameCanvasCopy.getContext("2d");
-        if (copyCtx) {
-          copyCtx.putImageData(imgData, 0, 0);
-        }
+        if (sampleIdx % 2 === 0 && visionFrameCalls < 8) {
+          visionFrameCalls++;
+          try {
+            const frameCanvasCopy = document.createElement("canvas");
+            frameCanvasCopy.width = W;
+            frameCanvasCopy.height = H;
+            const copyCtx = frameCanvasCopy.getContext("2d");
+            if (copyCtx) {
+              if (typeof copyCtx.putImageData === "function") {
+                copyCtx.putImageData(imgData, 0, 0);
+              } else if (typeof copyCtx.drawImage === "function") {
+                copyCtx.drawImage(canvas, 0, 0);
+              }
+            }
 
-        visionPromises.push(
-          analyzeFrameVision(frameCanvasCopy)
-            .then((analysis) => ({ time: frameTime, analysis }))
-            .catch(() => ({
-              time: frameTime,
-              analysis: { faceCount: 0, faceConfidence: 0, hasHands: false, handCount: 0, handPositions: [] },
-            }))
-            .finally(() => {
-              frameCanvasCopy.width = 0;
-              frameCanvasCopy.height = 0;
-              frameCanvasCopy.remove();
-            })
-        );
+            visionPromises.push(
+              analyzeFrameVision(frameCanvasCopy)
+                .then((analysis) => ({ time: frameTime, analysis }))
+                .catch(() => null)
+                .finally(() => {
+                  frameCanvasCopy.width = 0;
+                  frameCanvasCopy.height = 0;
+                  frameCanvasCopy.remove();
+                })
+            );
+          } catch {}
+        }
       } catch {
         extractedFrames.push({
           time: frameTime,
@@ -708,12 +733,83 @@ export function buildMusicalBeatSlots(
   return slots;
 }
 
-export interface SmartScoringWeights {
+export interface SegmentScoringWeights {
   motionWeight: number;
   brightnessWeight: number;
   colorWeight: number;
   faceWeight: number;
-  sceneChangeWeight: number;
+}
+
+/**
+ * Pure segment quality scoring function.
+ * Incorporates audioEnergy (0.10 weight in both branches) and optional template weights.
+ */
+export function computeSegmentScore(
+  seg: Segment,
+  hasFaces: boolean,
+  weights?: SegmentScoringWeights
+): number {
+  const motionVal = Math.min(1, Math.max(0, seg.motion));
+  const sharpVal = Math.min(1, Math.max(0, seg.sharpness));
+  const blurPen = seg.blurPenalty;
+  const expoQual = seg.exposureQuality;
+  const faceVal = Math.min(1, Math.max(0, seg.faceScore));
+  const handVelVal = Math.min(1, Math.max(0, seg.handVelocityScore));
+  const colorVal = Math.min(1, Math.max(0, seg.colorfulness));
+  const actionVal = Math.min(1, Math.max(0, seg.actionIntensity));
+  const audioVal = Math.min(1, Math.max(0, seg.audioEnergy ?? 0));
+  const brightVal = Math.min(1, Math.max(0, seg.brightness));
+
+  const transitionPen = seg.containsTransition ? 0.25 : 1.0;
+  const fallbackPen = seg.fallback ? 0.15 : 1.0;
+
+  let defaultBaseScore = 0;
+  if (hasFaces) {
+    // Rebalanced with audioEnergy at 0.10 (sum = 0.31 + 0.22 + 0.16 + 0.11 + 0.10 + 0.05 + 0.05 = 1.00)
+    defaultBaseScore =
+      faceVal * 0.31 +
+      sharpVal * 0.22 +
+      motionVal * 0.16 +
+      actionVal * 0.11 +
+      audioVal * 0.10 +
+      handVelVal * 0.05 +
+      colorVal * 0.05;
+  } else {
+    // Rebalanced with audioEnergy at 0.10 (sum = 0.27 + 0.25 + 0.20 + 0.10 + 0.09 + 0.09 = 1.00)
+    defaultBaseScore =
+      sharpVal * 0.27 +
+      actionVal * 0.25 +
+      motionVal * 0.20 +
+      audioVal * 0.10 +
+      handVelVal * 0.09 +
+      colorVal * 0.09;
+  }
+
+  let baseScore = defaultBaseScore;
+  if (weights) {
+    const wMotion = Math.max(0, weights.motionWeight ?? 0);
+    const wBright = Math.max(0, weights.brightnessWeight ?? 0);
+    const wColor = Math.max(0, weights.colorWeight ?? 0);
+    const wFace = hasFaces ? Math.max(0, weights.faceWeight ?? 0) : 0;
+    const weightSum = wMotion + wBright + wColor + wFace;
+
+    let weightedPart = defaultBaseScore;
+    if (weightSum > 0) {
+      const motionActionSignal = Math.min(1, Math.max(0, (motionVal + actionVal) * 0.5));
+      const brightnessCloseness = Math.min(1, Math.max(0, 1 - Math.abs(brightVal - 0.55) / 0.55));
+      const rawWeighted =
+        (motionActionSignal * wMotion +
+          brightnessCloseness * wBright +
+          colorVal * wColor +
+          faceVal * wFace) /
+        weightSum;
+      weightedPart = Math.min(1, Math.max(0, rawWeighted));
+    }
+
+    baseScore = 0.5 * defaultBaseScore + 0.5 * weightedPart;
+  }
+
+  return baseScore * blurPen * expoQual * transitionPen * fallbackPen;
 }
 
 export interface SmartBeatMontageParams {
@@ -727,8 +823,7 @@ export interface SmartBeatMontageParams {
   maxShotDuration?: number;
   interleave?: boolean;
   transition?: { type: TransitionType; duration: number };
-  scoringWeights?: SmartScoringWeights;
-  weights?: SmartScoringWeights;
+  weights?: SegmentScoringWeights;
   signal?: AbortSignal;
   onProgress?: MontageProgressCallback;
 }
@@ -749,7 +844,6 @@ export async function runSmartBeatMontage({
   maxShotDuration = 3.8,
   interleave = false,
   transition,
-  scoringWeights,
   weights,
   signal,
   onProgress,
@@ -902,63 +996,9 @@ export async function runSmartBeatMontage({
   // 3. Multi-Signal Quality Scoring
   const maxFaceScoreInProject = Math.max(...allCandidateSegments.map((s) => s.faceScore), 0);
   const hasFacesDetected = maxFaceScoreInProject > 0.12;
-  const activeWeights = scoringWeights || weights;
 
   for (const seg of allCandidateSegments) {
-    const motionVal = Math.min(1, Math.max(0, seg.motion));
-    const sharpVal = Math.min(1, Math.max(0, seg.sharpness));
-    const blurPen = seg.blurPenalty;
-    const expoQual = seg.exposureQuality;
-    const faceVal = Math.min(1, Math.max(0, seg.faceScore));
-    const handVelVal = Math.min(1, Math.max(0, seg.handVelocityScore));
-    const colorVal = Math.min(1, Math.max(0, seg.colorfulness));
-    const actionVal = Math.min(1, Math.max(0, seg.actionIntensity));
-    const brightVal = Math.min(1, Math.max(0, seg.brightness));
-
-    const transitionPen = seg.containsTransition ? 0.25 : 1.0;
-
-    let baseScore = 0;
-    if (activeWeights) {
-      const wMotion = Math.max(0, activeWeights.motionWeight ?? 0.5);
-      const wBright = Math.max(0, activeWeights.brightnessWeight ?? 0.5);
-      const wColor = Math.max(0, activeWeights.colorWeight ?? 0.5);
-      const wFace = hasFacesDetected ? Math.max(0, activeWeights.faceWeight ?? 0.5) : 0;
-      const wScene = Math.max(0, activeWeights.sceneChangeWeight ?? 0.5);
-      const weightSum = wMotion + wBright + wColor + wFace + wScene;
-
-      if (weightSum > 0) {
-        const weightedTemplateSignal =
-          (motionVal * wMotion +
-            brightVal * wBright +
-            colorVal * wColor +
-            faceVal * wFace +
-            actionVal * wScene) /
-          weightSum;
-        baseScore = weightedTemplateSignal * 0.82 + sharpVal * 0.13 + handVelVal * 0.05;
-      } else {
-        baseScore = sharpVal * 0.35 + motionVal * 0.25 + actionVal * 0.2 + colorVal * 0.1 + brightVal * 0.1;
-      }
-    } else if (hasFacesDetected) {
-      baseScore =
-        faceVal * 0.35 +
-        sharpVal * 0.25 +
-        motionVal * 0.18 +
-        actionVal * 0.12 +
-        handVelVal * 0.05 +
-        colorVal * 0.05;
-    } else {
-      baseScore =
-        sharpVal * 0.30 +
-        actionVal * 0.28 +
-        motionVal * 0.22 +
-        handVelVal * 0.10 +
-        colorVal * 0.10;
-    }
-
-    // Strictly apply blur, exposure, transition, and fallback penalties.
-    // Fallback segments (from videos whose analysis failed) get the lowest selection priority.
-    const fallbackPen = seg.fallback ? 0.15 : 1.0;
-    seg.score = baseScore * blurPen * expoQual * transitionPen * fallbackPen;
+    seg.score = computeSegmentScore(seg, hasFacesDetected, weights);
   }
 
   // 4. Build Musical Beat Slots
@@ -1203,11 +1243,10 @@ export async function runSmartBeatMontage({
           }
 
           let energyFitBonus = 0;
-          const energyScale = activeWeights ? 0.25 : 1.0;
           if (repSlot.section === "drop" || repSlot.isDownbeat) {
-            energyFitBonus = (cand.actionIntensity * 0.25 + cand.motion * 0.15) * energyScale;
+            energyFitBonus = cand.actionIntensity * 0.25 + cand.motion * 0.15;
           } else if (repSlot.section === "calm") {
-            energyFitBonus = (cand.faceScore * 0.25 + cand.temporalStability * 0.15) * energyScale;
+            energyFitBonus = cand.faceScore * 0.25 + cand.temporalStability * 0.15;
           }
 
           return {
@@ -1463,11 +1502,10 @@ export async function runSmartBeatMontage({
         // In drops / downbeats: high action intensity, motion, and hand velocity
         // In calm / verse: clear faces, stability, and sharpness
         let energyFitBonus = 0;
-        const energyScale = activeWeights ? 0.25 : 1.0;
         if (slot.section === "drop" || slot.isDownbeat) {
-          energyFitBonus = (cand.actionIntensity * 0.25 + cand.motion * 0.15) * energyScale;
+          energyFitBonus = cand.actionIntensity * 0.25 + cand.motion * 0.15;
         } else if (slot.section === "calm") {
-          energyFitBonus = (cand.faceScore * 0.25 + cand.temporalStability * 0.15) * energyScale;
+          energyFitBonus = cand.faceScore * 0.25 + cand.temporalStability * 0.15;
         }
 
         // Prefer sources long enough to fill the whole beat slot.
@@ -1596,12 +1634,11 @@ export async function runAutoMontage(
       type: template.transition,
       duration: template.transitionDuration,
     };
-    const tplWeights: SmartScoringWeights = {
+    const tplWeights: SegmentScoringWeights = {
       motionWeight: template.ai.motionWeight,
       brightnessWeight: template.ai.brightnessWeight,
       colorWeight: template.ai.colorWeight,
       faceWeight: template.ai.faceWeight,
-      sceneChangeWeight: template.ai.sceneChangeWeight,
     };
 
     // If template specifies beat sync or musicUrl is given, run rhythm montage
@@ -1615,7 +1652,7 @@ export async function runAutoMontage(
             minShotDuration,
             maxShotDuration,
             transition: tplTransition,
-            scoringWeights: tplWeights,
+            weights: tplWeights,
             signal,
             onProgress,
           })
@@ -1626,7 +1663,7 @@ export async function runAutoMontage(
             minShotDuration,
             maxShotDuration,
             transition: tplTransition,
-            scoringWeights: tplWeights,
+            weights: tplWeights,
             signal,
             onProgress,
           });

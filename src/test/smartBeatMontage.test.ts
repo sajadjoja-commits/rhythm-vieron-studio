@@ -6,8 +6,12 @@ import {
   clearVideoAnalysisCache, 
   buildVideoCacheKey,
   setCacheEntry,
+  computeSegmentScore,
+  type Segment,
 } from "../lib/autoMontage";
 import { SMART_TEMPLATES, buildSmartTemplateStyle } from "../lib/smartTemplates";
+import { pickNearestFrameIndex } from "../lib/frameMatching";
+import { analyzeFramesInWorker, type FrameBufferData } from "../lib/workers/videoAnalysis.worker";
 import { mapBeatsToTimeline, type BeatAnalysisResult } from "../lib/beatDetector";
 import type { MediaItem } from "@/context/MediaContext";
 
@@ -588,80 +592,124 @@ describe("Comprehensive Smart Cut & Rhythm Engine Test Suite", () => {
     }
   });
 
-  // 16. Template AI Scoring Weights Differentiate Segment Selection
-  it("Scenario 16: Different template AI weights select different segments according to motion vs brightness/color vs face", async () => {
-    const media: MediaItem[] = [
-      { id: "weight-vid", name: "weight.mp4", type: "video", url: "blob:weight-vid", duration: 12, width: 1920, height: 1080, size: 0, file: undefined as any },
-    ];
+  // 16. Video Analysis Accuracy: pickNearestFrameIndex, computeSegmentScore & 1.5s Motion/Transition Neutrality
+  it("Scenario 16: pickNearestFrameIndex selects temporally closest frame to segment midpoint", () => {
+    const frames = [{ time: 0.8 }, { time: 2.4 }, { time: 5.1 }, { time: 8.9 }, { time: 11.2 }];
 
-    const cacheKey = buildVideoCacheKey(media[0]);
-    setCacheEntry(cacheKey, [
-      // Segment 0..4s: High motion & action, low brightness & color
-      {
-        mediaId: "weight-vid",
-        in: 0,
-        out: 4,
-        score: 0.5,
-        motion: 0.98,
-        sharpness: 0.8,
-        blurPenalty: 1.0,
-        exposureQuality: 1.0,
-        actionIntensity: 0.95,
-        temporalStability: 0.7,
-        audioEnergy: 0.5,
-        faceScore: 0.05,
-        handScore: 0,
-        handVelocityScore: 0.4,
-        brightness: 0.25,
-        colorfulness: 0.2,
-        containsTransition: false,
-        overallQuality: 0.8,
-      },
-      // Segment 8..12s: Low motion, very high brightness & colorfulness
-      {
-        mediaId: "weight-vid",
-        in: 8,
-        out: 12,
-        score: 0.5,
-        motion: 0.1,
-        sharpness: 0.8,
-        blurPenalty: 1.0,
-        exposureQuality: 1.0,
-        actionIntensity: 0.1,
-        temporalStability: 0.95,
-        audioEnergy: 0.5,
-        faceScore: 0.05,
-        handScore: 0,
-        handVelocityScore: 0.05,
-        brightness: 0.95,
-        colorfulness: 0.98,
-        containsTransition: false,
-        overallQuality: 0.8,
-      },
-    ]);
+    // Midpoint of [4.5, 5.5] is 5.0 -> closest is index 2 (5.1)
+    expect(pickNearestFrameIndex(frames, { in: 4.5, out: 5.5 })).toBe(2);
+    // Target time 8.2 -> closest is index 3 (8.9, dist 0.7 vs 5.1 dist 3.1)
+    expect(pickNearestFrameIndex(frames, 8.2)).toBe(3);
+    // Target time 1.1 -> closest is index 0 (0.8, dist 0.3 vs 2.4 dist 1.3)
+    expect(pickNearestFrameIndex(frames, 1.1)).toBe(0);
+    // Segment [10.0, 12.0] at segIdx=0 should still pick index 4 (11.2), NOT index 0
+    expect(pickNearestFrameIndex(frames, { in: 10.0, out: 12.0 })).toBe(4);
+  });
+
+  it("Scenario 17: computeSegmentScore differentiates sport vs food weights on the same segment and preserves exact default without weights", () => {
+    const testSeg: Segment = {
+      mediaId: "seg-1",
+      in: 2,
+      out: 4,
+      score: 0,
+      motion: 0.9,
+      sharpness: 0.8,
+      blurPenalty: 0.95,
+      exposureQuality: 0.9,
+      actionIntensity: 0.85,
+      temporalStability: 0.75,
+      audioEnergy: 0.7,
+      faceScore: 0.6,
+      handScore: 0.2,
+      handVelocityScore: 0.3,
+      brightness: 0.55,
+      colorfulness: 0.3,
+      containsTransition: false,
+      overallQuality: 0.8,
+    };
 
     const sportTpl = SMART_TEMPLATES.find((t) => t.id === "sport")!;
     const foodTpl = SMART_TEMPLATES.find((t) => t.id === "food")!;
 
-    const sportRes = await runSmartBeatMontage({
-      media,
-      beatTimes: [2.0],
-      targetDuration: 2.0,
-      scoringWeights: sportTpl.ai,
-    });
+    // 1. Without weights: matches exact default formula (with audioEnergy at 0.10)
+    const expectedBaseWithFaces =
+      testSeg.faceScore * 0.31 +
+      testSeg.sharpness * 0.22 +
+      testSeg.motion * 0.16 +
+      testSeg.actionIntensity * 0.11 +
+      testSeg.audioEnergy * 0.10 +
+      testSeg.handVelocityScore * 0.05 +
+      testSeg.colorfulness * 0.05;
+    const expectedDefaultWithFaces =
+      expectedBaseWithFaces * testSeg.blurPenalty * testSeg.exposureQuality;
 
-    const foodRes = await runSmartBeatMontage({
-      media,
-      beatTimes: [2.0],
-      targetDuration: 2.0,
-      scoringWeights: foodTpl.ai,
-    });
+    expect(computeSegmentScore(testSeg, true)).toBeCloseTo(expectedDefaultWithFaces, 6);
 
-    expect(sportRes.clips.length).toBe(1);
-    expect(foodRes.clips.length).toBe(1);
-    // Sport template picks from the high-motion first segment (0..4s)
-    expect(sportRes.clips[0].in).toBeLessThan(4);
-    // Food template picks from the high-brightness/color last segment (8..12s)
-    expect(foodRes.clips[0].in).toBeGreaterThanOrEqual(7);
+    const expectedBaseNoFaces =
+      testSeg.sharpness * 0.27 +
+      testSeg.actionIntensity * 0.25 +
+      testSeg.motion * 0.20 +
+      testSeg.audioEnergy * 0.10 +
+      testSeg.handVelocityScore * 0.09 +
+      testSeg.colorfulness * 0.09;
+    const expectedDefaultNoFaces =
+      expectedBaseNoFaces * testSeg.blurPenalty * testSeg.exposureQuality;
+
+    expect(computeSegmentScore(testSeg, false)).toBeCloseTo(expectedDefaultNoFaces, 6);
+
+    // 2. Same segment produces distinct scores for sport (motionWeight 0.9) vs food (brightnessWeight 0.8, colorWeight 0.7)
+    const sportScore = computeSegmentScore(testSeg, true, sportTpl.ai);
+    const foodScore = computeSegmentScore(testSeg, true, foodTpl.ai);
+
+    expect(sportScore).not.toBeCloseTo(foodScore, 3);
+    // Since testSeg has very high motion/action (0.9/0.85) and low colorfulness (0.3), sport scores higher than food
+    expect(sportScore).toBeGreaterThan(foodScore);
+
+    // Conversely, on a low-motion, high-color, ideal-brightness segment, food scores higher than sport
+    const foodSeg: Segment = {
+      ...testSeg,
+      motion: 0.1,
+      actionIntensity: 0.1,
+      brightness: 0.55,
+      colorfulness: 0.95,
+    };
+    expect(computeSegmentScore(foodSeg, true, foodTpl.ai)).toBeGreaterThan(
+      computeSegmentScore(foodSeg, true, sportTpl.ai)
+    );
+  });
+
+  it("Scenario 18: Worker motion and transition detection are neutral (0.5 and false) when frame delta > 1.5s, and active when <= 1.5s", () => {
+    const W = 16;
+    const H = 16;
+    const makeFrame = (time: number, r: number, g: number, b: number): FrameBufferData => {
+      const arr = new Uint8ClampedArray(W * H * 4);
+      for (let i = 0; i < arr.length; i += 4) {
+        arr[i] = r;
+        arr[i + 1] = g;
+        arr[i + 2] = b;
+        arr[i + 3] = 255;
+      }
+      return { time, width: W, height: H, buffer: arr.buffer };
+    };
+
+    // Case A: Consecutive frames are 2.4s apart (> 1.5s) with extreme pixel change (dark -> bright)
+    const farFrames: FrameBufferData[] = [
+      makeFrame(0.5, 20, 20, 20),
+      makeFrame(2.9, 240, 240, 240),
+    ];
+    const farRes = analyzeFramesInWorker(farFrames, [{ in: 2.7, out: 3.1 }]);
+    expect(farRes[0].motion).toBeCloseTo(0.5, 5);
+    expect(farRes[0].containsTransition).toBe(false);
+
+    // Case B: Consecutive frames are 0.8s apart (<= 1.5s) with the exact same pixel change
+    const closeFrames: FrameBufferData[] = [
+      makeFrame(2.1, 20, 20, 20),
+      makeFrame(2.9, 240, 240, 240),
+    ];
+    const closeRes = analyzeFramesInWorker(closeFrames, [{ in: 2.7, out: 3.1 }]);
+    expect(closeRes[0].motion).toBeGreaterThan(0.8);
+    expect(closeRes[0].containsTransition).toBe(true);
+    // Skin-tone movement is never used to synthesize handVelocityScore in worker
+    expect(closeRes[0].handVelocityScore).toBe(0);
   });
 });

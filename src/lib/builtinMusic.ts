@@ -143,6 +143,28 @@ export const SUPABASE_DEFAULT_TRACKS: BuiltinTrack[] = [
     genre: "acoustic",
     color: "#10b981",
   },
+  {
+    id: "supabase-War music.mp3",
+    title: "War Music",
+    titleEn: "War Music",
+    artist: "Supabase Music",
+    url: "https://zehsxvunlwezknxdmmyn.supabase.co/storage/v1/object/public/audio/music/War%20music%20.mp3",
+    coverUrl: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=300&q=80",
+    bpm: 130,
+    genre: "cinematic",
+    color: "#ef4444",
+  },
+  {
+    id: "supabase-Music of war and sorrow.mp3",
+    title: "Music of War and Sorrow",
+    titleEn: "Music of War and Sorrow",
+    artist: "Supabase Music",
+    url: "https://zehsxvunlwezknxdmmyn.supabase.co/storage/v1/object/public/audio/music/Music%20of%20war%20and%20sorrow.mp3",
+    coverUrl: "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?auto=format&fit=crop&w=300&q=80",
+    bpm: 95,
+    genre: "cinematic",
+    color: "#6366f1",
+  },
 ];
 
 export const BUILTIN_TRACKS: BuiltinTrack[] = [...SUPABASE_DEFAULT_TRACKS];
@@ -158,9 +180,13 @@ export async function fetchSupabaseMusicTracks(): Promise<BuiltinTrack[]> {
       fetchedTracks = data
         .filter((file) => file.name && !file.name.startsWith(".") && /\.(mp3|wav|aac|m4a|ogg|flac)$/i.test(file.name))
         .map((file) => {
-          const trackId = `supabase-${file.name}`;
+          const normalizedFileName = file.name.replace(/\s+\./g, ".").trim();
+          const trackId = `supabase-${normalizedFileName}`;
           const existing = SUPABASE_DEFAULT_TRACKS.find(
-            (def) => def.id.toLowerCase() === trackId.toLowerCase() || def.id.toLowerCase().includes(file.name.toLowerCase())
+            (def) =>
+              def.id.toLowerCase() === trackId.toLowerCase() ||
+              def.id.toLowerCase().includes(normalizedFileName.toLowerCase()) ||
+              def.url.toLowerCase().includes(encodeURIComponent(file.name).toLowerCase())
           );
           if (existing) {
             return existing;
