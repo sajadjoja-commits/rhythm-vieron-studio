@@ -74,10 +74,11 @@ export class VideoAnalysisWorkerManager {
       const transferList = frames.map((f) => f.buffer).filter(Boolean);
 
       return new Promise<WorkerSegmentResult[]>((resolve, reject) => {
+        const timeoutMs = Math.min(30000, 8000 + 400 * frames.length);
         const timeout = setTimeout(() => {
           this.pendingRequests.delete(id);
           reject(new Error("Worker analysis timed out"));
-        }, 8000);
+        }, timeoutMs);
 
         this.pendingRequests.set(id, {
           resolve: (res) => {
@@ -102,8 +103,11 @@ export class VideoAnalysisWorkerManager {
         } catch (err) {
           clearTimeout(timeout);
           this.pendingRequests.delete(id);
-          // Fallback to inline computation
-          resolve(this.fallbackInlineAnalysis(frames, segments));
+          try {
+            resolve(this.fallbackInlineAnalysis(frames, segments));
+          } catch (fallbackErr) {
+            reject(fallbackErr instanceof Error ? fallbackErr : new Error(String(fallbackErr)));
+          }
         }
       });
     }
@@ -112,29 +116,14 @@ export class VideoAnalysisWorkerManager {
   }
 
   /**
-   * Fast inline main thread fallback if worker is not available
+   * Throws an explicit error when the worker is unavailable so autoMontage
+   * catches it and uses buildFallbackSegments (with fallback: true and warning).
    */
   private fallbackInlineAnalysis(
-    frames: FrameBufferData[],
-    segments: Array<{ in: number; out: number }>
+    _frames: FrameBufferData[],
+    _segments: Array<{ in: number; out: number }>
   ): WorkerSegmentResult[] {
-    return segments.map((seg) => ({
-      in: seg.in,
-      out: seg.out,
-      motion: 0.5,
-      sharpness: 0.6,
-      blurPenalty: 1.0,
-      exposureQuality: 1.0,
-      actionIntensity: 0.5,
-      temporalStability: 0.8,
-      faceScore: 0,
-      handScore: 0,
-      handVelocityScore: 0,
-      brightness: 0.6,
-      colorfulness: 0.5,
-      containsTransition: false,
-      overallQuality: 0.65,
-    }));
+    throw new Error("Video analysis worker unavailable");
   }
 
   /**

@@ -525,11 +525,10 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
       : await analyzeBeatsFromUrl(t.url, { threshold: beatThreshold, mode: beatMode }, (p) => setBeatProgress(Math.min(99, Math.round(p))));
     const step = beatDensity;
     const picked = info.beats.filter((_, i) => i % step === 0);
-    const maxTimelineSpan = Math.max(totalDuration || 0, t.start + t.duration);
     const beatsOnTimeline = picked
       .filter((b) => b >= t.offset && b <= t.offset + t.duration)
       .map((b) => t.start + (b - t.offset))
-      .filter((b) => b > 0 && b <= maxTimelineSpan);
+      .filter((b) => b > 0 && b < totalDuration);
 
     // Save beats and bpm specifically to this track
     updateAudioTrack(t.id, { beats: beatsOnTimeline, bpm: info.bpm });
@@ -582,7 +581,7 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
     setBeatProgressText(en ? "Starting AI moment analysis..." : "بدء تحليل المشاهد الذكي...");
     await new Promise((r) => setTimeout(r, 60));
     try {
-      // Rich analysis (downbeats + musical sections), shifted onto the timeline, takes strict precedence over legacy beatTimes.
+      // Rich analysis (downbeats + musical sections), shifted onto the timeline, kept strictly local for montage.
       let richAnalysis: BeatAnalysisResult | undefined;
       try {
         setBeatProgressText(en ? "Analyzing music structure..." : "تحليل بنية الموسيقى...");
@@ -605,17 +604,22 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
         }
       } catch (err) { console.warn("[MusicPanel] rich beat analysis failed", err); }
 
-      let targetBeats = richAnalysis?.beatTimes?.length ? richAnalysis.beatTimes : (t.beats || audioBeats);
+      let targetBeats = t.beats && t.beats.length > 0 ? t.beats : audioBeats;
       if (!targetBeats || targetBeats.length === 0) {
-        setBeatProgressText(en ? "Detecting audio rhythm beats..." : "كشف إيقاع الموسيقى...");
-        const res = await analyzeCurrentAudioTrack();
-        if (res) {
-          targetBeats = res.beatsOnTimeline;
-          setAudioBeats(targetBeats);
+        if (richAnalysis?.beatTimes?.length) {
+          targetBeats = richAnalysis.beatTimes;
+        } else {
+          setBeatProgressText(en ? "Detecting audio rhythm beats..." : "كشف إيقاع الموسيقى...");
+          const info = t.file
+            ? await analyzeBeats(t.file, { threshold: beatThreshold, mode: beatMode }, (p) => setBeatProgress(Math.min(99, Math.round(p))))
+            : await analyzeBeatsFromUrl(t.url, { threshold: beatThreshold, mode: beatMode }, (p) => setBeatProgress(Math.min(99, Math.round(p))));
+          const step = beatDensity;
+          targetBeats = info.beats
+            .filter((_, i) => i % step === 0)
+            .filter((b) => b >= t.offset && b <= t.offset + t.duration)
+            .map((b) => t.start + (b - t.offset))
+            .filter((b) => b > 0 && b <= t.start + t.duration);
         }
-      } else if (richAnalysis?.beatTimes?.length) {
-        setAudioBeats(richAnalysis.beatTimes);
-        updateAudioTrack(t.id, { beats: richAnalysis.beatTimes, bpm: richAnalysis.bpm });
       }
 
       if (targetBeats && targetBeats.length > 0) {
@@ -633,16 +637,13 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
 
         if (res.clips.length > 0) {
           setClips(res.clips);
-          // If the montage is shorter than the selected music track, trim the music track cleanly at the last beat cut
+          // Exception allowed: if the montage is shorter than the selected music track, trim the music track duration at the last beat
           const montageEnd = Number(res.totalDuration.toFixed(3));
           const newTrackDur = Math.max(0.5, Number((montageEnd - t.start).toFixed(3)));
           if (montageEnd > t.start && newTrackDur < t.duration - 0.05) {
-            const trimmedBeats = targetBeats.filter((b) => b <= montageEnd + 0.02);
             updateAudioTrack(t.id, {
               duration: newTrackDur,
-              beats: trimmedBeats,
             });
-            setAudioBeats(trimmedBeats);
           }
           playSfx("success");
           const isRealAi = res.analysis?.visionEngine === "mediapipe";

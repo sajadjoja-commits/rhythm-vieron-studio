@@ -180,6 +180,22 @@ async function analyzeVideoAdvanced(
     let isCleanedUp = false;
     let safetyTimer: ReturnType<typeof setTimeout> | null = null;
     let stepTimer: ReturnType<typeof setTimeout> | null = null;
+    const WATCHDOG_IDLE_MS = 12000;
+
+    const resetWatchdog = (timeoutMs: number = WATCHDOG_IDLE_MS) => {
+      if (isCleanedUp) return;
+      if (safetyTimer) {
+        clearTimeout(safetyTimer);
+      }
+      safetyTimer = setTimeout(() => {
+        if (!isCleanedUp) {
+          cleanup();
+          extractedFrames.length = 0;
+          visionPromises.length = 0;
+          resolve(buildFallbackSegments());
+        }
+      }, timeoutMs);
+    };
 
     const cleanup = () => {
       if (isCleanedUp) return;
@@ -264,6 +280,8 @@ async function analyzeVideoAdvanced(
       }
 
       if (sampleIdx >= sampleTimes.length) {
+        // Refresh watchdog to cover worker + audio + vision batch completion
+        resetWatchdog(Math.min(30000, 8000 + 400 * extractedFrames.length) + 4000);
         // All frames extracted - dispatch analysis & batch audio energy to Web Worker + Vision
         void (async () => {
           try {
@@ -339,6 +357,7 @@ async function analyzeVideoAdvanced(
     const onLoadedMetadata = () => {
       if (started || isCleanedUp) return;
       started = true;
+      resetWatchdog();
       processFrame();
     };
 
@@ -352,6 +371,9 @@ async function analyzeVideoAdvanced(
         reject(new Error("Video analysis aborted"));
         return;
       }
+
+      // Renew watchdog on every successfully extracted frame
+      resetWatchdog();
 
       const frameTime = sampleTimes[sampleIdx];
       try {
@@ -410,14 +432,7 @@ async function analyzeVideoAdvanced(
     v.addEventListener("seeked", onSeeked);
     v.addEventListener("error", onError);
 
-    safetyTimer = setTimeout(() => {
-      if (!isCleanedUp) {
-        cleanup();
-        extractedFrames.length = 0;
-        visionPromises.length = 0;
-        resolve(buildFallbackSegments());
-      }
-    }, 15000);
+    resetWatchdog();
 
     v.src = url;
     v.load();
@@ -1046,8 +1061,18 @@ export async function runSmartBeatMontage({
             : null;
 
         // Score all candidates in mCands for this pass
+        // On repeat passes (passNumber > 0), strongly prioritize any unused segments first and shift candidate centers
+        const passShift =
+          passNumber === 0
+            ? 0
+            : ((passNumber % 3 === 1 ? 0.35 : passNumber % 3 === 2 ? -0.35 : 0.2) * avgSlotDur);
+
         const scoredCands = mCands.map((cand) => {
-          const candMid = (cand.in + cand.out) / 2;
+          const rawMid = (cand.in + cand.out) / 2;
+          const candMid = Math.max(
+            avgSlotDur * 0.5,
+            Math.min(mDur - avgSlotDur * 0.5, rawMid + passShift)
+          );
           let estIn = Math.max(0, candMid - avgSlotDur / 2);
           if (estIn + avgSlotDur > mDur) estIn = Math.max(0, mDur - avgSlotDur);
           const estOut = Math.min(mDur, estIn + avgSlotDur);
@@ -1060,8 +1085,11 @@ export async function runSmartBeatMontage({
             if (oEnd > oStart) overlapSec += oEnd - oStart;
           }
           const overlapUnits = overlapSec / estDur;
+          // In repeat passes (passNumber > 0), unused segments (overlapUnits <= 0.08) get strict priority over already-used ones
           const overlapPenalty =
-            overlapUnits > 0.08 ? Math.ceil(overlapUnits - 0.08) * 10.0 + overlapUnits * 2.0 : 0;
+            overlapUnits > 0.08
+              ? Math.ceil(overlapUnits - 0.08) * (passNumber > 0 ? 25.0 : 10.0) + overlapUnits * 4.0
+              : 0;
 
           let consecutiveIdenticalPenalty = 0;
           if (
@@ -1069,7 +1097,7 @@ export async function runSmartBeatMontage({
             Math.abs(estIn - prevClipOnThisVideo.in) < 0.25 &&
             Math.abs(estOut - prevClipOnThisVideo.out) < 0.25
           ) {
-            consecutiveIdenticalPenalty = 25.0;
+            consecutiveIdenticalPenalty = 35.0;
           }
 
           let energyFitBonus = 0;
@@ -1082,11 +1110,17 @@ export async function runSmartBeatMontage({
           return {
             cand,
             mid: candMid,
+            isUnused: overlapUnits <= 0.08,
             totalScore: cand.score + energyFitBonus - overlapPenalty - consecutiveIdenticalPenalty,
           };
         });
 
-        scoredCands.sort((a, b) => b.totalScore - a.totalScore);
+        scoredCands.sort((a, b) => {
+          if (passNumber > 0 && a.isUnused !== b.isUnused) {
+            return a.isUnused ? -1 : 1;
+          }
+          return b.totalScore - a.totalScore;
+        });
 
         // Greedily pick top passSlotCount non-overlapping moments
         const chosenMoments: Array<{ cand: Segment; mid: number; totalScore: number }> = [];
@@ -1116,56 +1150,105 @@ export async function runSmartBeatMontage({
           });
         }
 
-        // Order chosen moments chronologically by position inside the video
+        // Sort moments spatially first so we can slice non-overlapping intervals across the video
         chosenMoments.sort((a, b) => a.mid - b.mid);
 
-        // Slice each slot in chronological order without overlap
-        let cursor = 0;
-        for (let j = 0; j < passSlots.length; j++) {
-          const slot = passSlots[j];
-          const targetDur = Math.max(0.1, slot.dur + beatCarry);
-          const remainingRequiredAfterJ = passSlots
-            .slice(j + 1)
-            .reduce((acc, s) => acc + s.dur, 0);
+        const K = passSlots.length;
+        // Build slot-to-spatial-bin permutation:
+        // - Pass 0 (first pass): strictly chronological ascending [0, 1, ..., K-1]
+        // - Pass > 0 (repeat passes): vary start point and playback order (reverse, middle-out rotation, odd-even)
+        const perm: number[] = [];
+        if (passNumber === 0 || K <= 1) {
+          for (let j = 0; j < K; j++) perm.push(j);
+        } else if (passNumber % 3 === 1) {
+          // Reverse chronological order (end of video -> start of video)
+          for (let j = K - 1; j >= 0; j--) perm.push(j);
+        } else if (passNumber % 3 === 2) {
+          // Rotated middle-first order
+          const startBin = Math.max(1, Math.floor(K / 2));
+          for (let j = 0; j < K; j++) perm.push((startBin + j) % K);
+        } else {
+          // Alternating odd-then-even bins
+          for (let j = 1; j < K; j += 2) perm.push(j);
+          for (let j = 0; j < K; j += 2) perm.push(j);
+        }
 
-          if (!isLastVideo && j > 0 && mDur - cursor < minShotDuration) {
-            // Non-last video has exhausted its usable non-overlapping footage; transfer remaining slots to next video
+        // Map each spatial bin sIdx (0..K-1) to the slot j that will use it
+        const slotIndexForSpatialBin = new Array<number>(K).fill(0);
+        for (let j = 0; j < K; j++) {
+          slotIndexForSpatialBin[perm[j]] = j;
+        }
+        const spatialReqDurs = slotIndexForSpatialBin.map((slotJ) =>
+          Math.max(0.1, passSlots[slotJ].dur + (slotJ === 0 ? beatCarry : 0))
+        );
+        const totalPassReqDur = spatialReqDurs.reduce((a, b) => a + b, 0);
+        const slack = Math.max(0, mDur - totalPassReqDur);
+        // Vary starting offset at the beginning of each repeat pass so rounds don't start at 0
+        const passStartOffset =
+          passNumber === 0 ? 0 : Number((((passNumber * 0.37) % 0.8) * slack).toFixed(3));
+
+        let cursor = passStartOffset;
+        const spatialSlices: Array<{ in: number; out: number } | null> = new Array(K).fill(null);
+
+        for (let sIdx = 0; sIdx < K; sIdx++) {
+          const reqDur = spatialReqDurs[sIdx];
+          const remainingRequiredAfterS = spatialReqDurs
+            .slice(sIdx + 1)
+            .reduce((acc, d) => acc + d, 0);
+
+          if (!isLastVideo && sIdx > 0 && mDur - cursor < minShotDuration) {
             break;
           }
 
           const maxSliceOut = Math.min(
             mDur,
-            Math.max(cursor + Math.min(targetDur, mDur - cursor), mDur - remainingRequiredAfterJ)
+            Math.max(cursor + Math.min(reqDur, mDur - cursor), mDur - remainingRequiredAfterS)
           );
-          let sliceIn = chosenMoments[j].mid - targetDur / 2;
-          if (sliceIn + targetDur > maxSliceOut) {
-            sliceIn = maxSliceOut - targetDur;
+          let sliceIn = chosenMoments[sIdx].mid - reqDur / 2;
+          if (sliceIn + reqDur > maxSliceOut) {
+            sliceIn = maxSliceOut - reqDur;
           }
           sliceIn = Math.max(cursor, sliceIn);
+
+          const sliceOut = Math.min(mDur, sliceIn + reqDur);
+          cursor = sliceOut;
+          spatialSlices[sIdx] = { in: sliceIn, out: sliceOut };
+        }
+
+        // Emit clips in the pass's slot order (chronological on Pass 0, varied on Pass > 0)
+        for (let j = 0; j < K; j++) {
+          const sIdx = perm[j];
+          const planned = spatialSlices[sIdx];
+          if (!planned) break;
+
+          const slot = passSlots[j];
+          const targetDur = Math.max(0.1, slot.dur + beatCarry);
+          let sliceIn = planned.in;
+          let sliceOut = planned.out;
 
           // Prevent two consecutive identical cuts when repeating on the last video
           const lastClip = finalClips.length > 0 ? finalClips[finalClips.length - 1] : null;
           if (lastClip && lastClip.mediaId === m.id) {
-            const tentativeOut = Math.min(mDur, sliceIn + targetDur);
             if (
               Math.abs(sliceIn - lastClip.in) < 0.2 &&
-              Math.abs(tentativeOut - lastClip.out) < 0.2
+              Math.abs(sliceOut - lastClip.out) < 0.2
             ) {
-              const altStart = lastClip.in > cursor + 0.25 ? cursor : Math.min(maxSliceOut - targetDur, lastClip.in + Math.max(0.35, targetDur * 0.5));
-              if (altStart >= cursor && Math.abs(altStart - lastClip.in) >= 0.15) {
-                sliceIn = altStart;
+              const shiftAmount = Math.max(0.25, Math.min(targetDur * 0.45, Math.max(0, mDur - targetDur)));
+              const candForward = Math.min(Math.max(0, mDur - targetDur), lastClip.in + shiftAmount);
+              const candBackward = Math.max(0, lastClip.in - shiftAmount);
+              if (Math.abs(candForward - lastClip.in) >= 0.15) {
+                sliceIn = candForward;
+              } else if (Math.abs(candBackward - lastClip.in) >= 0.15) {
+                sliceIn = candBackward;
               } else if (mDur > 0.4) {
-                const microShift = ((passNumber + j + 1) % 2 === 1) ? Math.min(0.2, mDur * 0.18) : 0;
-                sliceIn = Math.max(cursor, Math.min(mDur - 0.1, microShift));
+                sliceIn = ((passNumber + j + 1) % 2 === 1) ? Math.min(0.2, mDur * 0.18) : 0;
               }
+              sliceOut = Math.min(mDur, sliceIn + targetDur);
             }
           }
 
-          const sliceOut = Math.min(mDur, sliceIn + targetDur);
           const actualDur = Math.max(0.1, sliceOut - sliceIn);
-
           beatCarry = targetDur - actualDur;
-          cursor = sliceOut;
 
           videoUsedRanges.push({ in: sliceIn, out: sliceOut });
           const clipIdx = finalClips.length;
