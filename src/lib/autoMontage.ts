@@ -595,6 +595,60 @@ export function buildMusicalBeatSlots(
   // Case 2: Fallback with raw beat times
   const sortedBeats = Array.from(new Set(rawBeatTimes.filter((b) => b > 0.05))).sort((a, b) => a - b);
   const slots: BeatSlot[] = [];
+
+  // If no beats exist (neither beatResult nor rawBeatTimes), divide target duration into multiple slots
+  // between minShotDuration and maxShotDuration, merging any short remainder with the last slot.
+  if (sortedBeats.length === 0) {
+    const safeMin = Math.max(0.2, minShotDuration);
+    const safeMax = Math.max(safeMin, maxShotDuration);
+    const midDur = (safeMin + safeMax) / 2;
+    const stepDur =
+      effectiveDur >= safeMin * 2 && effectiveDur < midDur + safeMin
+        ? effectiveDur / 2
+        : midDur;
+
+    let currentStart = 0;
+    while (currentStart < effectiveDur - 0.05) {
+      const remaining = effectiveDur - currentStart;
+      if (remaining < safeMin && slots.length > 0) {
+        const lastSlot = slots[slots.length - 1];
+        lastSlot.out = Number(effectiveDur.toFixed(3));
+        lastSlot.dur = Number((lastSlot.out - lastSlot.in).toFixed(3));
+        currentStart = effectiveDur;
+        break;
+      }
+
+      const nextOut = Math.min(effectiveDur, currentStart + stepDur);
+      const dur = nextOut - currentStart;
+      const isDownbeat = slots.length % 4 === 0;
+      const isStrong = isDownbeat || slots.length % 2 === 0;
+      slots.push({
+        in: Number(currentStart.toFixed(3)),
+        out: Number(nextOut.toFixed(3)),
+        dur: Number(dur.toFixed(3)),
+        isDownbeat,
+        isStrong,
+        section: isStrong ? "drop" : "verse",
+        targetEnergy: isStrong ? 0.75 : 0.45,
+      });
+      currentStart = nextOut;
+    }
+
+    if (slots.length === 0) {
+      slots.push({
+        in: 0,
+        out: effectiveDur,
+        dur: effectiveDur,
+        isDownbeat: true,
+        isStrong: true,
+        section: "verse",
+        targetEnergy: 0.5,
+      });
+    }
+
+    return slots;
+  }
+
   let prevTime = 0;
 
   for (let i = 0; i < sortedBeats.length; i++) {
@@ -1474,26 +1528,50 @@ export async function runAutoMontage(
 ): Promise<MontageResult> {
   const { fastMode = true, targetDuration: overrideDuration, signal, onProgress } = options || {};
 
-  // If template specifies beat sync or musicUrl is given, run rhythm montage
-  if (template.aiRules.beatSync || musicUrl) {
-    return runSmartBeatMontage({
+  try {
+    const beatSync = template.ai.musicSync;
+    const resolvedTargetDuration = overrideDuration || template.ai.targetDuration || 30;
+    const minShotDuration = template.ai.minClipSec || 0.8;
+    const maxShotDuration = template.ai.maxClipSec || 4.0;
+
+    // If template specifies beat sync or musicUrl is given, run rhythm montage
+    if (beatSync || musicUrl) {
+      return await runSmartBeatMontage({
+        media,
+        audioTrackUrl: musicUrl,
+        targetDuration: resolvedTargetDuration,
+        fastMode,
+        minShotDuration,
+        maxShotDuration,
+        signal,
+        onProgress,
+      });
+    }
+
+    // Otherwise standard smart moment selection
+    return await runSmartBeatMontage({
       media,
-      audioTrackUrl: musicUrl,
-      targetDuration: overrideDuration || template.aiRules.targetDuration,
+      targetDuration: resolvedTargetDuration,
       fastMode,
+      minShotDuration,
+      maxShotDuration,
       signal,
       onProgress,
     });
+  } catch (err) {
+    console.error("[runAutoMontage] Failed to generate smart template montage:", {
+      templateId: template?.id,
+      templateName: template?.nameEn || template?.name,
+      beatSync: template?.ai?.musicSync,
+      targetDuration: overrideDuration || template?.ai?.targetDuration,
+      minClipSec: template?.ai?.minClipSec,
+      maxClipSec: template?.ai?.maxClipSec,
+      mediaCount: media?.length ?? 0,
+      hasMusicUrl: Boolean(musicUrl),
+      errorMessage: err instanceof Error ? err.message : String(err),
+      errorStack: err instanceof Error ? err.stack : undefined,
+      error: err,
+    });
+    throw err;
   }
-
-  // Otherwise standard smart moment selection
-  return runSmartBeatMontage({
-    media,
-    targetDuration: overrideDuration || template.aiRules.targetDuration || 30,
-    fastMode,
-    minShotDuration: template.aiRules.minClipSec || 0.8,
-    maxShotDuration: template.aiRules.maxClipSec || 4.0,
-    signal,
-    onProgress,
-  });
 }

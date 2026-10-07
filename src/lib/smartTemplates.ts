@@ -2,7 +2,6 @@
 import type { FilterType, VfxType, TransitionType, CaptionAnimation } from "@/context/MediaContext";
 
 export interface SmartTemplate {
-  aiRules?: any;
   id: string;
   name: string;
   nameEn: string;

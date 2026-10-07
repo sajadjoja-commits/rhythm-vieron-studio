@@ -204,7 +204,16 @@ export default function SmartTemplateQuickEditor({ initialTemplate, onBack, onOp
       setIsPlaying(true);
       setStep("result");
     } catch (err) {
-      console.error(err);
+      console.error("[SmartTemplateQuickEditor] Montage generation failed:", {
+        templateId: selectedTemplate?.id,
+        templateName: selectedTemplate?.nameEn,
+        targetDuration,
+        mediaCount: itemsToProcess.length,
+        musicTrackId: selectedTrack?.id,
+        errorMessage: err instanceof Error ? err.message : String(err),
+        errorStack: err instanceof Error ? err.stack : undefined,
+        error: err,
+      });
       toast.error(isRTL() ? "حدث خطأ أثناء المونتاج الذكي" : "Failed to generate smart montage");
       setStep("setup");
     }

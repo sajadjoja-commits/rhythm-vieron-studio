@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
 import { 
   runSmartBeatMontage, 
+  runAutoMontage,
   buildMusicalBeatSlots, 
   clearVideoAnalysisCache, 
   buildVideoCacheKey 
 } from "../lib/autoMontage";
+import { SMART_TEMPLATES } from "../lib/smartTemplates";
 import { mapBeatsToTimeline, type BeatAnalysisResult } from "../lib/beatDetector";
 import type { MediaItem } from "@/context/MediaContext";
 
@@ -467,5 +469,29 @@ describe("Comprehensive Smart Cut & Rhythm Engine Test Suite", () => {
         signal: abortController.signal,
       })
     ).rejects.toThrow();
+  });
+
+  // 13. All 9 SMART_TEMPLATES Validation (Music & Non-Music Templates)
+  it("Scenario 13: All 9 SMART_TEMPLATES execute runAutoMontage without throwing and non-music templates produce multiple clips across 2+ videos", async () => {
+    expect(SMART_TEMPLATES.length).toBe(9);
+
+    const media: MediaItem[] = [
+      { id: "tpl-v1", name: "v1.mp4", type: "video", url: "blob:tpl-v1", duration: 15, width: 1920, height: 1080, size: 0, file: undefined as any },
+      { id: "tpl-v2", name: "v2.mp4", type: "video", url: "blob:tpl-v2", duration: 15, width: 1920, height: 1080, size: 0, file: undefined as any },
+      { id: "tpl-v3", name: "v3.mp4", type: "video", url: "blob:tpl-v3", duration: 15, width: 1920, height: 1080, size: 0, file: undefined as any },
+    ];
+
+    for (const tpl of SMART_TEMPLATES) {
+      const musicUrl = tpl.ai.musicSync ? "blob:test-song" : undefined;
+      const result = await runAutoMontage(media, tpl, [], musicUrl, { fastMode: true });
+
+      expect(result.clips.length).toBeGreaterThan(1);
+
+      if (!tpl.ai.musicSync) {
+        // Non-music templates (vlog, retro) must split into multiple clips and use multiple videos sequentially
+        const usedMediaIds = new Set(result.clips.map((c) => c.mediaId));
+        expect(usedMediaIds.size).toBeGreaterThanOrEqual(2);
+      }
+    }
   });
 });

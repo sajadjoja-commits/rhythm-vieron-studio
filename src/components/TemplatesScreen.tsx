@@ -264,7 +264,16 @@ const TemplatesScreen = ({ onStartEditor, onSelectPublishedTemplate, onSelectSma
       toast.success(en ? `AI montage complete! ${result.analysis.segmentsSelected} clips selected from ${result.analysis.segmentsAnalyzed} segments.` : `اكتمل المونتاج الذكي! ${result.analysis.segmentsSelected} لقطات تم اختيارها من ${result.analysis.segmentsAnalyzed} أجزاء.`);
       onStartEditor();
     } catch (err) {
-      console.error(err);
+      console.error("[TemplatesScreen] Smart template montage generation failed:", {
+        templateId: customizedTpl?.id,
+        templateName: customizedTpl?.nameEn,
+        duration,
+        musicType,
+        mediaCount: media.length,
+        errorMessage: err instanceof Error ? err.message : String(err),
+        errorStack: err instanceof Error ? err.stack : undefined,
+        error: err,
+      });
       applySmartTemplate(customizedTpl);
       onStartEditor();
     } finally {
