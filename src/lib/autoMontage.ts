@@ -1,6 +1,6 @@
 // AI Auto-Montage & Smart Beat Engine with Non-blocking Worker Analysis, Blur/Exposure Penalties & Diversity
-import type { SmartTemplate } from "./smartTemplates";
-import type { Clip, MediaItem, FilterItem, VfxItem, Caption, CaptionStyle } from "@/context/MediaContext";
+import { buildSmartTemplateStyle, type SmartTemplate } from "./smartTemplates";
+import type { Clip, MediaItem, FilterItem, VfxItem, Caption, CaptionStyle, TransitionType, Transition } from "@/context/MediaContext";
 import { 
   calculateSegmentAudioEnergiesBatch, 
   analyzeAudioTrack, 
@@ -708,6 +708,14 @@ export function buildMusicalBeatSlots(
   return slots;
 }
 
+export interface SmartScoringWeights {
+  motionWeight: number;
+  brightnessWeight: number;
+  colorWeight: number;
+  faceWeight: number;
+  sceneChangeWeight: number;
+}
+
 export interface SmartBeatMontageParams {
   media: MediaItem[];
   beatTimes?: number[];
@@ -718,6 +726,9 @@ export interface SmartBeatMontageParams {
   minShotDuration?: number;
   maxShotDuration?: number;
   interleave?: boolean;
+  transition?: { type: TransitionType; duration: number };
+  scoringWeights?: SmartScoringWeights;
+  weights?: SmartScoringWeights;
   signal?: AbortSignal;
   onProgress?: MontageProgressCallback;
 }
@@ -737,6 +748,9 @@ export async function runSmartBeatMontage({
   minShotDuration = 0.65,
   maxShotDuration = 3.8,
   interleave = false,
+  transition,
+  scoringWeights,
+  weights,
   signal,
   onProgress,
 }: SmartBeatMontageParams): Promise<MontageResult> {
@@ -888,6 +902,7 @@ export async function runSmartBeatMontage({
   // 3. Multi-Signal Quality Scoring
   const maxFaceScoreInProject = Math.max(...allCandidateSegments.map((s) => s.faceScore), 0);
   const hasFacesDetected = maxFaceScoreInProject > 0.12;
+  const activeWeights = scoringWeights || weights;
 
   for (const seg of allCandidateSegments) {
     const motionVal = Math.min(1, Math.max(0, seg.motion));
@@ -898,11 +913,32 @@ export async function runSmartBeatMontage({
     const handVelVal = Math.min(1, Math.max(0, seg.handVelocityScore));
     const colorVal = Math.min(1, Math.max(0, seg.colorfulness));
     const actionVal = Math.min(1, Math.max(0, seg.actionIntensity));
+    const brightVal = Math.min(1, Math.max(0, seg.brightness));
 
     const transitionPen = seg.containsTransition ? 0.25 : 1.0;
 
     let baseScore = 0;
-    if (hasFacesDetected) {
+    if (activeWeights) {
+      const wMotion = Math.max(0, activeWeights.motionWeight ?? 0.5);
+      const wBright = Math.max(0, activeWeights.brightnessWeight ?? 0.5);
+      const wColor = Math.max(0, activeWeights.colorWeight ?? 0.5);
+      const wFace = hasFacesDetected ? Math.max(0, activeWeights.faceWeight ?? 0.5) : 0;
+      const wScene = Math.max(0, activeWeights.sceneChangeWeight ?? 0.5);
+      const weightSum = wMotion + wBright + wColor + wFace + wScene;
+
+      if (weightSum > 0) {
+        const weightedTemplateSignal =
+          (motionVal * wMotion +
+            brightVal * wBright +
+            colorVal * wColor +
+            faceVal * wFace +
+            actionVal * wScene) /
+          weightSum;
+        baseScore = weightedTemplateSignal * 0.82 + sharpVal * 0.13 + handVelVal * 0.05;
+      } else {
+        baseScore = sharpVal * 0.35 + motionVal * 0.25 + actionVal * 0.2 + colorVal * 0.1 + brightVal * 0.1;
+      }
+    } else if (hasFacesDetected) {
       baseScore =
         faceVal * 0.35 +
         sharpVal * 0.25 +
@@ -971,8 +1007,20 @@ export async function runSmartBeatMontage({
   const finalClips: Clip[] = [];
   let beatCarry = 0;
 
-  if (!interleave && validMedia.length > 1) {
-    // 5A. Sequential Mode (Default for multiple videos):
+  const computeTransitionIn = (clipIdx: number, prevDur: number, currDur: number): Transition | undefined => {
+    if (clipIdx <= 0) return undefined;
+    if (transition) {
+      if (transition.type === "none" || transition.duration <= 0) return undefined;
+      const clampedDur = Number(
+        Math.min(transition.duration, 0.4 * Math.min(Math.max(0.1, prevDur), Math.max(0.1, currDur))).toFixed(3)
+      );
+      return { type: transition.type, duration: clampedDur };
+    }
+    return clipIdx % 4 === 0 ? { type: "fade", duration: 0.15 } : undefined;
+  };
+
+  if (!interleave) {
+    // 5A. Sequential Mode (Default for 1 or more videos when interleave === false):
     // - Keeps videos in exact upload order.
     // - Distributes contiguous beat slots proportionally to each video's usable duration.
     // - Snaps inter-video transition boundaries within ±1 beat to a section boundary or downbeat.
@@ -1094,8 +1142,8 @@ export async function runSmartBeatMontage({
           if (cumReqDur + nextDur <= mDur + 0.05) {
             cumReqDur += nextDur;
             passSlotCount++;
-          } else if (mDur - cumReqDur >= minShotDuration && !isLastVideo) {
-            // Allow non-last video to contribute its remaining usable non-overlapping tail (>= minShotDuration)
+          } else if (mDur - cumReqDur >= minShotDuration) {
+            // Allow video to contribute its remaining usable non-overlapping tail (>= minShotDuration)
             cumReqDur += nextDur;
             passSlotCount++;
             break;
@@ -1155,10 +1203,11 @@ export async function runSmartBeatMontage({
           }
 
           let energyFitBonus = 0;
+          const energyScale = activeWeights ? 0.25 : 1.0;
           if (repSlot.section === "drop" || repSlot.isDownbeat) {
-            energyFitBonus = cand.actionIntensity * 0.25 + cand.motion * 0.15;
+            energyFitBonus = (cand.actionIntensity * 0.25 + cand.motion * 0.15) * energyScale;
           } else if (repSlot.section === "calm") {
-            energyFitBonus = cand.faceScore * 0.25 + cand.temporalStability * 0.15;
+            energyFitBonus = (cand.faceScore * 0.25 + cand.temporalStability * 0.15) * energyScale;
           }
 
           return {
@@ -1270,6 +1319,7 @@ export async function runSmartBeatMontage({
         }
 
         // Emit clips in the pass's slot order (chronological on Pass 0, varied on Pass > 0)
+        let emittedInPass = 0;
         for (let j = 0; j < K; j++) {
           const sIdx = perm[j];
           const planned = spatialSlices[sIdx];
@@ -1280,9 +1330,9 @@ export async function runSmartBeatMontage({
           let sliceIn = planned.in;
           let sliceOut = planned.out;
 
-          // Prevent two consecutive identical cuts when repeating on the last video
+          // Prevent two consecutive identical cuts when repeating on the last video (passNumber > 0)
           const lastClip = finalClips.length > 0 ? finalClips[finalClips.length - 1] : null;
-          if (lastClip && lastClip.mediaId === m.id) {
+          if (passNumber > 0 && lastClip && lastClip.mediaId === m.id) {
             if (
               Math.abs(sliceIn - lastClip.in) < 0.2 &&
               Math.abs(sliceOut - lastClip.out) < 0.2
@@ -1306,19 +1356,21 @@ export async function runSmartBeatMontage({
 
           videoUsedRanges.push({ in: sliceIn, out: sliceOut });
           const clipIdx = finalClips.length;
+          const prevClipDur = lastClip ? lastClip.out - lastClip.in : actualDur;
           finalClips.push({
             id: `beat-clip-${Date.now()}-${clipIdx}-${Math.random().toString(36).slice(2, 6)}`,
             mediaId: m.id,
             in: Number(sliceIn.toFixed(3)),
             out: Number(sliceOut.toFixed(3)),
-            transitionIn: clipIdx > 0 && clipIdx % 4 === 0 ? { type: "fade", duration: 0.15 } : undefined,
+            transitionIn: computeTransitionIn(clipIdx, prevClipDur, actualDur),
           });
           currentSlotIdx++;
+          emittedInPass++;
         }
 
         passNumber++;
-        if (!isLastVideo) {
-          // Non-last videos never repeat; any unfilled slots in targetEndSlot transfer to the next video
+        if (!isLastVideo || emittedInPass === 0 || passNumber > S + 2) {
+          // Non-last videos never repeat; guard against infinite loops on very short single videos
           break;
         }
       }
@@ -1411,10 +1463,11 @@ export async function runSmartBeatMontage({
         // In drops / downbeats: high action intensity, motion, and hand velocity
         // In calm / verse: clear faces, stability, and sharpness
         let energyFitBonus = 0;
+        const energyScale = activeWeights ? 0.25 : 1.0;
         if (slot.section === "drop" || slot.isDownbeat) {
-          energyFitBonus = cand.actionIntensity * 0.25 + cand.motion * 0.15;
+          energyFitBonus = (cand.actionIntensity * 0.25 + cand.motion * 0.15) * energyScale;
         } else if (slot.section === "calm") {
-          energyFitBonus = cand.faceScore * 0.25 + cand.temporalStability * 0.15;
+          energyFitBonus = (cand.faceScore * 0.25 + cand.temporalStability * 0.15) * energyScale;
         }
 
         // Prefer sources long enough to fill the whole beat slot.
@@ -1462,17 +1515,23 @@ export async function runSmartBeatMontage({
       usedRanges.set(bestMedia.id, mRanges);
       mediaUsageCount.set(bestMedia.id, (mediaUsageCount.get(bestMedia.id) || 0) + 1);
 
+      const currDur = Math.max(0.1, bestSliceOut - bestSliceIn);
+      const prevDur = lastClip ? lastClip.out - lastClip.in : currDur;
       finalClips.push({
         id: `beat-clip-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
         mediaId: bestMedia.id,
         in: Number(bestSliceIn.toFixed(3)),
         out: Number(bestSliceOut.toFixed(3)),
-        transitionIn: i > 0 && i % 4 === 0 ? { type: "fade", duration: 0.15 } : undefined,
+        transitionIn: computeTransitionIn(i, prevDur, currDur),
       });
     }
   }
 
-  const totalDur = finalClips.reduce((acc, c) => acc + (c.out - c.in), 0);
+  // Matches MediaContext clipTimelineLen: transitionIn is rendered in-place at clip start without shortening timeline duration
+  const totalDur = finalClips.reduce(
+    (acc, c) => acc + Math.max(0, c.out - c.in) / (c.speed && c.speed > 0 ? c.speed : 1),
+    0
+  );
   const avgScore = allCandidateSegments.length > 0
     ? allCandidateSegments.reduce((a, s) => a + s.score, 0) / allCandidateSegments.length
     : 0;
@@ -1533,31 +1592,53 @@ export async function runAutoMontage(
     const resolvedTargetDuration = overrideDuration || template.ai.targetDuration || 30;
     const minShotDuration = template.ai.minClipSec || 0.8;
     const maxShotDuration = template.ai.maxClipSec || 4.0;
+    const tplTransition = {
+      type: template.transition,
+      duration: template.transitionDuration,
+    };
+    const tplWeights: SmartScoringWeights = {
+      motionWeight: template.ai.motionWeight,
+      brightnessWeight: template.ai.brightnessWeight,
+      colorWeight: template.ai.colorWeight,
+      faceWeight: template.ai.faceWeight,
+      sceneChangeWeight: template.ai.sceneChangeWeight,
+    };
 
     // If template specifies beat sync or musicUrl is given, run rhythm montage
-    if (beatSync || musicUrl) {
-      return await runSmartBeatMontage({
-        media,
-        audioTrackUrl: musicUrl,
-        targetDuration: resolvedTargetDuration,
-        fastMode,
-        minShotDuration,
-        maxShotDuration,
-        signal,
-        onProgress,
-      });
-    }
+    const result =
+      beatSync || musicUrl
+        ? await runSmartBeatMontage({
+            media,
+            audioTrackUrl: musicUrl,
+            targetDuration: resolvedTargetDuration,
+            fastMode,
+            minShotDuration,
+            maxShotDuration,
+            transition: tplTransition,
+            scoringWeights: tplWeights,
+            signal,
+            onProgress,
+          })
+        : await runSmartBeatMontage({
+            media,
+            targetDuration: resolvedTargetDuration,
+            fastMode,
+            minShotDuration,
+            maxShotDuration,
+            transition: tplTransition,
+            scoringWeights: tplWeights,
+            signal,
+            onProgress,
+          });
 
-    // Otherwise standard smart moment selection
-    return await runSmartBeatMontage({
-      media,
-      targetDuration: resolvedTargetDuration,
-      fastMode,
-      minShotDuration,
-      maxShotDuration,
-      signal,
-      onProgress,
-    });
+    const style = buildSmartTemplateStyle(template, result.totalDuration);
+    return {
+      ...result,
+      filters: style.filters,
+      vfx: style.vfx,
+      captions: [],
+      captionStyle: style.captionStyle,
+    };
   } catch (err) {
     console.error("[runAutoMontage] Failed to generate smart template montage:", {
       templateId: template?.id,

@@ -1,5 +1,5 @@
 // Smart Templates for Vireon AI — v3 with Deep AI Analysis
-import type { FilterType, VfxType, TransitionType, CaptionAnimation } from "@/context/MediaContext";
+import type { FilterType, VfxType, TransitionType, CaptionAnimation, FilterItem, VfxItem, CaptionStyle } from "@/context/MediaContext";
 
 export interface SmartTemplate {
   id: string;
@@ -91,3 +91,41 @@ export const TEMPLATE_CATEGORIES = [
   { id: "art", label: "🎨", labelEn: "Art" },
   { id: "social", label: "📱", labelEn: "Social" },
 ];
+
+const makeStyleUid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+export function buildSmartTemplateStyle(
+  template: SmartTemplate,
+  totalDuration: number
+): {
+  filters: FilterItem[];
+  vfx: VfxItem[];
+  captionStyle: Partial<CaptionStyle>;
+} {
+  const dur = Math.max(0, totalDuration);
+  const filters: FilterItem[] = template.filters.map((f) => ({
+    id: makeStyleUid(),
+    type: f.type,
+    start: 0,
+    end: dur,
+    intensity: f.intensity,
+  }));
+  const vfx: VfxItem[] = template.vfx.map((v) => ({
+    id: makeStyleUid(),
+    type: v.type,
+    start: 0,
+    end: dur,
+    intensity: v.intensity,
+  }));
+  const captionStyle: Partial<CaptionStyle> = {
+    font: template.caption.font,
+    size: template.caption.size,
+    color: template.caption.color,
+    bg: template.caption.bg,
+    animation: template.caption.animation,
+    position: template.caption.position,
+  };
+
+  return { filters, vfx, captionStyle };
+}
+

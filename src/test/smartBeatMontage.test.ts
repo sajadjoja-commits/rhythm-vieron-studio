@@ -4,9 +4,10 @@ import {
   runAutoMontage,
   buildMusicalBeatSlots, 
   clearVideoAnalysisCache, 
-  buildVideoCacheKey 
+  buildVideoCacheKey,
+  setCacheEntry,
 } from "../lib/autoMontage";
-import { SMART_TEMPLATES } from "../lib/smartTemplates";
+import { SMART_TEMPLATES, buildSmartTemplateStyle } from "../lib/smartTemplates";
 import { mapBeatsToTimeline, type BeatAnalysisResult } from "../lib/beatDetector";
 import type { MediaItem } from "@/context/MediaContext";
 
@@ -493,5 +494,174 @@ describe("Comprehensive Smart Cut & Rhythm Engine Test Suite", () => {
         expect(usedMediaIds.size).toBeGreaterThanOrEqual(2);
       }
     }
+  });
+
+  // 14. Template Style Extraction & Application in runAutoMontage
+  it("Scenario 14: buildSmartTemplateStyle and runAutoMontage populate filters, vfx, and captionStyle spanning [0, totalDuration]", async () => {
+    const media: MediaItem[] = [
+      { id: "style-v1", name: "v1.mp4", type: "video", url: "blob:style-v1", duration: 12, width: 1920, height: 1080, size: 0, file: undefined as any },
+      { id: "style-v2", name: "v2.mp4", type: "video", url: "blob:style-v2", duration: 12, width: 1920, height: 1080, size: 0, file: undefined as any },
+    ];
+
+    for (const tpl of SMART_TEMPLATES) {
+      const result = await runAutoMontage(media, tpl, [], undefined, { fastMode: true, targetDuration: 10 });
+
+      expect(result.totalDuration).toBeGreaterThan(0);
+      expect(result.captions).toEqual([]);
+      expect(result.filters.length).toBe(tpl.filters.length);
+      expect(result.vfx.length).toBe(tpl.vfx.length);
+
+      for (let i = 0; i < tpl.filters.length; i++) {
+        expect(result.filters[i].type).toBe(tpl.filters[i].type);
+        expect(result.filters[i].intensity).toBe(tpl.filters[i].intensity);
+        expect(result.filters[i].start).toBe(0);
+        expect(result.filters[i].end).toBeCloseTo(result.totalDuration, 3);
+      }
+
+      for (let i = 0; i < tpl.vfx.length; i++) {
+        expect(result.vfx[i].type).toBe(tpl.vfx[i].type);
+        expect(result.vfx[i].intensity).toBe(tpl.vfx[i].intensity);
+        expect(result.vfx[i].start).toBe(0);
+        expect(result.vfx[i].end).toBeCloseTo(result.totalDuration, 3);
+      }
+
+      expect(result.captionStyle).toEqual({
+        font: tpl.caption.font,
+        size: tpl.caption.size,
+        color: tpl.caption.color,
+        bg: tpl.caption.bg,
+        animation: tpl.caption.animation,
+        position: tpl.caption.position,
+      });
+
+      const directStyle = buildSmartTemplateStyle(tpl, result.totalDuration);
+      expect(directStyle.captionStyle).toEqual(result.captionStyle);
+      expect(directStyle.filters.map((f) => ({ type: f.type, start: f.start, end: f.end, intensity: f.intensity }))).toEqual(
+        result.filters.map((f) => ({ type: f.type, start: f.start, end: f.end, intensity: f.intensity }))
+      );
+      expect(directStyle.vfx.map((v) => ({ type: v.type, start: v.start, end: v.end, intensity: v.intensity }))).toEqual(
+        result.vfx.map((v) => ({ type: v.type, start: v.start, end: v.end, intensity: v.intensity }))
+      );
+    }
+  });
+
+  // 15. Custom Template Transitions vs Legacy Transition Behavior
+  it("Scenario 15: Applies template transitionIn on clips 1..N with clamped duration, and preserves legacy fade every 4th clip when omitted", async () => {
+    const media: MediaItem[] = [
+      { id: "tr-v1", name: "v1.mp4", type: "video", url: "blob:tr-v1", duration: 15, width: 1920, height: 1080, size: 0, file: undefined as any },
+      { id: "tr-v2", name: "v2.mp4", type: "video", url: "blob:tr-v2", duration: 15, width: 1920, height: 1080, size: 0, file: undefined as any },
+    ];
+
+    // 1. Legacy behavior when transition is omitted
+    const legacyRes = await runSmartBeatMontage({
+      media,
+      beatTimes: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+      targetDuration: 6.0,
+    });
+    expect(legacyRes.clips.length).toBeGreaterThanOrEqual(5);
+    expect(legacyRes.clips[0].transitionIn).toBeUndefined();
+    expect(legacyRes.clips[1].transitionIn).toBeUndefined();
+    expect(legacyRes.clips[2].transitionIn).toBeUndefined();
+    expect(legacyRes.clips[3].transitionIn).toBeUndefined();
+    expect(legacyRes.clips[4].transitionIn).toEqual({ type: "fade", duration: 0.15 });
+
+    // 2. Template transition behavior (both sequential and interleaved)
+    for (const interleaveMode of [false, true]) {
+      const customRes = await runSmartBeatMontage({
+        media,
+        beatTimes: [1.0, 2.0, 3.5, 5.0],
+        targetDuration: 5.0,
+        interleave: interleaveMode,
+        transition: { type: "zoom", duration: 0.8 },
+      });
+
+      expect(customRes.clips[0].transitionIn).toBeUndefined();
+      for (let i = 1; i < customRes.clips.length; i++) {
+        const prevDur = customRes.clips[i - 1].out - customRes.clips[i - 1].in;
+        const currDur = customRes.clips[i].out - customRes.clips[i].in;
+        const expectedDur = Number(Math.min(0.8, 0.4 * Math.min(prevDur, currDur)).toFixed(3));
+        expect(customRes.clips[i].transitionIn).toEqual({
+          type: "zoom",
+          duration: expectedDur,
+        });
+      }
+    }
+  });
+
+  // 16. Template AI Scoring Weights Differentiate Segment Selection
+  it("Scenario 16: Different template AI weights select different segments according to motion vs brightness/color vs face", async () => {
+    const media: MediaItem[] = [
+      { id: "weight-vid", name: "weight.mp4", type: "video", url: "blob:weight-vid", duration: 12, width: 1920, height: 1080, size: 0, file: undefined as any },
+    ];
+
+    const cacheKey = buildVideoCacheKey(media[0]);
+    setCacheEntry(cacheKey, [
+      // Segment 0..4s: High motion & action, low brightness & color
+      {
+        mediaId: "weight-vid",
+        in: 0,
+        out: 4,
+        score: 0.5,
+        motion: 0.98,
+        sharpness: 0.8,
+        blurPenalty: 1.0,
+        exposureQuality: 1.0,
+        actionIntensity: 0.95,
+        temporalStability: 0.7,
+        audioEnergy: 0.5,
+        faceScore: 0.05,
+        handScore: 0,
+        handVelocityScore: 0.4,
+        brightness: 0.25,
+        colorfulness: 0.2,
+        containsTransition: false,
+        overallQuality: 0.8,
+      },
+      // Segment 8..12s: Low motion, very high brightness & colorfulness
+      {
+        mediaId: "weight-vid",
+        in: 8,
+        out: 12,
+        score: 0.5,
+        motion: 0.1,
+        sharpness: 0.8,
+        blurPenalty: 1.0,
+        exposureQuality: 1.0,
+        actionIntensity: 0.1,
+        temporalStability: 0.95,
+        audioEnergy: 0.5,
+        faceScore: 0.05,
+        handScore: 0,
+        handVelocityScore: 0.05,
+        brightness: 0.95,
+        colorfulness: 0.98,
+        containsTransition: false,
+        overallQuality: 0.8,
+      },
+    ]);
+
+    const sportTpl = SMART_TEMPLATES.find((t) => t.id === "sport")!;
+    const foodTpl = SMART_TEMPLATES.find((t) => t.id === "food")!;
+
+    const sportRes = await runSmartBeatMontage({
+      media,
+      beatTimes: [2.0],
+      targetDuration: 2.0,
+      scoringWeights: sportTpl.ai,
+    });
+
+    const foodRes = await runSmartBeatMontage({
+      media,
+      beatTimes: [2.0],
+      targetDuration: 2.0,
+      scoringWeights: foodTpl.ai,
+    });
+
+    expect(sportRes.clips.length).toBe(1);
+    expect(foodRes.clips.length).toBe(1);
+    // Sport template picks from the high-motion first segment (0..4s)
+    expect(sportRes.clips[0].in).toBeLessThan(4);
+    // Food template picks from the high-brightness/color last segment (8..12s)
+    expect(foodRes.clips[0].in).toBeGreaterThanOrEqual(7);
   });
 });

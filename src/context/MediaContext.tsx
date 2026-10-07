@@ -7,6 +7,7 @@ import { triggerHapticTick } from "@/lib/haptics";
 import { robustSeekVideo } from "@/lib/videoSeeking";
 import { mediaService } from "@/services/media";
 import { projectRecoveryService } from "@/services/recovery/ProjectRecoveryService";
+import { buildSmartTemplateStyle } from "@/lib/smartTemplates";
 import type { WordAnimationConfig, CharacterAnimationConfig } from "@/types/textTemplate";
 
 export type MediaType = "video" | "image";
@@ -1359,12 +1360,13 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
   const applySmartTemplate = useCallback((tpl: import("@/lib/smartTemplates").SmartTemplate) => {
     const dur = clips.reduce((acc, c) => acc + Math.max(0, c.out - c.in), 0);
     if (clips.length === 0 || dur <= 0) { toast.error(t("toast.addMediaFirst")); return false; }
-    setFilters(tpl.filters.map((f) => ({ id: uid(), type: f.type, start: 0, end: dur, intensity: f.intensity })));
-    setVfx(tpl.vfx.map((v) => ({ id: uid(), type: v.type, start: 0, end: dur, intensity: v.intensity })));
+    const style = buildSmartTemplateStyle(tpl, dur);
+    setFilters(style.filters);
+    setVfx(style.vfx);
     if (tpl.transition !== "none") {
       setClips((prev) => prev.map((c, i) => (i === 0 ? c : { ...c, transitionIn: { type: tpl.transition, duration: 0.5 } })));
     }
-    setCaptionStyle((s) => ({ ...s, font: tpl.caption.font, size: tpl.caption.size, color: tpl.caption.color, bg: tpl.caption.bg, animation: tpl.caption.animation, position: tpl.caption.position }));
+    setCaptionStyle((s) => ({ ...s, ...style.captionStyle }));
     if (tpl.segmentSec > 0) {
       const beats: number[] = [];
       for (let t = tpl.segmentSec; t < dur - 0.2; t += tpl.segmentSec) beats.push(t);
