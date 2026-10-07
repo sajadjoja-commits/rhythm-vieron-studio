@@ -6,7 +6,7 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { PublishedTemplate, EditableProjectData } from "@/types/template";
 import { useMedia, Clip, Caption, AudioTrackItem } from "@/context/MediaContext";
-import { fetchTemplateById, generateTemplateShareUrl, deletePublishedTemplate } from "@/services/templateService";
+import { fetchTemplateById, generateTemplateShareUrl, deletePublishedTemplate, incrementTemplateViews, incrementTemplateUses } from "@/services/templateService";
 import ExportDialog from "@/components/editor/ExportDialog";
 import { toast } from "sonner";
 import { t, isRTL, getLang } from "@/lib/i18n";
@@ -35,6 +35,13 @@ export default function TemplateUseScreen({ templateId, templateObj, onBack }: P
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [replacingClipId, setReplacingClipId] = useState<string | null>(null);
+  const hasRecordedUseRef = useRef<boolean>(Boolean(templateObj));
+
+  const recordTemplateUseOnce = () => {
+    if (hasRecordedUseRef.current || !template?.id) return;
+    hasRecordedUseRef.current = true;
+    void incrementTemplateUses(template.id);
+  };
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
@@ -77,6 +84,7 @@ export default function TemplateUseScreen({ templateId, templateObj, onBack }: P
   // Load project elements into MediaContext when template is selected
   useEffect(() => {
     if (template) {
+      void incrementTemplateViews(template.id);
       const data: EditableProjectData = template.project_data;
       setProjectName(template.title);
 
@@ -156,6 +164,7 @@ export default function TemplateUseScreen({ templateId, templateObj, onBack }: P
             c.id === replacingClipId ? { ...c, mediaId: newMediaId } : c
           )
         );
+        recordTemplateUseOnce();
         toast.success(isRTL() ? "تم استبدال المقطع بنجاح!" : "Clip media replaced!");
       }
     } catch (err) {
@@ -214,7 +223,10 @@ export default function TemplateUseScreen({ templateId, templateObj, onBack }: P
           </button>
 
           <button
-            onClick={() => setShowExportModal(true)}
+            onClick={() => {
+              recordTemplateUseOnce();
+              setShowExportModal(true);
+            }}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl gradient-primary text-primary-foreground font-bold text-xs glow-primary-sm"
           >
             <Download className="w-4 h-4" />

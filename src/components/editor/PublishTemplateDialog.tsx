@@ -267,8 +267,14 @@ export default function PublishTemplateDialog({ open, onClose, previewRef, video
         projectData
       );
 
-      setPublishedTemplate(result);
-      toast.success(isRTL() ? "تم نشر القالب بنجاح!" : "Template published successfully!");
+      if (result.remote) {
+        setPublishedTemplate(result);
+        toast.success(isRTL() ? "تم نشر القالب بنجاح!" : "Template published successfully!");
+      } else {
+        setPublishedTemplate(null);
+        const reasonText = result.remoteError ? ` (${result.remoteError})` : "";
+        toast.error(`حُفظ على جهازك فقط ولم يُنشر${reasonText}`);
+      }
     } catch (err: any) {
       console.error("Publish template error:", err);
       toast.error(err.message || (isRTL() ? "فشل نشر القالب" : "Failed to publish template"));

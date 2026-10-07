@@ -2,13 +2,98 @@ import { supabase } from "@/integrations/supabase/client";
 import { PublishedTemplate, EditableProjectData } from "@/types/template";
 
 const LOCAL_STORAGE_KEY = "vireon_published_templates_v1";
+const VIEWED_SESSION_PREFIX = "vireon_tpl_viewed_";
+
+export const DEFAULT_PUBLIC_WEB_URL = "https://rhythm-vieron-studio.lovable.app";
+
+export type PublishTemplateResult = PublishedTemplate & {
+  template: PublishedTemplate;
+  remote: boolean;
+  remoteError?: string;
+};
+
+async function getAuthenticatedUser() {
+  try {
+    if (typeof supabase.auth?.getUser === "function") {
+      const res = await supabase.auth.getUser();
+      if (res?.data?.user) return res.data.user;
+    }
+    if (typeof supabase.auth?.getSession === "function") {
+      const res = await supabase.auth.getSession();
+      if (res?.data?.session?.user) return res.data.session.user;
+    }
+  } catch (err) {
+    console.warn("Supabase auth check warning:", err);
+  }
+  return null;
+}
+
+export async function incrementTemplateViews(templateId: string): Promise<boolean> {
+  if (!templateId) return false;
+  const sessionKey = `${VIEWED_SESSION_PREFIX}${templateId}`;
+
+  try {
+    if (typeof sessionStorage !== "undefined" && sessionStorage.getItem(sessionKey) === "1") {
+      return false;
+    }
+
+    const user = await getAuthenticatedUser();
+    if (!user) {
+      return false;
+    }
+
+    if (typeof sessionStorage !== "undefined") {
+      if (sessionStorage.getItem(sessionKey) === "1") {
+        return false;
+      }
+      sessionStorage.setItem(sessionKey, "1");
+    }
+
+    const { error } = await supabase.rpc("increment_template_views" as any, {
+      p_template_id: templateId,
+    } as any);
+
+    if (error) {
+      console.warn("Supabase increment_template_views warning:", error);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn("Supabase increment_template_views error:", err);
+    return false;
+  }
+}
+
+export async function incrementTemplateUses(templateId: string): Promise<boolean> {
+  if (!templateId) return false;
+
+  try {
+    const user = await getAuthenticatedUser();
+    if (!user) {
+      return false;
+    }
+
+    const { error } = await supabase.rpc("increment_template_uses" as any, {
+      p_template_id: templateId,
+    } as any);
+
+    if (error) {
+      console.warn("Supabase increment_template_uses warning:", error);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn("Supabase increment_template_uses error:", err);
+    return false;
+  }
+}
 
 export async function publishTemplateToSupabase(
   title: string,
   hashtags: string[],
   coverUrl: string,
   projectData: EditableProjectData
-): Promise<PublishedTemplate> {
+): Promise<PublishTemplateResult> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
     throw new Error("Login required to publish templates");
@@ -21,7 +106,6 @@ export async function publishTemplateToSupabase(
     hashtags: hashtags.map(h => h.startsWith("#") ? h : `#${h}`).slice(0, 5),
     cover_url: coverUrl || "",
     creator_name: user.user_metadata?.full_name || user.email?.split("@")[0] || "Vireon Creator",
-    creator_email: user.email || "",
     created_at: new Date().toISOString(),
     views_count: 0,
     uses_count: 0,
@@ -31,7 +115,7 @@ export async function publishTemplateToSupabase(
   // 1. Save locally for instant offline/online availability
   saveTemplateLocally(newTemplate);
 
-  // 2. Attempt remote Supabase publish
+  // 2. Attempt remote Supabase publish (do not send created_at, creator_email, views_count, or uses_count)
   try {
     const { data, error } = await supabase
       .from("templates" as any)
@@ -42,26 +126,49 @@ export async function publishTemplateToSupabase(
         hashtags: newTemplate.hashtags,
         cover_url: newTemplate.cover_url,
         creator_name: newTemplate.creator_name,
-        creator_email: newTemplate.creator_email,
-        created_at: newTemplate.created_at,
         project_data: newTemplate.project_data,
       } as any)
       .select()
       .single();
 
     if (error) {
-      console.warn("Supabase templates insert warning (using local fallback):", error);
-    } else if (data) {
+      console.warn("Supabase templates insert warning (saved locally only):", error);
+      const reason = error.message || error.details || "فشل الحفظ في الخادم";
       return {
+        ...newTemplate,
+        template: newTemplate,
+        remote: false,
+        remoteError: reason,
+      };
+    } else if (data) {
+      const merged: PublishedTemplate = {
         ...newTemplate,
         ...(data as any),
       };
+      saveTemplateLocally(merged);
+      return {
+        ...merged,
+        template: merged,
+        remote: true,
+      };
     }
-  } catch (err) {
+  } catch (err: any) {
     console.warn("Supabase templates request error:", err);
+    const reason = err?.message || "تعذر الاتصال بالخادم";
+    return {
+      ...newTemplate,
+      template: newTemplate,
+      remote: false,
+      remoteError: String(reason),
+    };
   }
 
-  return newTemplate;
+  return {
+    ...newTemplate,
+    template: newTemplate,
+    remote: false,
+    remoteError: "لم يتم تأكيد النشر من الخادم",
+  };
 }
 
 export async function fetchPublishedTemplates(): Promise<PublishedTemplate[]> {
@@ -106,7 +213,6 @@ export async function fetchPublishedTemplates(): Promise<PublishedTemplate[]> {
 export async function fetchTemplateById(id: string): Promise<PublishedTemplate | null> {
   const localList = getLocalTemplates();
   const foundLocal = localList.find(t => t.id === id);
-  if (foundLocal) return foundLocal;
 
   try {
     const { data, error } = await supabase
@@ -131,18 +237,29 @@ export async function fetchTemplateById(id: string): Promise<PublishedTemplate |
         project_data: d.project_data,
       };
       saveTemplateLocally(remoteTemplate);
+      await incrementTemplateViews(remoteTemplate.id);
       return remoteTemplate;
     }
   } catch (err) {
     console.warn("Failed fetching remote template by ID:", err);
   }
 
+  if (foundLocal) {
+    await incrementTemplateViews(foundLocal.id);
+    return foundLocal;
+  }
+
   return null;
 }
 
 export function generateTemplateShareUrl(templateId: string): string {
-  const origin = window.location.origin + window.location.pathname;
-  return `${origin}?templateId=${encodeURIComponent(templateId)}`;
+  const envUrl = import.meta.env.VITE_PUBLIC_WEB_URL;
+  const rawBase =
+    typeof envUrl === "string" && envUrl.trim().length > 0
+      ? envUrl.trim()
+      : DEFAULT_PUBLIC_WEB_URL;
+  const base = rawBase.replace(/\/+$/, "");
+  return `${base}/?templateId=${encodeURIComponent(templateId)}`;
 }
 
 export async function deletePublishedTemplate(id: string): Promise<boolean> {

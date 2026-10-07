@@ -58,14 +58,25 @@ const Index = () => {
   const [showPlusMenu, setShowPlusMenu] = useState(false);
   const [showPhotoEditor, setShowPhotoEditor] = useState(false);
   const [activeTemplateObj, setActiveTemplateObj] = useState<any | null>(null);
-  const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
+  const [activeTemplateId, setActiveTemplateId] = useState<string | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tplId = params.get("templateId") || params.get("template");
+    if (tplId) {
+      window.sessionStorage.setItem("vireon:pending_template_id", tplId);
+      return tplId;
+    }
+    return window.sessionStorage.getItem("vireon:pending_template_id") || null;
+  });
   const [activeSmartTemplate, setActiveSmartTemplate] = useState<any | null>(null);
   const { media, clips, newProject, addFiles } = useMedia();
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tplId = params.get("templateId") || params.get("template");
-    if (tplId) setActiveTemplateId(tplId);
+    if (tplId) {
+      window.sessionStorage.setItem("vireon:pending_template_id", tplId);
+      setActiveTemplateId(tplId);
+    }
   }, []);
 
   const [session, setSession] = useState<any>(null);
@@ -429,6 +440,7 @@ const Index = () => {
             onBack={() => {
               setActiveTemplateObj(null);
               setActiveTemplateId(null);
+              window.sessionStorage.removeItem("vireon:pending_template_id");
               const url = new URL(window.location.href);
               url.searchParams.delete("templateId");
               url.searchParams.delete("template");
