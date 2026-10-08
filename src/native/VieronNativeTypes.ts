@@ -36,7 +36,7 @@ export interface FsExistsRequest {
   path: string;
 }
 
-export interface FสหMkdirRequest {
+export interface FsMkdirRequest {
   root: VieronFileRoot;
   path: string;
   recursive?: boolean;

@@ -20,7 +20,11 @@ class VieronNativeClient {
       try {
         const raw = bridge[method](...args);
         const res = typeof raw === "string" ? JSON.parse(raw) : raw;
-        console.log(`[VIERON-NATIVE] method=${method} native=true`, res);
+        if (res && (res.success || res.ok)) {
+          console.log(`[VIERON-NATIVE] method=${method} native=true`, res);
+        } else {
+          console.log(`[VIERON-NATIVE] method=${method} native=false error=`, res?.error);
+        }
         return res;
       } catch (e: any) {
         console.warn(`[VIERON-NATIVE] method=${method} native=exception`, e);
@@ -47,10 +51,13 @@ class VieronNativeClient {
   public fs = {
     read: async (req: FsReadRequest): Promise<VieronNativeResponse> => {
       const res = this.callBridge("fs_read", JSON.stringify(req));
-      if (res.success || res.ok) return res;
+      if (res.success || res.ok) {
+        console.log("[VIERON-NATIVE] method=fs_read native=true");
+        return res;
+      }
       // TEMPORARY_CAPACITOR_FALLBACK // REMOVE_IN_PHASE_3
       try {
-        console.log("[VIERON-NATIVE] Falling back to Capacitor Filesystem.read");
+        console.log("[VIERON-NATIVE] method=fs_read native=false fallback=capacitor");
         const capRes = await Filesystem.readFile({
           path: req.path,
           directory: this.mapRootToCapacitorDirectory(req.root),
@@ -64,10 +71,13 @@ class VieronNativeClient {
 
     write: async (req: FsWriteRequest): Promise<VieronNativeResponse> => {
       const res = this.callBridge("fs_write", JSON.stringify(req));
-      if (res.success || res.ok) return res;
+      if (res.success || res.ok) {
+        console.log("[VIERON-NATIVE] method=fs_write native=true");
+        return res;
+      }
       // TEMPORARY_CAPACITOR_FALLBACK // REMOVE_IN_PHASE_3
       try {
-        console.log("[VIERON-NATIVE] Falling back to Capacitor Filesystem.writeFile");
+        console.log("[VIERON-NATIVE] method=fs_write native=false fallback=capacitor");
         const capRes = await Filesystem.writeFile({
           path: req.path,
           data: req.data,
@@ -82,9 +92,13 @@ class VieronNativeClient {
 
     delete: async (req: FsDeleteRequest): Promise<VieronNativeResponse> => {
       const res = this.callBridge("fs_delete", JSON.stringify(req));
-      if (res.success || res.ok) return res;
+      if (res.success || res.ok) {
+        console.log("[VIERON-NATIVE] method=fs_delete native=true");
+        return res;
+      }
       // TEMPORARY_CAPACITOR_FALLBACK // REMOVE_IN_PHASE_3
       try {
+        console.log("[VIERON-NATIVE] method=fs_delete native=false fallback=capacitor");
         await Filesystem.deleteFile({
           path: req.path,
           directory: this.mapRootToCapacitorDirectory(req.root)
@@ -97,14 +111,22 @@ class VieronNativeClient {
 
     exists: async (req: FsExistsRequest): Promise<VieronNativeResponse> => {
       const res = this.callBridge("fs_exists", JSON.stringify(req));
-      if (res.success || res.ok) return res;
+      if (res.success || res.ok) {
+        console.log("[VIERON-NATIVE] method=fs_exists native=true");
+        return res;
+      }
+      console.log("[VIERON-NATIVE] method=fs_exists native=false fallback=capacitor");
       return { success: true, ok: true, data: { exists: false } };
     },
 
     mkdir: async (req: FsMkdirRequest): Promise<VieronNativeResponse> => {
       const res = this.callBridge("fs_mkdir", JSON.stringify(req));
-      if (res.success || res.ok) return res;
+      if (res.success || res.ok) {
+        console.log("[VIERON-NATIVE] method=fs_mkdir native=true");
+        return res;
+      }
       try {
+        console.log("[VIERON-NATIVE] method=fs_mkdir native=false fallback=capacitor");
         await Filesystem.mkdir({
           path: req.path,
           directory: this.mapRootToCapacitorDirectory(req.root),
@@ -118,8 +140,12 @@ class VieronNativeClient {
 
     list: async (req: FsListRequest): Promise<VieronNativeResponse> => {
       const res = this.callBridge("fs_list", JSON.stringify(req));
-      if (res.success || res.ok) return res;
+      if (res.success || res.ok) {
+        console.log("[VIERON-NATIVE] method=fs_list native=true");
+        return res;
+      }
       try {
+        console.log("[VIERON-NATIVE] method=fs_list native=false fallback=capacitor");
         const listRes = await Filesystem.readdir({
           path: req.path,
           directory: this.mapRootToCapacitorDirectory(req.root)
@@ -132,8 +158,12 @@ class VieronNativeClient {
 
     stat: async (req: FsStatRequest): Promise<VieronNativeResponse> => {
       const res = this.callBridge("fs_stat", JSON.stringify(req));
-      if (res.success || res.ok) return res;
+      if (res.success || res.ok) {
+        console.log("[VIERON-NATIVE] method=fs_stat native=true");
+        return res;
+      }
       try {
+        console.log("[VIERON-NATIVE] method=fs_stat native=false fallback=capacitor");
         const statRes = await Filesystem.stat({
           path: req.path,
           directory: this.mapRootToCapacitorDirectory(req.root)
