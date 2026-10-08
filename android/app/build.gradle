@@ -92,9 +92,13 @@ task verifyWebAssets(type: Exec) {
     }
 }
 
-// Compatibility task for IDE test runners that expect unitTestClasses
+// Compatibility task for IDE test runners that expect unitTestClasses and androidTestClasses
 tasks.register("unitTestClasses") {
     dependsOn "compileDebugUnitTestSources"
+}
+
+tasks.register("androidTestClasses") {
+    dependsOn "compileDebugAndroidTestSources"
 }
 
 apply from: 'capacitor.build.gradle'

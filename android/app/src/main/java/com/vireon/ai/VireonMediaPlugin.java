@@ -57,56 +57,22 @@ public class VireonMediaPlugin extends Plugin {
 
     @PluginMethod
     public void pickVideo(PluginCall call) {
-        if (checkMediaPermissions()) {
-            openVideoPicker(call);
-        } else {
-            requestPermissionForAlias(Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ? "media" : "publicStorage", call, "permissionCallback");
-        }
+        openVideoPicker(call);
     }
 
     @PluginMethod
     public void pickImage(PluginCall call) {
-        if (checkMediaPermissions()) {
-            openImagePicker(call);
-        } else {
-            requestPermissionForAlias(Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ? "media" : "publicStorage", call, "permissionCallback");
-        }
+        openImagePicker(call);
     }
 
     @PluginMethod
     public void pickAudio(PluginCall call) {
-        if (checkMediaPermissions()) {
-            openAudioPicker(call);
-        } else {
-            requestPermissionForAlias(Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ? "media" : "publicStorage", call, "permissionCallback");
-        }
+        openAudioPicker(call);
     }
 
     @PluginMethod
     public void pickMedia(PluginCall call) {
-        if (checkMediaPermissions()) {
-            openMediaPicker(call);
-        } else {
-            requestPermissionForAlias(Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ? "media" : "publicStorage", call, "permissionCallback");
-        }
-    }
-
-    @PermissionCallback
-    private void permissionCallback(PluginCall call) {
-        if (checkMediaPermissions()) {
-            String method = call.getMethodName();
-            if ("pickVideo".equals(method)) {
-                openVideoPicker(call);
-            } else if ("pickImage".equals(method)) {
-                openImagePicker(call);
-            } else if ("pickAudio".equals(method)) {
-                openAudioPicker(call);
-            } else if ("pickMedia".equals(method)) {
-                openMediaPicker(call);
-            }
-        } else {
-            call.reject("صلاحيات الوصول مرفوضة.");
-        }
+        openMediaPicker(call);
     }
 
     private boolean checkMediaPermissions() {
