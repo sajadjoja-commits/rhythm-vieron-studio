@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState, memo } from "react";
+import { useEffect, useRef, useState, memo, RefObject } from "react";
 import { Clip, MediaItem } from "@/context/MediaContext";
-import { generateThumbnails, getThumbnailTierCount } from "@/lib/videoUtils";
+import { generateThumbnails, getThumbnailTierCount, remapThumbnailsToCount } from "@/lib/videoUtils";
+
+export { remapThumbnailsToCount };
 
 interface Props {
   clip: Clip;
@@ -8,15 +10,20 @@ interface Props {
   pxPerSec: number;
   isDragging?: boolean;
   isInteracting?: boolean;
+  containerRef?: RefObject<HTMLElement | null> | HTMLElement | null;
 }
 
-const ClipThumbnails = memo(({ clip, media, pxPerSec, isDragging, isInteracting }: Props) => {
+const ClipThumbnails = memo(({ clip, media, pxPerSec, isDragging, isInteracting, containerRef }: Props) => {
   const interacting = Boolean(isDragging || isInteracting);
-  const [thumbs, setThumbs] = useState<string[]>([]);
+  const rootElRef = useRef<HTMLDivElement>(null);
+  const [isVisible, setIsVisible] = useState<boolean>(() => typeof IntersectionObserver === "undefined");
   const lastKey = useRef("");
+  const lastMediaKeyRef = useRef("");
   const cachedSnapshotRef = useRef<string[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const debounceTimerRef = useRef<number | null>(null);
   const frozenCountRef = useRef<number>(1);
+  const prevCountRef = useRef<number | null>(null);
 
   const widthPx = Math.max(40, (clip.out - clip.in) * pxPerSec);
   const rawCount = getThumbnailTierCount(widthPx);
@@ -26,9 +33,58 @@ const ClipThumbnails = memo(({ clip, media, pxPerSec, isDragging, isInteracting 
   }
   const count = interacting ? (frozenCountRef.current || rawCount) : rawCount;
 
+  const [thumbs, setThumbs] = useState<string[]>(() => Array(count).fill(""));
+
+  // Observe visibility within timeline container (+ 100% horizontal margin on each side)
   useEffect(() => {
-    // If dragging or trimming is active, freeze extraction and retain current cached snapshot
+    if (isVisible) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setIsVisible(true);
+      return;
+    }
+    const el = rootElRef.current;
+    if (!el) return;
+
+    const rootNode =
+      containerRef && typeof containerRef === "object" && "current" in containerRef
+        ? containerRef.current
+        : (containerRef ?? null);
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting || entry.intersectionRatio > 0) {
+            setIsVisible(true);
+            observer.disconnect();
+            break;
+          }
+        }
+      },
+      {
+        root: rootNode,
+        rootMargin: "0px 100% 0px 100%",
+      }
+    );
+
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+    };
+  }, [isVisible, containerRef]);
+
+  useEffect(() => {
+    // Before entering visible range: show skeletons only and do not start generation
+    if (!isVisible) {
+      setThumbs((prev) => (prev.length === count && prev.every((s) => s === "") ? prev : Array(count).fill("")));
+      return;
+    }
+
+    // If dragging, trimming, or pinching is active, freeze extraction and retain current cached snapshot
     if (interacting) {
+      if (debounceTimerRef.current !== null) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
         abortControllerRef.current = null;
@@ -45,75 +101,110 @@ const ClipThumbnails = memo(({ clip, media, pxPerSec, isDragging, isInteracting 
     const procFlag = (shouldUseProcessed && (clip.processedUrl || media.processedUrl)) ? "proc" : "raw";
     const mediaKey = `${media.id}_${clip.id}_r${revision}_${procFlag}`;
 
+    if (lastMediaKeyRef.current && lastMediaKeyRef.current !== mediaKey) {
+      cachedSnapshotRef.current = [];
+      lastKey.current = "";
+    }
+    lastMediaKeyRef.current = mediaKey;
+
     const key = `${mediaKey}-${clip.in.toFixed(2)}-${clip.out.toFixed(2)}-${count}`;
-    if (key === lastKey.current) return;
-    lastKey.current = key;
+    if (key === lastKey.current && cachedSnapshotRef.current.length === count) {
+      return;
+    }
 
     if (media.type === "image") {
       const arr = Array(count).fill(effectiveVideoUrl);
       cachedSnapshotRef.current = arr;
+      lastKey.current = key;
+      prevCountRef.current = count;
       setThumbs(arr);
       return;
     }
 
-    // Instantly abort any active extraction task
+    // Retain previous thumbnails remapped to the new count as temporary placeholders
+    const placeholders = remapThumbnailsToCount(cachedSnapshotRef.current, count);
+    setThumbs(placeholders);
+
+    const isCountChange = prevCountRef.current !== null && prevCountRef.current !== count;
+    prevCountRef.current = count;
+
+    if (debounceTimerRef.current !== null) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
+      abortControllerRef.current = null;
     }
+
+    let completed = false;
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
     const signal = abortController.signal;
 
-    // Use existing snapshot or initialize with skeleton slots
-    if (cachedSnapshotRef.current.length === 0) {
-      setThumbs(Array(count).fill(""));
+    const startGeneration = () => {
+      if (signal.aborted) return;
+
+      generateThumbnails(
+        effectiveVideoUrl,
+        count,
+        clip.in,
+        clip.out,
+        96,
+        (updatedThumbs) => {
+          if (signal.aborted) return;
+          const merged = Array<string>(count).fill("");
+          for (let idx = 0; idx < count; idx++) {
+            merged[idx] = updatedThumbs[idx] || placeholders[idx] || "";
+          }
+          cachedSnapshotRef.current = merged;
+          setThumbs(merged);
+        },
+        {
+          mediaKey,
+          signal,
+        }
+      ).then((t) => {
+        if (signal.aborted) return;
+        if (t && t.length === count) {
+          const merged = Array<string>(count).fill("");
+          for (let idx = 0; idx < count; idx++) {
+            merged[idx] = t[idx] || placeholders[idx] || "";
+          }
+          cachedSnapshotRef.current = merged;
+          setThumbs(merged);
+          if (t.every((item) => Boolean(item))) {
+            completed = true;
+            lastKey.current = key;
+          }
+        }
+      });
+    };
+
+    if (isCountChange) {
+      debounceTimerRef.current = window.setTimeout(() => {
+        debounceTimerRef.current = null;
+        startGeneration();
+      }, 200);
+    } else {
+      startGeneration();
     }
 
-    generateThumbnails(
-      effectiveVideoUrl,
-      count,
-      clip.in,
-      clip.out,
-      96,
-      (updatedThumbs) => {
-        if (signal.aborted) return;
-        setThumbs(() => {
-          const arr = Array(count).fill("");
-          updatedThumbs.forEach((val, idx) => {
-            if (idx < count) {
-              arr[idx] = val;
-            }
-          });
-          cachedSnapshotRef.current = arr;
-          return arr;
-        });
-      },
-      {
-        mediaKey,
-        signal,
-      }
-    ).then((t) => {
-      if (!signal.aborted && t && t.length > 0) {
-        setThumbs(() => {
-          const arr = Array(count).fill("");
-          t.forEach((val, idx) => {
-            if (idx < count) {
-              arr[idx] = val;
-            }
-          });
-          cachedSnapshotRef.current = arr;
-          return arr;
-        });
-      }
-    });
-
     return () => {
+      if (!completed && lastKey.current === key) {
+        lastKey.current = "";
+      }
+      if (debounceTimerRef.current !== null) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
       abortController.abort();
       if (abortControllerRef.current === abortController) {
         abortControllerRef.current = null;
       }
     };
   }, [
+    isVisible,
     media.id,
     media.url,
     media.type,
@@ -133,6 +224,7 @@ const ClipThumbnails = memo(({ clip, media, pxPerSec, isDragging, isInteracting 
 
   return (
     <div
+      ref={rootElRef}
       className="flex h-full w-full overflow-hidden pointer-events-none select-none relative"
       dir="ltr"
       style={clip.hasAlpha ? {
@@ -154,6 +246,7 @@ const ClipThumbnails = memo(({ clip, media, pxPerSec, isDragging, isInteracting 
             key={i}
             src={src}
             alt=""
+            decoding="async"
             className="flex-1 h-full object-cover animate-in fade-in duration-200"
             style={{ minWidth: 0 }}
             draggable={false}

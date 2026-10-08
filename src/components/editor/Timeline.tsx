@@ -34,10 +34,11 @@ const TRANSITION_ICON: Partial<Record<TransitionType, string>> = {
   "liquid-melt": "💧", "cross-zoom": "💥", "glitch-rgb-shatter": "⚡", "burn-film": "🔥", "kaleido-spin": "🌀", "heart-zoom": "💖"
 };
 
-const KeyframeMarkers = memo(({ clip, clipGlobalStart, pxPerSec, currentTime }: { clip: any; clipGlobalStart: number; pxPerSec: number; currentTime: number }) => {
+const KeyframeMarkers = memo(({ clip, pxPerSec, activeBuckets }: { clip: any; pxPerSec: number; activeBuckets: string }) => {
   const seenTimes = new Set<number>();
   const kfs = clip.keyframes || [];
   if (kfs.length === 0) return null;
+  const activeSet = activeBuckets ? new Set(activeBuckets.split(",")) : null;
   
   return (
     <div className="absolute inset-x-0 top-0 bottom-0 pointer-events-none z-20 flex items-center overflow-visible">
@@ -46,9 +47,8 @@ const KeyframeMarkers = memo(({ clip, clipGlobalStart, pxPerSec, currentTime }: 
         if (seenTimes.has(tBucket)) return null;
         seenTimes.add(tBucket);
 
-        const kfGlobalTime = clipGlobalStart + kf.time;
         // Turn green if the playhead is over/near the keyframe, blue otherwise
-        const isOver = Math.abs(currentTime - kfGlobalTime) < 0.08;
+        const isOver = activeSet ? activeSet.has(String(tBucket)) : false;
         
         // Exact keyframe alignment
         const xPos = kf.time * pxPerSec;
@@ -76,7 +76,7 @@ const KeyframeMarkers = memo(({ clip, clipGlobalStart, pxPerSec, currentTime }: 
 KeyframeMarkers.displayName = "KeyframeMarkers";
 
 const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUserScrub, onWidthChange, onPxPerSecChange, hidePlayhead, focused, pxPerSec: propPxPerSec, onOpenCover, onFocus, onDeselect }: Props) => {
-  const { clips, getMediaById, totalDuration, removeClip, trimClip, moveClip, videoMuted, setVideoMuted, coverImage, audioBeats } = useMedia();
+  const { clips, getMediaById, totalDuration, removeClip, trimClip, moveClip, videoMuted, setVideoMuted, coverImage } = useMedia();
 
   const autoCover = useMemo(() => {
     if (coverImage) return coverImage;
@@ -92,20 +92,50 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
   
   const [localPxPerSec, setLocalPxPerSec] = useState(60);
   const pxPerSec = propPxPerSec !== undefined ? propPxPerSec : localPxPerSec;
+
+  const propPxPerSecRef = useRef(propPxPerSec);
+  propPxPerSecRef.current = propPxPerSec;
+  const onPxPerSecChangeRef = useRef(onPxPerSecChange);
+  onPxPerSecChangeRef.current = onPxPerSecChange;
+  const onSeekRef = useRef(onSeek);
+  onSeekRef.current = onSeek;
+  const onUserScrubRef = useRef(onUserScrub);
+  onUserScrubRef.current = onUserScrub;
+  const onFocusRef = useRef(onFocus);
+  onFocusRef.current = onFocus;
+  const onDeselectRef = useRef(onDeselect);
+  onDeselectRef.current = onDeselect;
+  const onOpenTransitionRef = useRef(onOpenTransition);
+  onOpenTransitionRef.current = onOpenTransition;
+  const onWidthChangeRef = useRef(onWidthChange);
+  onWidthChangeRef.current = onWidthChange;
+
+  // Track the latest pxPerSec via Ref so our non-passive listener always uses the freshest values
+  const pxPerSecRef = useRef(pxPerSec);
+  pxPerSecRef.current = pxPerSec;
   
   const setPxPerSec = useCallback((p: number | ((prev: number) => number)) => {
-    if (propPxPerSec !== undefined) {
-      const nextVal = typeof p === "function" ? p(propPxPerSec) : p;
-      onPxPerSecChange?.(nextVal);
+    const currentPropPx = propPxPerSecRef.current;
+    if (currentPropPx !== undefined) {
+      const nextVal = typeof p === "function" ? p(currentPropPx) : p;
+      if (nextVal !== currentPropPx) {
+        pxPerSecRef.current = nextVal;
+        onPxPerSecChangeRef.current?.(nextVal);
+      }
     } else {
-      setLocalPxPerSec(p);
+      setLocalPxPerSec((prev) => {
+        const nextVal = typeof p === "function" ? p(prev) : p;
+        pxPerSecRef.current = nextVal;
+        return nextVal;
+      });
     }
-  }, [propPxPerSec, onPxPerSecChange]);
+  }, []);
 
   const [containerW, setContainerW] = useState(360);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragDx, setDragDx] = useState(0);
   const [isTrimming, setIsTrimming] = useState(false);
+  const [isPinching, setIsPinching] = useState(false);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
 
   // Auto-deselect clip when track focus is cleared
@@ -121,6 +151,16 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
   dragIdRef.current = dragId;
   const currentTimeRef = useRef(currentTime);
   currentTimeRef.current = currentTime;
+  const clipsRef = useRef(clips);
+  clipsRef.current = clips;
+  const totalDurationRef = useRef(totalDuration);
+  totalDurationRef.current = totalDuration;
+  const selectedClipIdRef = useRef(selectedClipId);
+  selectedClipIdRef.current = selectedClipId;
+
+  // Active pointers tracking to prevent 2nd finger from triggering scrub/move
+  const activePointersRef = useRef<Set<number>>(new Set());
+  const cancelActiveGestureRef = useRef<(() => void) | null>(null);
 
   // Touch inertial scrolling refs & helper
   const inertiaFrameRef = useRef<number | null>(null);
@@ -132,18 +172,65 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     }
   }, []);
 
-  // Cleanup inertia on unmount
+  const longPressTimerRef = useRef<number | null>(null);
+
+  const cancelActiveGesture = useCallback(() => {
+    if (longPressTimerRef.current !== null) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    stopInertia();
+    if (cancelActiveGestureRef.current) {
+      const fn = cancelActiveGestureRef.current;
+      cancelActiveGestureRef.current = null;
+      fn();
+    }
+  }, [stopInertia]);
+
+  const handlePointerDownCapture = useCallback((e: React.PointerEvent) => {
+    activePointersRef.current.add(e.pointerId);
+    if (activePointersRef.current.size > 1) {
+      cancelActiveGesture();
+    }
+  }, [cancelActiveGesture]);
+
+  const handlePointerUpOrCancelCapture = useCallback((e: React.PointerEvent) => {
+    activePointersRef.current.delete(e.pointerId);
+  }, []);
+
+  // Ensure activePointersRef never retains stale pointers released outside container
+  useEffect(() => {
+    const onGlobalPointerEnd = (ev: PointerEvent) => {
+      activePointersRef.current.delete(ev.pointerId);
+    };
+    const onWindowBlur = () => {
+      activePointersRef.current.clear();
+    };
+    window.addEventListener("pointerup", onGlobalPointerEnd, { passive: true, capture: true });
+    window.addEventListener("pointercancel", onGlobalPointerEnd, { passive: true, capture: true });
+    window.addEventListener("blur", onWindowBlur);
+    return () => {
+      window.removeEventListener("pointerup", onGlobalPointerEnd, { capture: true });
+      window.removeEventListener("pointercancel", onGlobalPointerEnd, { capture: true });
+      window.removeEventListener("blur", onWindowBlur);
+    };
+  }, []);
+
+  // Cleanup inertia & timers on unmount
   useEffect(() => {
     return () => {
       if (inertiaFrameRef.current !== null) {
         cancelAnimationFrame(inertiaFrameRef.current);
+      }
+      if (longPressTimerRef.current !== null) {
+        clearTimeout(longPressTimerRef.current);
       }
     };
   }, []);
 
   // Auto-update selectedClipId when currentTime moves while track is focused, so the active clip at the playhead is selected
   useEffect(() => {
-    if (focused === false) return;
+    if (focused === false || isTrimmingRef.current || dragIdRef.current !== null) return;
     let acc = 0;
     let foundId: string | null = null;
     for (const clip of clips) {
@@ -162,64 +249,105 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
   // Touch Pinch-to-Zoom State & Handlers
   const touchRef = useRef<{ initialDist: number; initialPx: number } | null>(null);
   const isPinchingRef = useRef(false);
-
-  // Track the latest pxPerSec via Ref so our non-passive listener always uses the freshest values
-  const pxPerSecRef = useRef(pxPerSec);
-  pxPerSecRef.current = pxPerSec;
+  const pinchRafRef = useRef<number | null>(null);
+  const pendingPxRef = useRef<number | null>(null);
+  const pinchUnlockTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
     const onTouchStart = (e: TouchEvent) => {
-      // Pinch Lock: Disable pinch zoom completely if a clip is being trimmed, dragged, or scrubbed
-      if (isTrimmingRef.current || dragIdRef.current !== null || isScrubbingRef.current) {
+      // Pinch Lock: Disable pinch zoom if a clip is actively being trimmed or reordered
+      if (isTrimmingRef.current || dragIdRef.current !== null) {
         isPinchingRef.current = false;
         touchRef.current = null;
         return;
       }
 
       if (e.touches.length >= 2) {
+        // Immediately cancel any single-finger scrub/move/long-press gesture
+        cancelActiveGesture();
+        if (pinchUnlockTimerRef.current !== null) {
+          clearTimeout(pinchUnlockTimerRef.current);
+          pinchUnlockTimerRef.current = null;
+        }
         isPinchingRef.current = true;
+        setIsPinching(true);
         e.preventDefault(); // Stop native page zoom
         const t1 = e.touches[0];
         const t2 = e.touches[1];
-        const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+        const dist = Math.max(1, Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY));
         touchRef.current = {
           initialDist: dist,
           initialPx: pxPerSecRef.current
         };
-      } else {
-        isPinchingRef.current = false;
       }
     };
 
     const onTouchMove = (e: TouchEvent) => {
-      // Pinch Lock: Disable pinch zoom completely if a clip is being trimmed, dragged, or scrubbed
-      if (isTrimmingRef.current || dragIdRef.current !== null || isScrubbingRef.current) {
+      if (isTrimmingRef.current || dragIdRef.current !== null) {
         isPinchingRef.current = false;
         touchRef.current = null;
         return;
       }
 
-      if (e.touches.length === 2 && touchRef.current) {
+      if (e.touches.length >= 2) {
         e.preventDefault(); // Stop native page scroll/zoom
-        isPinchingRef.current = true;
+        if (!isPinchingRef.current) {
+          cancelActiveGesture();
+          isPinchingRef.current = true;
+          setIsPinching(true);
+        }
         const t1 = e.touches[0];
         const t2 = e.touches[1];
-        const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+        const dist = Math.max(1, Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY));
+        if (!touchRef.current) {
+          touchRef.current = {
+            initialDist: dist,
+            initialPx: pxPerSecRef.current
+          };
+          return;
+        }
         const ratio = dist / touchRef.current.initialDist;
         // Widen zoom range to 12 - 400 for a much more responsive and immersive feel!
         const newPx = Math.max(12, Math.min(400, Math.round(touchRef.current.initialPx * ratio)));
-        setPxPerSec(newPx);
+        if (newPx === pxPerSecRef.current && pendingPxRef.current === null) return;
+        pendingPxRef.current = newPx;
+        if (pinchRafRef.current === null) {
+          pinchRafRef.current = requestAnimationFrame(() => {
+            pinchRafRef.current = null;
+            const targetPx = pendingPxRef.current;
+            pendingPxRef.current = null;
+            if (targetPx !== null && targetPx !== pxPerSecRef.current) {
+              setPxPerSec(targetPx);
+            }
+          });
+        }
       }
     };
 
     const onTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length === 0) {
+        activePointersRef.current.clear();
+      }
       if (e.touches.length < 2) {
         touchRef.current = null;
+        if (pinchRafRef.current !== null) {
+          cancelAnimationFrame(pinchRafRef.current);
+          pinchRafRef.current = null;
+        }
+        if (pendingPxRef.current !== null && pendingPxRef.current !== pxPerSecRef.current) {
+          setPxPerSec(pendingPxRef.current);
+        }
+        pendingPxRef.current = null;
+        setIsPinching(false);
         // Keep isPinchingRef locked for 200ms to absorb any trailing touch tap/clicks
-        setTimeout(() => {
+        if (pinchUnlockTimerRef.current !== null) {
+          clearTimeout(pinchUnlockTimerRef.current);
+        }
+        pinchUnlockTimerRef.current = window.setTimeout(() => {
+          pinchUnlockTimerRef.current = null;
           if (!touchRef.current) {
             isPinchingRef.current = false;
           }
@@ -237,8 +365,16 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
       el.removeEventListener("touchmove", onTouchMove);
       el.removeEventListener("touchend", onTouchEnd);
       el.removeEventListener("touchcancel", onTouchEnd);
+      if (pinchRafRef.current !== null) {
+        cancelAnimationFrame(pinchRafRef.current);
+        pinchRafRef.current = null;
+      }
+      if (pinchUnlockTimerRef.current !== null) {
+        clearTimeout(pinchUnlockTimerRef.current);
+        pinchUnlockTimerRef.current = null;
+      }
     };
-  }, [setPxPerSec]);
+  }, [setPxPerSec, cancelActiveGesture]);
 
   // Edge Auto-Scrolling State & Logic
   const scrollIntervalRef = useRef<number | null>(null);
@@ -270,16 +406,16 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
         const deltaSec = (now - lastTime) / 1000;
         lastTime = now;
 
-        const nextTime = Math.max(0, Math.min(totalDuration, currentTimeRef.current + speed * deltaSec));
+        const nextTime = Math.max(0, Math.min(totalDurationRef.current, currentTimeRef.current + speed * deltaSec));
         if (nextTime !== currentTimeRef.current) {
-          onSeek(nextTime);
+          onSeekRef.current(nextTime);
           onScrollTick(deltaSec, speed);
         }
       } else {
         lastTime = performance.now();
       }
     }, 16);
-  }, [totalDuration, onSeek]);
+  }, []);
 
   const stopAutoScroll = useCallback(() => {
     if (scrollIntervalRef.current) {
@@ -297,32 +433,32 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
       if (Math.abs(lastW - w) >= 1) {
         lastW = w;
         setContainerW((prev) => (Math.abs(prev - w) < 1 ? prev : w));
-        onWidthChange?.(w);
+        onWidthChangeRef.current?.(w);
       }
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [onWidthChange]);
+  }, []);
 
   useEffect(() => {
     if (propPxPerSec === undefined) {
-      onPxPerSecChange?.(pxPerSec);
+      onPxPerSecChangeRef.current?.(pxPerSec);
     }
-  }, [pxPerSec, propPxPerSec, onPxPerSecChange]);
+  }, [pxPerSec, propPxPerSec]);
 
   const halfW = containerW / 2;
   const totalPx = totalDuration * pxPerSec;
 
+  const tickInterval = pxPerSec >= 80 ? 1 : pxPerSec >= 40 ? 2 : 5;
   const ticks = useMemo(() => {
-    const tickInterval = pxPerSec >= 80 ? 1 : pxPerSec >= 40 ? 2 : 5;
     const arr: number[] = [];
     for (let s = 0; s <= totalDuration + tickInterval; s += tickInterval) arr.push(s);
     return arr;
-  }, [totalDuration, pxPerSec]);
+  }, [totalDuration, tickInterval]);
 
   const lastSnappedPtRef = useRef<number | null>(null);
 
-  const getSnapPoints = useCallback(() => {
+  const snapPoints = useMemo(() => {
     const points: number[] = [0];
     let acc = 0;
     for (const clip of clips) {
@@ -335,10 +471,13 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     return Array.from(new Set(points)).sort((a, b) => a - b);
   }, [clips, totalDuration]);
 
+  const snapPointsRef = useRef(snapPoints);
+  snapPointsRef.current = snapPoints;
+
   const applySnap = useCallback((time: number) => {
-    const points = getSnapPoints();
+    const points = snapPointsRef.current;
     const thresholdPx = 10; // Snap within 10 pixels of any edge
-    const thresholdSec = thresholdPx / pxPerSec;
+    const thresholdSec = thresholdPx / pxPerSecRef.current;
     for (const pt of points) {
       if (Math.abs(time - pt) < thresholdSec) {
         if (lastSnappedPtRef.current !== pt) {
@@ -350,31 +489,65 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     }
     lastSnappedPtRef.current = null;
     return time;
-  }, [getSnapPoints, pxPerSec]);
+  }, []);
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest("[data-no-scrub]")) return;
-    if (isPinchingRef.current || (e.pointerType === "touch" && (e.nativeEvent as any).touches && (e.nativeEvent as any).touches.length > 1)) return;
+    if (!e.isPrimary || isPinchingRef.current || activePointersRef.current.size > 1) return;
     
     // Stop any currently running momentum/inertia scroll
     stopInertia();
 
     const targetEl = e.currentTarget as HTMLElement;
+    const pointerId = e.pointerId;
     const startX = e.clientX;
     const startY = e.clientY;
     const startCurrentTime = currentTimeRef.current;
 
     isScrubbingRef.current = true;
-    onUserScrub?.(true);
+    onUserScrubRef.current?.(true);
     
     let hasMoved = false;
     let isCaptured = false;
+    let isCancelled = false;
     let lastX = startX;
     let lastTime = performance.now();
     let velocity = 0; // px per millisecond
 
+    const cleanup = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      if (isCaptured) {
+        isCaptured = false;
+        try {
+          if (targetEl.hasPointerCapture(pointerId)) {
+            targetEl.releasePointerCapture(pointerId);
+          }
+        } catch {}
+      }
+      if (cancelActiveGestureRef.current === cancel) {
+        cancelActiveGestureRef.current = null;
+      }
+    };
+
+    const cancel = () => {
+      if (isCancelled) return;
+      isCancelled = true;
+      isScrubbingRef.current = false;
+      onUserScrubRef.current?.(false);
+      stopInertia();
+      cleanup();
+    };
+
+    cancelActiveGestureRef.current = cancel;
+
     const move = (ev: PointerEvent) => {
-      if (!isScrubbingRef.current || isPinchingRef.current) return;
+      if (ev.pointerId !== pointerId) return;
+      if (isCancelled || !isScrubbingRef.current || isPinchingRef.current || activePointersRef.current.size > 1) {
+        cancel();
+        return;
+      }
       const currentX = ev.clientX;
       const currentY = ev.clientY;
       const now = performance.now();
@@ -384,10 +557,7 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
 
       if (!isCaptured && Math.abs(dyTotal) > Math.abs(dxTotal) && Math.abs(dyTotal) > 5) {
         // User is scrolling vertically — cancel scrub so container scrolls natively
-        isScrubbingRef.current = false;
-        onUserScrub?.(false);
-        window.removeEventListener("pointermove", move);
-        window.removeEventListener("pointerup", up);
+        cancel();
         return;
       }
 
@@ -397,7 +567,7 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
         hasMoved = true;
         if (!isCaptured) {
           isCaptured = true;
-          try { targetEl.setPointerCapture(e.pointerId); } catch {}
+          try { targetEl.setPointerCapture(pointerId); } catch {}
         }
       }
 
@@ -411,28 +581,35 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
       lastX = currentX;
       lastTime = now;
 
-      let nextTime = Math.max(0, Math.min(totalDuration, startCurrentTime - dxTotal / pxPerSec));
+      let nextTime = Math.max(0, Math.min(totalDurationRef.current, startCurrentTime - dxTotal / pxPerSecRef.current));
       nextTime = applySnap(nextTime);
-      onSeek(nextTime);
+      onSeekRef.current(nextTime);
     };
 
-    const up = () => {
+    const up = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      activePointersRef.current.delete(ev.pointerId);
+      if (isCancelled) return;
       isScrubbingRef.current = false;
-      onUserScrub?.(false);
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
+      onUserScrubRef.current?.(false);
+      cleanup();
       
       // Discrete tap on timeline background deselects clip without jumping playhead
-      if (!hasMoved && !isPinchingRef.current) {
+      if (!hasMoved && !isPinchingRef.current && activePointersRef.current.size === 0) {
         setSelectedClipId(null);
-        onDeselect?.();
-      } else if (hasMoved && !isPinchingRef.current && Math.abs(velocity) > 0.05) {
+        onDeselectRef.current?.();
+      } else if (hasMoved && !isPinchingRef.current && activePointersRef.current.size === 0 && Math.abs(velocity) > 0.05) {
         // Trigger high-performance momentum inertia scrolling
         let currentVelocity = velocity;
         let lastFrameTime = performance.now();
-        onUserScrub?.(true);
+        onUserScrubRef.current?.(true);
 
         const runInertia = () => {
+          if (isPinchingRef.current || activePointersRef.current.size > 0) {
+            onUserScrubRef.current?.(false);
+            inertiaFrameRef.current = null;
+            return;
+          }
           const now = performance.now();
           const frameTime = now - lastFrameTime;
           lastFrameTime = now;
@@ -442,17 +619,18 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
           currentVelocity *= Math.pow(friction, frameTime / 16);
 
           if (Math.abs(currentVelocity) < 0.04) {
-            onUserScrub?.(false);
+            onUserScrubRef.current?.(false);
             inertiaFrameRef.current = null;
             return;
           }
 
           const deltaPx = currentVelocity * frameTime;
-          const nextTime = Math.max(0, Math.min(totalDuration, currentTimeRef.current - deltaPx / pxPerSec));
-          onSeek(nextTime);
+          const dur = totalDurationRef.current;
+          const nextTime = Math.max(0, Math.min(dur, currentTimeRef.current - deltaPx / pxPerSecRef.current));
+          onSeekRef.current(nextTime);
 
-          if (nextTime <= 0 || nextTime >= totalDuration) {
-            onUserScrub?.(false);
+          if (nextTime <= 0 || nextTime >= dur) {
+            onUserScrubRef.current?.(false);
             inertiaFrameRef.current = null;
             return;
           }
@@ -465,15 +643,17 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     };
     window.addEventListener("pointermove", move, { passive: true });
     window.addEventListener("pointerup", up);
-  }, [halfW, pxPerSec, totalDuration, onSeek, onUserScrub, applySnap, stopInertia, onDeselect]);
+    window.addEventListener("pointercancel", cancel);
+  }, [applySnap, stopInertia]);
 
   const startTrim = useCallback((e: React.PointerEvent, clipId: string, edge: "in" | "out", clip: { in: number; out: number; mediaId: string }) => {
     e.stopPropagation();
     e.preventDefault();
+    if (!e.isPrimary || isPinchingRef.current || activePointersRef.current.size > 1) return;
     setSelectedClipId(clipId);
     setIsTrimming(true);
     isTrimmingRef.current = true;
-    onFocus?.();
+    onFocusRef.current?.();
 
     // Gesture Isolation: Pointer capture to isolate gestures from zoom/scroll
     const targetEl = e.currentTarget as HTMLElement;
@@ -487,10 +667,11 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     const startIn = clip.in, startOut = clip.out;
 
     // Calculate initial global position of this clip on timeline
-    const fromIdx = clips.findIndex((c) => c.id === clipId);
+    const currentClips = clipsRef.current;
+    const fromIdx = currentClips.findIndex((c) => c.id === clipId);
     let clipGlobalStart = 0;
-    for (let i = 0; i < fromIdx && i < clips.length; i++) {
-      clipGlobalStart += clips[i].out - clips[i].in;
+    for (let i = 0; i < fromIdx && i < currentClips.length; i++) {
+      clipGlobalStart += currentClips[i].out - currentClips[i].in;
     }
     const initialClipDuration = clip.out - clip.in;
     const clipGlobalEnd = clipGlobalStart + initialClipDuration;
@@ -502,13 +683,13 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     const maxSourceDuration = isVideo && media.duration > 0 ? media.duration : Infinity;
 
     const updateTrim = (currentX: number) => {
-      const dt = (currentX - startXAdjusted) / pxPerSec;
+      const dt = (currentX - startXAdjusted) / pxPerSecRef.current;
       if (edge === "in") {
         const newIn = Math.max(0, Math.min(startIn + dt, startOut - 0.1));
         trimClip(clipId, "in", newIn);
         // Visual Anchoring: Only update playhead if playhead was inside the affected clip
         if (playheadInsideClip) {
-          onSeek(clipGlobalStart);
+          onSeekRef.current(clipGlobalStart);
         }
       } else {
         const proposedOut = Math.max(startIn + 0.1, Math.min(startOut + dt, maxSourceDuration));
@@ -518,17 +699,20 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
         trimClip(clipId, "out", proposedOut);
         // Visual Anchoring: Only update playhead preview if playhead was inside the affected clip
         if (playheadInsideClip) {
-          onSeek(clipGlobalStart + (proposedOut - startIn));
+          onSeekRef.current(clipGlobalStart + (proposedOut - startIn));
         }
       }
     };
 
     const move = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
       lastPointerXRef.current = ev.clientX;
       updateTrim(ev.clientX);
     };
 
-    const up = () => {
+    const up = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      activePointersRef.current.delete(ev.pointerId);
       setIsTrimming(false);
       isTrimmingRef.current = false;
       stopAutoScroll();
@@ -545,7 +729,7 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     };
 
     startAutoScroll((deltaSec, speed) => {
-      const scrolledPx = speed * deltaSec * pxPerSec;
+      const scrolledPx = speed * deltaSec * pxPerSecRef.current;
       startXAdjusted -= scrolledPx;
       updateTrim(lastPointerXRef.current);
     }, 1.8); // Smooth and controlled auto-scroll speed (1.8x) during trim prevents visual zoom illusion
@@ -553,7 +737,7 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     window.addEventListener("pointermove", move, { passive: true });
     window.addEventListener("pointerup", up);
     window.addEventListener("pointercancel", up);
-  }, [clips, pxPerSec, trimClip, startAutoScroll, stopAutoScroll, getMediaById, onFocus, onSeek]);
+  }, [trimClip, startAutoScroll, stopAutoScroll, getMediaById]);
 
   const COMPACT_W = 68;
   const GAP = 10;
@@ -564,35 +748,37 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     ? Math.max(0, Math.min(clips.length - 1, Math.round((fromIdx * slotWidth + dragDx) / slotWidth))) 
     : -1;
 
-  const longPressTimerRef = useRef<number | null>(null);
-
   const startMove = useCallback((e: React.PointerEvent, clipId: string) => {
     // Stop event bubbling so outer timeline canvas click listener doesn't overwrite our seek
     e.stopPropagation();
 
     // If clicking on a trim handle or delete button, let them handle it
     if ((e.target as HTMLElement).closest("[data-no-scrub]")) return;
+    if (!e.isPrimary || isPinchingRef.current || activePointersRef.current.size > 1) return;
 
-    const clipIdx = clips.findIndex((c) => c.id === clipId);
+    const currentClips = clipsRef.current;
+    const clipIdx = currentClips.findIndex((c) => c.id === clipId);
     if (clipIdx === -1) return;
+
+    stopInertia();
 
     // Determine current clip index from playhead position prior to click
     let currentClipIdx = -1;
     let accTimeline = 0;
-    for (let i = 0; i < clips.length; i++) {
-      const dur = clips[i].out - clips[i].in;
+    for (let i = 0; i < currentClips.length; i++) {
+      const dur = currentClips[i].out - currentClips[i].in;
       if (currentTimeRef.current >= accTimeline - 0.05 && currentTimeRef.current < accTimeline + dur - 0.05) {
         currentClipIdx = i;
         break;
       }
       accTimeline += dur;
     }
-    if (currentClipIdx === -1 && clips.length > 0) {
-      currentClipIdx = currentTimeRef.current >= accTimeline ? clips.length - 1 : 0;
+    if (currentClipIdx === -1 && currentClips.length > 0) {
+      currentClipIdx = currentTimeRef.current >= accTimeline ? currentClips.length - 1 : 0;
     }
 
-    const prevSelectedClipId = selectedClipId;
-    const prevIdx = clips.findIndex((c) => c.id === prevSelectedClipId);
+    const prevSelectedClipId = selectedClipIdRef.current;
+    const prevIdx = currentClips.findIndex((c) => c.id === prevSelectedClipId);
     const refIdx = prevIdx !== -1 ? prevIdx : currentClipIdx;
     const isDifferentClip = clipIdx !== refIdx;
 
@@ -600,8 +786,8 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     let accTime = 0;
     let targetStart = 0;
     let targetEnd = 0;
-    for (let i = 0; i < clips.length; i++) {
-      const c = clips[i];
+    for (let i = 0; i < currentClips.length; i++) {
+      const c = currentClips[i];
       const dur = c.out - c.in;
       if (c.id === clipId) {
         targetStart = accTime;
@@ -612,7 +798,8 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     }
 
     setSelectedClipId(clipId);
-    onFocus?.();
+    selectedClipIdRef.current = clipId;
+    onFocusRef.current?.();
 
     let targetTime = currentTimeRef.current;
     if (clipIdx > refIdx) {
@@ -624,23 +811,57 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     }
 
     if (isDifferentClip) {
-      onSeek(targetTime);
+      onSeekRef.current(targetTime);
       triggerHapticTick("light");
     } else {
       triggerHapticTick("light");
     }
 
+    const pointerId = e.pointerId;
     const startX = e.clientX;
     const startY = e.clientY;
     let lastX = startX;
     let hasMoved = false;
     let isReorderMode = false;
+    let isCancelled = false;
+
+    const cleanup = () => {
+      if (longPressTimerRef.current !== null) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      if (cancelActiveGestureRef.current === cancel) {
+        cancelActiveGestureRef.current = null;
+      }
+    };
+
+    const cancel = () => {
+      if (isCancelled) return;
+      isCancelled = true;
+      cleanup();
+      isScrubbingRef.current = false;
+      onUserScrubRef.current?.(false);
+      stopInertia();
+      if (isReorderMode || dragIdRef.current !== null) {
+        isReorderMode = false;
+        dragIdRef.current = null;
+        setDragId(null);
+        setDragDx(0);
+      }
+    };
+
+    cancelActiveGestureRef.current = cancel;
 
     // CapCut style long-press (350ms): hold to reorder
-    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    if (longPressTimerRef.current !== null) clearTimeout(longPressTimerRef.current);
     longPressTimerRef.current = window.setTimeout(() => {
-      if (!hasMoved) {
+      longPressTimerRef.current = null;
+      if (!hasMoved && !isCancelled && !isPinchingRef.current && activePointersRef.current.size <= 1) {
         isReorderMode = true;
+        dragIdRef.current = clipId;
         setDragId(clipId);
         triggerHapticTick("medium");
         try { navigator.vibrate?.(35); } catch {}
@@ -648,6 +869,11 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     }, 350);
 
     const move = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      if (isCancelled || isPinchingRef.current || activePointersRef.current.size > 1) {
+        cancel();
+        return;
+      }
       const currentX = ev.clientX;
       const currentY = ev.clientY;
       const dxTotal = currentX - startX;
@@ -655,7 +881,7 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
 
       if (Math.hypot(dxTotal, dyTotal) > 8) {
         hasMoved = true;
-        if (!isReorderMode && longPressTimerRef.current) {
+        if (!isReorderMode && longPressTimerRef.current !== null) {
           clearTimeout(longPressTimerRef.current);
           longPressTimerRef.current = null;
         }
@@ -666,56 +892,90 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
         setDragDx(dxTotal);
       } else if (hasMoved) {
         // Smooth timeline scrub across clips only after intentional drag
+        isScrubbingRef.current = true;
         const dxStep = currentX - lastX;
         lastX = currentX;
-        const nextTime = Math.max(0, Math.min(totalDuration, currentTimeRef.current - dxStep / pxPerSecRef.current));
-        onSeek(nextTime);
-        onUserScrub?.(true);
+        const nextTime = Math.max(0, Math.min(totalDurationRef.current, currentTimeRef.current - dxStep / pxPerSecRef.current));
+        onSeekRef.current(nextTime);
+        onUserScrubRef.current?.(true);
       }
     };
 
-    const up = () => {
-      if (longPressTimerRef.current) {
-        clearTimeout(longPressTimerRef.current);
-        longPressTimerRef.current = null;
-      }
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      window.removeEventListener("pointercancel", up);
-      onUserScrub?.(false);
+    const up = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      activePointersRef.current.delete(ev.pointerId);
+      if (isCancelled) return;
+      cleanup();
+      isScrubbingRef.current = false;
+      onUserScrubRef.current?.(false);
 
       if (isReorderMode) {
         const finalX = lastPointerXRef.current;
         const dx = finalX - startX;
-        const target = Math.max(0, Math.min(clips.length - 1, Math.round((clipIdx * slotWidth + dx) / slotWidth)));
+        const latestClips = clipsRef.current;
+        const target = Math.max(0, Math.min(latestClips.length - 1, Math.round((clipIdx * slotWidth + dx) / slotWidth)));
         moveClip(clipId, target);
         triggerHapticTick("medium");
         try { navigator.vibrate?.(12); } catch {}
+        dragIdRef.current = null;
         setDragId(null);
         setDragDx(0);
-      } else if (!hasMoved && isDifferentClip) {
+      } else if (!hasMoved && isDifferentClip && !isPinchingRef.current && activePointersRef.current.size === 0) {
         // Confirm discrete tap on a different clip jumped to first or last handle
-        onSeek(targetTime);
+        onSeekRef.current(targetTime);
       }
     };
 
     window.addEventListener("pointermove", move, { passive: true });
     window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
-  }, [clips, selectedClipId, slotWidth, moveClip, onSeek, totalDuration, onUserScrub, onFocus, halfW]);
+    window.addEventListener("pointercancel", cancel);
+  }, [slotWidth, moveClip, stopInertia]);
 
   const translateX = isReordering && fromIdx !== -1
     ? halfW - (fromIdx * slotWidth + COMPACT_W / 2)
     : halfW - currentTime * pxPerSec;
 
+  // Compute active keyframe buckets per clip so clipElements only updates when a keyframe actually crosses the playhead (< 0.08s)
+  const activeKeyframeSignature = useMemo(() => {
+    let acc = 0;
+    let sig = "";
+    for (const clip of clips) {
+      const len = clip.out - clip.in;
+      const kfs = clip.keyframes;
+      if (kfs && kfs.length > 0 && currentTime >= acc - 0.1 && currentTime <= acc + len + 0.1) {
+        const buckets: number[] = [];
+        for (const kf of kfs) {
+          if (Math.abs(currentTime - (acc + kf.time)) < 0.08) {
+            buckets.push(Math.round(kf.time * 20));
+          }
+        }
+        if (buckets.length > 0) {
+          sig += `${clip.id}:${buckets.join(",")};`;
+        }
+      }
+      acc += len;
+    }
+    return sig;
+  }, [clips, currentTime]);
+
   const clipElements = useMemo(() => {
+    const activeByClip = new Map<string, string>();
+    if (activeKeyframeSignature) {
+      for (const part of activeKeyframeSignature.split(";")) {
+        if (!part) continue;
+        const colonIdx = part.indexOf(":");
+        if (colonIdx !== -1) {
+          activeByClip.set(part.slice(0, colonIdx), part.slice(colonIdx + 1));
+        }
+      }
+    }
+
     let acc = 0;
     return clips.map((clip, idx) => {
       const media = getMediaById(clip.mediaId);
       const len = clip.out - clip.in;
       const w = len * pxPerSec;
       const left = acc * pxPerSec;
-      const clipGlobalStart = acc;
       acc += len;
       if (!media) return null;
 
@@ -755,11 +1015,11 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
             transform,
             zIndex,
             opacity: isReordering && !dragging ? 0.75 : 1,
-            transition: dragging ? "none" : isReordering ? "all 200ms cubic-bezier(0.16, 1, 0.3, 1)" : "all 150ms cubic-bezier(0.16, 1, 0.3, 1)",
+            transition: dragging || isTrimming || isPinching ? "none" : isReordering ? "all 200ms cubic-bezier(0.16, 1, 0.3, 1)" : "none",
           }}
         >
           <div
-            className={`relative h-full overflow-visible cursor-grab active:cursor-grabbing shadow-md transition-all duration-150 ${
+            className={`relative h-full overflow-visible cursor-grab active:cursor-grabbing shadow-md transition-colors duration-150 ${
               dragging 
                 ? "border-2 border-amber-400 ring-4 ring-amber-400/80 z-30 shadow-2xl bg-slate-950/95 backdrop-blur-md rounded-2xl transform shadow-amber-500/40 brightness-110 flex items-center justify-center" 
                 : isReordering
@@ -793,17 +1053,17 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
                 media={media}
                 pxPerSec={pxPerSec}
                 isDragging={dragging || isReordering}
-                isInteracting={isTrimming || isReordering}
+                isInteracting={isTrimming || isReordering || isPinching}
+                containerRef={containerRef}
               />
             </div>
             
             {/* Keyframe Markers Layer inside clip (z-20) */}
-            {!isReordering && (
+            {!isReordering && clip.keyframes && clip.keyframes.length > 0 && (
               <KeyframeMarkers
                 clip={clip}
-                clipGlobalStart={clipGlobalStart}
                 pxPerSec={pxPerSec}
-                currentTime={currentTime}
+                activeBuckets={activeByClip.get(clip.id) || ""}
               />
             )}
 
@@ -848,7 +1108,7 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
         </div>
       );
     });
-  }, [clips, getMediaById, pxPerSec, startTrim, startMove, removeClip, dragId, dragDx, selectedClipId, focused, isTrimming, isReordering, fromIdx, hoverIdx, slotWidth, currentTime]);
+  }, [clips, getMediaById, pxPerSec, startTrim, startMove, removeClip, dragId, dragDx, selectedClipId, focused, isTrimming, isPinching, isReordering, fromIdx, hoverIdx, slotWidth, activeKeyframeSignature]);
 
   // CapCut Transition Cut Buttons between adjacent clips
   // Must appear ONLY when the user has NOT selected a clip or track
@@ -876,7 +1136,7 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
-            onOpenTransition(clip.id);
+            onOpenTransitionRef.current(clip.id);
           }}
           style={{
             left: `${cutPx}px`,
@@ -884,7 +1144,7 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
             transform: "translate(-50%, -50%)",
             zIndex: 45,
           }}
-          className={`absolute w-[18px] h-[28px] rounded-[6px] shadow-lg flex items-center justify-center cursor-pointer transition-all hover:scale-120 active:scale-95 pointer-events-auto select-none ${
+          className={`absolute w-[18px] h-[28px] rounded-[6px] shadow-lg flex items-center justify-center cursor-pointer transition-transform hover:scale-120 active:scale-95 pointer-events-auto select-none ${
             hasTransition
               ? "bg-primary text-primary-foreground border border-primary/60 ring-2 ring-primary/40 shadow-primary/30"
               : "bg-white hover:bg-slate-100 text-slate-900 border border-black/25 shadow-md"
@@ -899,7 +1159,7 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
         </button>
       );
     });
-  }, [isReordering, isClipSelected, clips, pxPerSec, onOpenTransition]);
+  }, [isReordering, isClipSelected, clips, pxPerSec]);
 
   return (
     <div className="bg-card/60 border-t border-border" dir="ltr">
@@ -907,6 +1167,9 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
         ref={containerRef}
         className="relative overflow-hidden select-none touch-pan-y"
         style={{ height: 110, touchAction: "pan-y" }}
+        onPointerDownCapture={handlePointerDownCapture}
+        onPointerUpCapture={handlePointerUpOrCancelCapture}
+        onPointerCancelCapture={handlePointerUpOrCancelCapture}
         onPointerDown={handlePointerDown}
       >
         <div
