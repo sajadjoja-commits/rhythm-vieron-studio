@@ -7,6 +7,8 @@ import {
   buildVideoCacheKey,
   setCacheEntry,
   computeSegmentScore,
+  buildVideoSampleTimes,
+  computeVisionSampleIndices,
   type Segment,
 } from "../lib/autoMontage";
 import { SMART_TEMPLATES, buildSmartTemplateStyle } from "../lib/smartTemplates";
@@ -711,5 +713,98 @@ describe("Comprehensive Smart Cut & Rhythm Engine Test Suite", () => {
     expect(closeRes[0].containsTransition).toBe(true);
     // Skin-tone movement is never used to synthesize handVelocityScore in worker
     expect(closeRes[0].handVelocityScore).toBe(0);
+  });
+
+  it("Scenario 19: Vision frame indices are distributed evenly across full duration (stride = ceil(frameCount/8), cap 8)", () => {
+    // 24 frames -> stride = ceil(24 / 8) = 3 -> [0, 3, 6, 9, 12, 15, 18, 21]
+    const indices24 = computeVisionSampleIndices(24, 8);
+    expect(indices24).toEqual([0, 3, 6, 9, 12, 15, 18, 21]);
+    expect(indices24.length).toBeLessThanOrEqual(8);
+
+    // 36 frames -> stride = ceil(36 / 8) = 5 -> [0, 5, 10, 15, 20, 25, 30, 35]
+    const indices36 = computeVisionSampleIndices(36, 8);
+    expect(indices36).toEqual([0, 5, 10, 15, 20, 25, 30, 35]);
+    expect(indices36.length).toBe(8);
+
+    // Check timestamps on a 24s video and a 120s video cover the full duration (not just first ~14s)
+    const plan24 = buildVideoSampleTimes(24, true, false);
+    const visionTimes24 = computeVisionSampleIndices(plan24.frameCount, 8).map((i) => plan24.sampleTimes[i]);
+    expect(visionTimes24.length).toBe(8);
+    expect(visionTimes24[0]).toBeLessThan(3);
+    expect(visionTimes24[visionTimes24.length - 1]).toBeGreaterThan(20);
+
+    const plan120 = buildVideoSampleTimes(120, true, false);
+    const visionTimes120 = computeVisionSampleIndices(plan120.frameCount, 8).map((i) => plan120.sampleTimes[i]);
+    expect(visionTimes120.length).toBe(8);
+    expect(visionTimes120[0]).toBeLessThan(15);
+    expect(visionTimes120[visionTimes120.length - 1]).toBeGreaterThan(105);
+  });
+
+  it("Scenario 20: 120s video uses <= 24 frames in 8x3 bursts and produces non-neutral motion scores across the timeline", () => {
+    const W = 16;
+    const H = 16;
+    const makeFrame = (time: number, val: number): FrameBufferData => {
+      const arr = new Uint8ClampedArray(W * H * 4);
+      for (let i = 0; i < arr.length; i += 4) {
+        arr[i] = val;
+        arr[i + 1] = val;
+        arr[i + 2] = val;
+        arr[i + 3] = 255;
+      }
+      return { time, width: W, height: H, buffer: arr.buffer };
+    };
+
+    const plan120 = buildVideoSampleTimes(120, true, false);
+    expect(plan120.isBurstSampling).toBe(true);
+    expect(plan120.frameCount).toBeLessThanOrEqual(24);
+    expect(plan120.sampleTimes.length).toBe(24);
+
+    // Build 24 frames: bursts 0..3 are static (no pixel delta), bursts 4..7 have strong motion
+    const frames120: FrameBufferData[] = plan120.sampleTimes.map((t, idx) => {
+      const burstIdx = Math.floor(idx / 3);
+      const intraIdx = idx % 3;
+      const isHighMotionBurst = burstIdx >= 4;
+      const luma = isHighMotionBurst ? 20 + intraIdx * 100 : 120;
+      return makeFrame(t, luma);
+    });
+
+    const segments120 = [
+      { in: 5, out: 8 },     // Near burst 0 (static)
+      { in: 35, out: 38 },   // Near burst 2 (static)
+      { in: 66, out: 69 },   // Near burst 4 (high motion)
+      { in: 110, out: 114 }, // Near burst 7 (high motion)
+    ];
+
+    const workerRes = analyzeFramesInWorker(frames120, segments120);
+    expect(workerRes.length).toBe(4);
+
+    // None of the segments should be stuck at neutral 0.5
+    for (const r of workerRes) {
+      expect(r.motion).not.toBeCloseTo(0.5, 2);
+    }
+
+    // Static bursts -> motion == 0; high-motion bursts -> motion > 0.8
+    expect(workerRes[0].motion).toBeCloseTo(0, 4);
+    expect(workerRes[1].motion).toBeCloseTo(0, 4);
+    expect(workerRes[2].motion).toBeGreaterThan(0.8);
+    expect(workerRes[3].motion).toBeGreaterThan(0.8);
+  });
+
+  it("Scenario 21: Videos <= 25s preserve exact uniform sampling behavior without burst mode", () => {
+    for (const dur of [6, 12, 20, 25]) {
+      const plan = buildVideoSampleTimes(dur, true, false);
+      expect(plan.isBurstSampling).toBe(false);
+
+      const expectedFrameCount = Math.min(24, Math.max(3, Math.floor(dur / 0.9)));
+      const expectedInterval = dur / (expectedFrameCount + 1);
+      const expectedTimes: number[] = [];
+      for (let i = 1; i <= expectedFrameCount; i++) {
+        expectedTimes.push(Math.max(0.4, Math.min(dur - 0.4, i * expectedInterval)));
+      }
+
+      expect(plan.frameCount).toBe(expectedFrameCount);
+      expect(plan.frameInterval).toBeCloseTo(expectedInterval, 6);
+      expect(plan.sampleTimes).toEqual(expectedTimes);
+    }
   });
 });

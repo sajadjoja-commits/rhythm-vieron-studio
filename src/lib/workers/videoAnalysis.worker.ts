@@ -221,19 +221,46 @@ export function analyzeFramesInWorker(
     motionScores.push(motion);
   }
 
-  // 3. Aggregate into target segments
-  const segmentResults: WorkerSegmentResult[] = segments.map((seg) => {
-    const matchingIndices: number[] = [];
-    for (let i = 0; i < analyzedFrames.length; i++) {
-      const t = analyzedFrames[i].time;
-      if (t >= seg.in - 0.15 && t <= seg.out + 0.15) {
-        matchingIndices.push(i);
-      }
+  // 3. Group frames into contiguous bursts (consecutive frames within <= 1.5s)
+  const bursts: Array<{ indices: number[]; time: number }> = [];
+  for (let i = 0; i < analyzedFrames.length; i++) {
+    if (
+      i === 0 ||
+      Math.abs(analyzedFrames[i].time - analyzedFrames[i - 1].time) > MAX_CONSECUTIVE_FRAME_DELTA_SEC
+    ) {
+      bursts.push({ indices: [i], time: analyzedFrames[i].time });
+    } else {
+      bursts[bursts.length - 1].indices.push(i);
     }
-    if (matchingIndices.length === 0 && analyzedFrames.length > 0) {
+  }
+  for (const b of bursts) {
+    const sumT = b.indices.reduce((acc, idx) => acc + analyzedFrames[idx].time, 0);
+    b.time = sumT / b.indices.length;
+  }
+  const isBurstSampling = bursts.length > 1 && bursts.some((b) => b.indices.length >= 2);
+
+  // 4. Aggregate into target segments
+  const segmentResults: WorkerSegmentResult[] = segments.map((seg) => {
+    let matchingIndices: number[] = [];
+    let activeBurst: { indices: number[]; time: number } | null = null;
+
+    if (isBurstSampling) {
       const midTime = (seg.in + seg.out) / 2;
-      const nearestIdx = pickNearestFrameIndex(analyzedFrames, midTime);
-      matchingIndices.push(Math.max(0, Math.min(nearestIdx, analyzedFrames.length - 1)));
+      const nearestBurstIdx = pickNearestFrameIndex(bursts, midTime);
+      activeBurst = bursts[Math.max(0, Math.min(nearestBurstIdx, bursts.length - 1))] || null;
+      matchingIndices = activeBurst ? [...activeBurst.indices] : [];
+    } else {
+      for (let i = 0; i < analyzedFrames.length; i++) {
+        const t = analyzedFrames[i].time;
+        if (t >= seg.in - 0.15 && t <= seg.out + 0.15) {
+          matchingIndices.push(i);
+        }
+      }
+      if (matchingIndices.length === 0 && analyzedFrames.length > 0) {
+        const midTime = (seg.in + seg.out) / 2;
+        const nearestIdx = pickNearestFrameIndex(analyzedFrames, midTime);
+        matchingIndices.push(Math.max(0, Math.min(nearestIdx, analyzedFrames.length - 1)));
+      }
     }
 
     let totalBrightness = 0;
@@ -260,7 +287,17 @@ export function analyzeFramesInWorker(
     }
 
     const count = matchingIndices.length || 1;
-    const avgMotion = Math.min(1, totalMotion / count);
+    let avgMotion: number;
+    if (activeBurst && activeBurst.indices.length >= 2) {
+      let burstMotionSum = 0;
+      const intraIndices = activeBurst.indices.slice(1);
+      for (const mIdx of intraIndices) {
+        burstMotionSum += motionScores[mIdx] ?? 0.5;
+      }
+      avgMotion = Math.min(1, burstMotionSum / intraIndices.length);
+    } else {
+      avgMotion = Math.min(1, totalMotion / count);
+    }
     const avgSharpness = totalSharpness / count;
     const avgFace = Math.min(1, totalFace / count);
     const avgHand = Math.min(1, totalHand / count);

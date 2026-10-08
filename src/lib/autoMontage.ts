@@ -108,6 +108,86 @@ export function abortActiveMontage(): void {
   }
 }
 
+export const LONG_VIDEO_BURST_THRESHOLD_SEC = 25;
+export const MAX_BURST_ANCHORS = 8;
+export const FRAMES_PER_BURST = 3;
+export const BURST_FRAME_STEP_SEC = 0.3;
+
+export function computeVisionSampleIndices(frameCount: number, maxCalls: number = 8): number[] {
+  if (frameCount <= 0 || maxCalls <= 0) return [];
+  const stride = Math.max(1, Math.ceil(frameCount / maxCalls));
+  const indices: number[] = [];
+  for (let i = 0; i < frameCount && indices.length < maxCalls; i++) {
+    if (i % stride === 0) {
+      indices.push(i);
+    }
+  }
+  return indices;
+}
+
+export function buildVideoSampleTimes(
+  duration: number,
+  fastMode: boolean = true,
+  coarseSampling: boolean = false
+): {
+  sampleTimes: number[];
+  frameCount: number;
+  frameInterval: number;
+  visionStride: number;
+  isBurstSampling: boolean;
+} {
+  const maxFrames = coarseSampling ? 5 : (fastMode ? 24 : 36);
+  const targetStepSec = coarseSampling ? 3.5 : (fastMode ? 0.9 : 0.75);
+
+  if (!coarseSampling && duration > LONG_VIDEO_BURST_THRESHOLD_SEC) {
+    const anchorCount = MAX_BURST_ANCHORS;
+    const sampleTimes: number[] = [];
+    const minT = 0.4;
+    const maxT = Math.max(minT, duration - 0.4);
+    const sliceDur = duration / anchorCount;
+
+    for (let a = 0; a < anchorCount; a++) {
+      const center = Math.max(
+        minT + BURST_FRAME_STEP_SEC,
+        Math.min(maxT - BURST_FRAME_STEP_SEC, (a + 0.5) * sliceDur)
+      );
+      sampleTimes.push(
+        Number(Math.max(minT, center - BURST_FRAME_STEP_SEC).toFixed(3)),
+        Number(center.toFixed(3)),
+        Number(Math.min(maxT, center + BURST_FRAME_STEP_SEC).toFixed(3))
+      );
+    }
+
+    const frameCount = sampleTimes.length;
+    const frameInterval = duration / (frameCount + 1);
+    const visionStride = Math.max(1, Math.ceil(frameCount / 8));
+    return {
+      sampleTimes,
+      frameCount,
+      frameInterval,
+      visionStride,
+      isBurstSampling: true,
+    };
+  }
+
+  const frameCount = Math.min(maxFrames, Math.max(3, Math.floor(duration / targetStepSec)));
+  const frameInterval = duration / (frameCount + 1);
+  const sampleTimes: number[] = [];
+  for (let i = 1; i <= frameCount; i++) {
+    const t = Math.max(0.4, Math.min(duration - 0.4, i * frameInterval));
+    sampleTimes.push(t);
+  }
+  const visionStride = Math.max(1, Math.ceil(frameCount / 8));
+
+  return {
+    sampleTimes,
+    frameCount,
+    frameInterval,
+    visionStride,
+    isBurstSampling: false,
+  };
+}
+
 /**
  * Lightweight, non-blocking video frame extractor that offloads motion, sharpness & exposure scoring to Web Worker.
  * Uses adaptive coarse sampling to prevent GPU decoder stalls on 4K/1080p videos.
@@ -151,18 +231,11 @@ async function analyzeVideoAdvanced(
 
     const analysisStartMs = performance.now();
 
-    // Adaptive frame sampling: coarse sampling for long video, ~0.9s step (cap 24) for fastMode, higher cap (36) for full mode
-    const maxFrames = coarseSampling ? 5 : (fastMode ? 24 : 36);
-    const targetStepSec = coarseSampling ? 3.5 : (fastMode ? 0.9 : 0.75);
-    const frameCount = Math.min(maxFrames, Math.max(3, Math.floor(duration / targetStepSec)));
-    const frameInterval = duration / (frameCount + 1);
-
-    // Key sample timestamps (excluding first 0.35s and last 0.35s to prevent mobile camera button shakes)
-    const sampleTimes: number[] = [];
-    for (let i = 1; i <= frameCount; i++) { 
-      const t = Math.max(0.4, Math.min(duration - 0.4, i * frameInterval));
-      sampleTimes.push(t); 
-    }
+    const { sampleTimes, frameInterval, visionStride } = buildVideoSampleTimes(
+      duration,
+      fastMode,
+      coarseSampling
+    );
 
     // Candidate segment windows across the video
     const segStep = coarseSampling ? 3.0 : Math.max(1.2, segmentSec);
@@ -302,14 +375,34 @@ async function analyzeVideoAdvanced(
             const validVisionResults = visionResults.filter(
               (vf): vf is { time: number; analysis: VisionFrameAnalysis } => vf !== null
             );
+            const isMediaPipeAvailableInVideo = isMediaPipeEngine && validVisionResults.length > 0;
+            const maxVisionNearestDist = visionStride * frameInterval * 1.2;
 
             const finalSegments: Segment[] = workerResults.map((wr: WorkerSegmentResult, i: number) => {
               const seg = segmentTimes[i];
-              const segVisionFrames = isMediaPipeEngine
-                ? validVisionResults
-                    .filter((vf) => seg && vf.time >= seg.in - 0.25 && vf.time <= seg.out + 0.25)
-                    .map((vf) => vf.analysis)
-                : [];
+              let segVisionFrames: VisionFrameAnalysis[] = [];
+
+              if (isMediaPipeAvailableInVideo && seg) {
+                segVisionFrames = validVisionResults
+                  .filter((vf) => vf.time >= seg.in - 0.25 && vf.time <= seg.out + 0.25)
+                  .map((vf) => vf.analysis);
+
+                if (segVisionFrames.length === 0) {
+                  const segMid = (seg.in + seg.out) / 2;
+                  let nearestVf: { time: number; analysis: VisionFrameAnalysis } | null = null;
+                  let minDist = Infinity;
+                  for (const vf of validVisionResults) {
+                    const dist = Math.abs(vf.time - segMid);
+                    if (dist < minDist) {
+                      minDist = dist;
+                      nearestVf = vf;
+                    }
+                  }
+                  if (nearestVf && minDist < maxVisionNearestDist) {
+                    segVisionFrames = [nearestVf.analysis];
+                  }
+                }
+              }
 
               const hasMediaPipeForSegment = segVisionFrames.length > 0;
               const visionScore = hasMediaPipeForSegment
@@ -335,8 +428,12 @@ async function analyzeVideoAdvanced(
                 actionIntensity: wr.actionIntensity,
                 temporalStability: wr.temporalStability,
                 audioEnergy: audioEnergies[i] ?? 0.5,
-                faceScore: hasMediaPipeForSegment ? visionScore.faceScore : wr.faceScore * 0.5,
-                handScore: hasMediaPipeForSegment ? visionScore.handScore : wr.handScore * 0.5,
+                faceScore: isMediaPipeAvailableInVideo
+                  ? (hasMediaPipeForSegment ? visionScore.faceScore : 0)
+                  : wr.faceScore * 0.5,
+                handScore: isMediaPipeAvailableInVideo
+                  ? (hasMediaPipeForSegment ? visionScore.handScore : 0)
+                  : wr.handScore * 0.5,
                 handVelocityScore: hasMediaPipeForSegment ? visionScore.handVelocityScore : 0,
                 brightness: wr.brightness,
                 colorfulness: wr.colorfulness,
@@ -406,7 +503,7 @@ async function analyzeVideoAdvanced(
           buffer: bufferCopy,
         });
 
-        if (sampleIdx % 2 === 0 && visionFrameCalls < 8) {
+        if (sampleIdx % visionStride === 0 && visionFrameCalls < 8) {
           visionFrameCalls++;
           try {
             const frameCanvasCopy = document.createElement("canvas");

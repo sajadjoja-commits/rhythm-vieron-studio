@@ -173,11 +173,16 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
   }, []);
 
   const longPressTimerRef = useRef<number | null>(null);
+  const deferredSeekTimerRef = useRef<number | null>(null);
 
   const cancelActiveGesture = useCallback(() => {
     if (longPressTimerRef.current !== null) {
       clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
+    }
+    if (deferredSeekTimerRef.current !== null) {
+      clearTimeout(deferredSeekTimerRef.current);
+      deferredSeekTimerRef.current = null;
     }
     stopInertia();
     if (cancelActiveGestureRef.current) {
@@ -225,6 +230,9 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
       if (longPressTimerRef.current !== null) {
         clearTimeout(longPressTimerRef.current);
       }
+      if (deferredSeekTimerRef.current !== null) {
+        clearTimeout(deferredSeekTimerRef.current);
+      }
     };
   }, []);
 
@@ -266,13 +274,13 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
       }
 
       if (e.touches.length >= 2) {
-        // Immediately cancel any single-finger scrub/move/long-press gesture
-        cancelActiveGesture();
         if (pinchUnlockTimerRef.current !== null) {
           clearTimeout(pinchUnlockTimerRef.current);
           pinchUnlockTimerRef.current = null;
         }
         isPinchingRef.current = true;
+        // Immediately cancel any single-finger scrub/move/long-press gesture
+        cancelActiveGesture();
         setIsPinching(true);
         e.preventDefault(); // Stop native page zoom
         const t1 = e.touches[0];
@@ -295,8 +303,8 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
       if (e.touches.length >= 2) {
         e.preventDefault(); // Stop native page scroll/zoom
         if (!isPinchingRef.current) {
-          cancelActiveGesture();
           isPinchingRef.current = true;
+          cancelActiveGesture();
           setIsPinching(true);
         }
         const t1 = e.touches[0];
@@ -810,12 +818,7 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
       targetTime = Math.max(targetStart, targetEnd - 0.04);
     }
 
-    if (isDifferentClip) {
-      onSeekRef.current(targetTime);
-      triggerHapticTick("light");
-    } else {
-      triggerHapticTick("light");
-    }
+    triggerHapticTick("light");
 
     const pointerId = e.pointerId;
     const startX = e.clientX;
@@ -825,7 +828,25 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     let isReorderMode = false;
     let isCancelled = false;
 
+    const clearDeferredSeek = () => {
+      if (deferredSeekTimerRef.current !== null) {
+        clearTimeout(deferredSeekTimerRef.current);
+        deferredSeekTimerRef.current = null;
+      }
+    };
+
+    if (isDifferentClip) {
+      clearDeferredSeek();
+      deferredSeekTimerRef.current = window.setTimeout(() => {
+        deferredSeekTimerRef.current = null;
+        if (!isCancelled && !hasMoved && !isReorderMode && !isPinchingRef.current && activePointersRef.current.size <= 1) {
+          onSeekRef.current(targetTime);
+        }
+      }, 90);
+    }
+
     const cleanup = () => {
+      clearDeferredSeek();
       if (longPressTimerRef.current !== null) {
         clearTimeout(longPressTimerRef.current);
         longPressTimerRef.current = null;
@@ -845,6 +866,10 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
       isScrubbingRef.current = false;
       onUserScrubRef.current?.(false);
       stopInertia();
+      if (isPinchingRef.current || activePointersRef.current.size > 1) {
+        setSelectedClipId(prevSelectedClipId);
+        selectedClipIdRef.current = prevSelectedClipId;
+      }
       if (isReorderMode || dragIdRef.current !== null) {
         isReorderMode = false;
         dragIdRef.current = null;
@@ -860,6 +885,7 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
     longPressTimerRef.current = window.setTimeout(() => {
       longPressTimerRef.current = null;
       if (!hasMoved && !isCancelled && !isPinchingRef.current && activePointersRef.current.size <= 1) {
+        clearDeferredSeek();
         isReorderMode = true;
         dragIdRef.current = clipId;
         setDragId(clipId);
@@ -881,6 +907,7 @@ const Timeline = memo(({ currentTime, onSeek, onOpenTransition, isPlaying, onUse
 
       if (Math.hypot(dxTotal, dyTotal) > 8) {
         hasMoved = true;
+        clearDeferredSeek();
         if (!isReorderMode && longPressTimerRef.current !== null) {
           clearTimeout(longPressTimerRef.current);
           longPressTimerRef.current = null;

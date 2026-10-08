@@ -233,6 +233,7 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
   const boxRef = useRef<HTMLDivElement>(null);
   const [boxDimensions, setBoxDimensions] = useState<{ w: number; h: number }>({ w: 270, h: 480 });
   const exportedBlobRef = useRef<Blob | null>(null);
+  const exportedVideoUrlRef = useRef<string | null>(null);
   const abortControllerRef = useRef<boolean>(false);
   const ffmpegRef = useRef<any>(null);
   const writtenFilesRef = useRef<Set<string>>(new Set());
@@ -365,25 +366,40 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
   const dashOffset = useMemo(() => PERIM * (1 - progress), [progress]);
 
   useEffect(() => {
+    if (exportedVideoUrlRef.current && exportedVideoUrlRef.current !== exportedVideoUrl) {
+      URL.revokeObjectURL(exportedVideoUrlRef.current);
+    }
+    exportedVideoUrlRef.current = exportedVideoUrl;
+  }, [exportedVideoUrl]);
+
+  useEffect(() => {
     if (open) {
-      if (exportedVideoUrl) {
-        URL.revokeObjectURL(exportedVideoUrl);
-        setExportedVideoUrl(null);
-      }
       setProgress(0);
       setExporting(false);
       setEstimatedTimeLeft(null);
       abortControllerRef.current = false;
-    } else {
-      if (exportedVideoUrl) {
-        URL.revokeObjectURL(exportedVideoUrl);
-        setExportedVideoUrl(null);
-      }
     }
     return () => {
       abortControllerRef.current = true;
     };
-  }, [open, exportedVideoUrl]);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) {
+      if (exportedVideoUrlRef.current) {
+        URL.revokeObjectURL(exportedVideoUrlRef.current);
+        exportedVideoUrlRef.current = null;
+      }
+      setExportedVideoUrl(null);
+    }
+    return () => {
+      if (exportedVideoUrlRef.current) {
+        URL.revokeObjectURL(exportedVideoUrlRef.current);
+        exportedVideoUrlRef.current = null;
+      }
+      setExportedVideoUrl(null);
+    };
+  }, [open]);
 
   if (!open) return null;
 
@@ -438,10 +454,11 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
       handleCancelExport();
     } else {
       abortControllerRef.current = true;
-      if (exportedVideoUrl) {
-        URL.revokeObjectURL(exportedVideoUrl);
-        setExportedVideoUrl(null);
+      if (exportedVideoUrlRef.current) {
+        URL.revokeObjectURL(exportedVideoUrlRef.current);
+        exportedVideoUrlRef.current = null;
       }
+      setExportedVideoUrl(null);
       onClose();
     }
   };
@@ -561,10 +578,11 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
       setExporting(true);
       setProgress(0);
       setEstimatedTimeLeft(null);
-      if (exportedVideoUrl) {
-        URL.revokeObjectURL(exportedVideoUrl);
-        setExportedVideoUrl(null);
+      if (exportedVideoUrlRef.current) {
+        URL.revokeObjectURL(exportedVideoUrlRef.current);
+        exportedVideoUrlRef.current = null;
       }
+      setExportedVideoUrl(null);
       abortControllerRef.current = false;
       toast.info(isRTL() ? "بدء التصدير السريع المباشر (Native Fast Path)..." : "Starting Native Fast Path export...");
 
@@ -629,10 +647,11 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
     setExporting(true);
     setProgress(0);
     setEstimatedTimeLeft(null);
-    if (exportedVideoUrl) {
-      URL.revokeObjectURL(exportedVideoUrl);
-      setExportedVideoUrl(null);
+    if (exportedVideoUrlRef.current) {
+      URL.revokeObjectURL(exportedVideoUrlRef.current);
+      exportedVideoUrlRef.current = null;
     }
+    setExportedVideoUrl(null);
     abortControllerRef.current = false;
     writtenFilesRef.current.clear();
     const exportStartTime = Date.now();
