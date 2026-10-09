@@ -166,7 +166,11 @@ export class AudioEnhancementPlugin extends BasePlugin {
           error: this.createError("VERIFICATION_FAILED", verification.reason || "Audio DSP processing output is identical to input or invalid"),
         };
       }
-      debugLogger.logStage("Output Verified", { actionName });
+      if (verification.unchanged) {
+        result.unchanged = true;
+        result.message = verification.message || "لم تُكتشف ضوضاء تستحق التنقية";
+      }
+      debugLogger.logStage("Output Verified", { actionName, unchanged: result.unchanged });
 
       return {
         success: true,

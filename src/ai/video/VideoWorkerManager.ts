@@ -59,6 +59,12 @@ export class VideoWorkerManager {
   >();
   private workerAvailable = false;
   private isInitializing = false;
+  private frameDurationEmaMs: number | null = null;
+  private readonly emaAlpha = 0.25;
+  private restartTimestamps: number[] = [];
+  private readonly maxRestartsInWindow = 3;
+  private readonly restartWindowMs = 60_000;
+  private permanentlyLocalFallback = false;
 
   public static getInstance(): VideoWorkerManager {
     if (!VideoWorkerManager.instance) {
@@ -71,11 +77,57 @@ export class VideoWorkerManager {
     this.initWorker();
   }
 
+  public getRequestTimeoutMs(): number {
+    if (this.frameDurationEmaMs === null || !Number.isFinite(this.frameDurationEmaMs)) {
+      return 5000;
+    }
+    return Math.min(20000, Math.max(5000, Math.round(4 * this.frameDurationEmaMs)));
+  }
+
+  private recordFrameSuccessDuration(durationMs: number): void {
+    if (!Number.isFinite(durationMs) || durationMs <= 0) return;
+    if (this.frameDurationEmaMs === null) {
+      this.frameDurationEmaMs = durationMs;
+    } else {
+      this.frameDurationEmaMs =
+        this.emaAlpha * durationMs + (1 - this.emaAlpha) * this.frameDurationEmaMs;
+    }
+  }
+
+  private handleWorkerTimeout(timedOutRequestId: string): void {
+    this.pendingRequests.delete(timedOutRequestId);
+    try {
+      this.worker?.terminate();
+    } catch {}
+    this.worker = null;
+    this.workerAvailable = false;
+
+    const now = Date.now();
+    this.restartTimestamps = this.restartTimestamps.filter(
+      (ts) => now - ts < this.restartWindowMs
+    );
+
+    if (
+      !this.permanentlyLocalFallback &&
+      this.restartTimestamps.length < this.maxRestartsInWindow
+    ) {
+      this.restartTimestamps.push(now);
+      this.initWorker();
+    } else {
+      this.permanentlyLocalFallback = true;
+      this.workerAvailable = false;
+    }
+  }
+
   /**
    * Initializes the Dedicated Web Worker.
    * Gracefully degrades to local fallback if Worker creation fails in strict iframe sandboxes.
    */
   private initWorker(): void {
+    if (this.permanentlyLocalFallback) {
+      this.workerAvailable = false;
+      return;
+    }
     if (typeof window === "undefined" || typeof Worker === "undefined") {
       this.workerAvailable = false;
       return;
@@ -287,16 +339,14 @@ export class VideoWorkerManager {
     if (prevLumBuffer && prevLumBuffer !== dataBuffer) transferables.push(prevLumBuffer);
     if (sampleOrigBuffer && !transferables.includes(sampleOrigBuffer)) transferables.push(sampleOrigBuffer);
 
+    const timeoutMs = this.getRequestTimeoutMs();
+    const requestStartMs = Date.now();
+
     return new Promise<WorkerEnhancementResult>((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.pendingRequests.delete(id);
-        this.workerAvailable = false;
-        try {
-          this.worker?.terminate();
-        } catch {}
-        this.worker = null;
+        this.handleWorkerTimeout(id);
 
-        console.warn(`[VideoWorkerManager] Worker request ${id} timed out.`);
+        console.warn(`[VideoWorkerManager] Worker request ${id} timed out after ${timeoutMs}ms.`);
         if (imageData.data.byteLength > 0) {
           const validPrevLum = prevLuminance && prevLuminance.byteLength > 0 ? prevLuminance : null;
           const res = VideoEnhancementEngine.getInstance().processFrame(imageData, options, validPrevLum);
@@ -307,11 +357,12 @@ export class VideoWorkerManager {
         } else {
           reject(new Error(`Enhance worker request ${id} timed out`));
         }
-      }, 5000);
+      }, timeoutMs);
 
       this.pendingRequests.set(id, {
         timer,
         resolve: (msg: any) => {
+          this.recordFrameSuccessDuration(Math.max(1, Date.now() - requestStartMs));
           const processedData = new Uint8ClampedArray(msg.dataBuffer);
           const currentLuminance = new Float32Array(msg.currentLuminanceBuffer);
           resolve({
@@ -383,16 +434,14 @@ export class VideoWorkerManager {
     if (prevAlphaBuffer && !transferables.includes(prevAlphaBuffer)) transferables.push(prevAlphaBuffer);
     if (sampleOrigBuffer && !transferables.includes(sampleOrigBuffer)) transferables.push(sampleOrigBuffer);
 
+    const timeoutMs = this.getRequestTimeoutMs();
+    const requestStartMs = Date.now();
+
     return new Promise<WorkerSegmentationResult>((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.pendingRequests.delete(id);
-        this.workerAvailable = false;
-        try {
-          this.worker?.terminate();
-        } catch {}
-        this.worker = null;
+        this.handleWorkerTimeout(id);
 
-        console.warn(`[VideoWorkerManager] Segmentation worker request ${id} timed out.`);
+        console.warn(`[VideoWorkerManager] Segmentation worker request ${id} timed out after ${timeoutMs}ms.`);
         if (imageData.data.byteLength > 0 && maskData.byteLength > 0) {
           const validPrevAlpha = prevAlpha && prevAlpha.byteLength > 0 ? prevAlpha : null;
           const validSampleOrig = sampleOriginal && sampleOriginal.byteLength > 0 ? sampleOriginal : null;
@@ -412,11 +461,12 @@ export class VideoWorkerManager {
         } else {
           reject(new Error(`Segmentation worker request ${id} timed out`));
         }
-      }, 5000);
+      }, timeoutMs);
 
       this.pendingRequests.set(id, {
         timer,
         resolve: (msg: any) => {
+          this.recordFrameSuccessDuration(Math.max(1, Date.now() - requestStartMs));
           const processedData = new Uint8ClampedArray(msg.dataBuffer);
           const currentAlpha = new Float32Array(msg.currentAlphaBuffer);
           resolve({

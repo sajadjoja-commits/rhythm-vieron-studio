@@ -15,6 +15,8 @@ export class AIHistoryManager {
   private maxHistoryItems: number;
   private storageKey = "ai_runtime_history";
 
+  private maxResultDataItems = 25;
+
   constructor(maxItems: number = 200) {
     this.maxHistoryItems = maxItems;
     this.loadFromStorage();
@@ -25,7 +27,8 @@ export class AIHistoryManager {
     try {
       const raw = localStorage.getItem(this.storageKey);
       if (raw) {
-        this.history = JSON.parse(raw);
+        const parsed = JSON.parse(raw);
+        this.history = Array.isArray(parsed) ? parsed : [];
       }
     } catch {
       this.history = [];
@@ -72,7 +75,13 @@ export class AIHistoryManager {
 
       this.history.unshift(item);
       if (this.history.length > this.maxHistoryItems) {
-        this.history.pop();
+        this.history.length = this.maxHistoryItems;
+      }
+      // Prevent unbounded memory growth from large media resultData objects
+      for (let i = this.maxResultDataItems; i < this.history.length; i++) {
+        if (this.history[i].resultData !== undefined) {
+          this.history[i] = { ...this.history[i], resultData: undefined };
+        }
       }
       this.persist();
       return item;
@@ -99,7 +108,7 @@ export class AIHistoryManager {
   public record(params: any): AIHistoryRecord {
     try {
       if (!params || typeof params !== "object") {
-        return this.recordJob("enhance-media", "unknown", 0, `hash_${Date.now()}`, true);
+        return this.recordJob("enhance-media", "unknown", 0, `hash_${Date.now()}`, false);
       }
       return this.addHistoryItem(params);
     } catch (err) {
@@ -111,7 +120,7 @@ export class AIHistoryManager {
         timestamp: Date.now(),
         durationMs: params?.executionTimeMs || 0,
         inputHash: params?.inputHash || `hash_${Date.now()}`,
-        success: true,
+        success: Boolean(params?.success),
         resultData: params?.resultData,
       };
     }
@@ -137,7 +146,7 @@ export class AIHistoryManager {
     success?: boolean;
   }): AIHistoryRecord {
     const taskType = item.taskType;
-    const providerUsed = item.providerUsed || item.appliedProvider || item.appliedModel || "flux";
+    const providerUsed = item.providerUsed || item.appliedProvider || item.appliedModel || "unknown";
     const durationMs = item.durationMs ?? item.executionTimeMs ?? 0;
     const inputHash = item.inputHash || item.inputSummary || `hash_${Date.now()}`;
     const success = item.success !== undefined ? item.success : true;

@@ -4,6 +4,7 @@ import { AICapability } from "./types";
 export class AIResourceManager {
   private static instance: AIResourceManager;
   private profile: DeviceResourceProfile;
+  private lastNavDeviceMemory: any;
 
   public static getInstance(): AIResourceManager {
     if (!AIResourceManager.instance) {
@@ -13,6 +14,8 @@ export class AIResourceManager {
   }
 
   constructor() {
+    const isBrowser = typeof window !== "undefined" && typeof navigator !== "undefined";
+    this.lastNavDeviceMemory = isBrowser && "deviceMemory" in navigator ? (navigator as any).deviceMemory : undefined;
     this.profile = this.detectDeviceProfile();
   }
 
@@ -25,7 +28,8 @@ export class AIResourceManager {
     );
     const hasWASM = isBrowser && typeof WebAssembly === "object" && typeof WebAssembly.instantiate === "function";
 
-    const memory = isBrowser && "deviceMemory" in navigator
+    const memoryKnown = isBrowser && "deviceMemory" in navigator && (navigator as any).deviceMemory !== undefined;
+    const memory = memoryKnown
       ? Number((navigator as any).deviceMemory || 4)
       : 4;
 
@@ -47,6 +51,7 @@ export class AIResourceManager {
       hasWebGPU,
       hasWebGL,
       hasWASM,
+      memoryKnown,
       deviceMemoryGB: memory,
       availableRAMMB,
       hardwareConcurrency: concurrency,
@@ -57,28 +62,47 @@ export class AIResourceManager {
   }
 
   public getProfile(): DeviceResourceProfile {
+    const isBrowser = typeof window !== "undefined" && typeof navigator !== "undefined";
+    const currentNavMem = isBrowser && "deviceMemory" in navigator ? (navigator as any).deviceMemory : undefined;
+    if (currentNavMem !== this.lastNavDeviceMemory) {
+      this.lastNavDeviceMemory = currentNavMem;
+      this.profile = this.detectDeviceProfile();
+    }
     return { ...this.profile };
   }
 
   /**
    * Evaluates if device can run a given AI Capability safely without crash
    */
-  public canRunCapability(capability: AICapability): { allowed: boolean; reason?: string } {
-    if (capability.requiresWebGPU && !this.profile.hasWebGPU) {
+  public canRunCapability(
+    capability: AICapability,
+    ctx?: { durationSec?: number }
+  ): { allowed: boolean; reason?: string } {
+    const profile = this.getProfile();
+
+    if (capability.requiresWebGPU && !profile.hasWebGPU) {
       return { allowed: false, reason: "WebGPU is not supported on this device/browser" };
     }
 
-    if (capability.requiresWASM && !this.profile.hasWASM) {
+    if (capability.requiresWASM && !profile.hasWASM) {
       return { allowed: false, reason: "WebAssembly is not supported" };
     }
 
+    let requiredRAMMB = capability.estimatedRAMMB ?? 0;
+    if (capability.domain === "audio" && ctx?.durationSec && ctx.durationSec > 0) {
+      // durationSec × 48000 × 2 channels × 4 bytes × 6 copies
+      const dynamicBytes = ctx.durationSec * 48000 * 2 * 4 * 6;
+      const dynamicRAMMB = dynamicBytes / (1024 * 1024);
+      requiredRAMMB = Math.max(requiredRAMMB, dynamicRAMMB);
+    }
+
     // Check RAM bounds if specified
-    if (capability.estimatedRAMMB && this.profile.deviceMemoryGB) {
-      const availableRAMMB = this.profile.deviceMemoryGB * 1024 * 0.4; // Allocatable limit (~40%)
-      if (capability.estimatedRAMMB > availableRAMMB) {
+    if (requiredRAMMB > 0 && profile.deviceMemoryGB) {
+      const availableRAMMB = profile.deviceMemoryGB * 1024 * 0.4; // Allocatable limit (~40%)
+      if (requiredRAMMB > availableRAMMB) {
         return {
           allowed: false,
-          reason: `Insufficient memory: requires ~${capability.estimatedRAMMB}MB, available limit is ~${Math.round(availableRAMMB)}MB`,
+          reason: `Insufficient memory: requires ~${Math.round(requiredRAMMB)}MB, available limit is ~${Math.round(availableRAMMB)}MB`,
         };
       }
     }

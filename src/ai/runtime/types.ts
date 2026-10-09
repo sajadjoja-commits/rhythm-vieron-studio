@@ -58,6 +58,8 @@ export interface AIJobOptions {
   jobId?: string;
   signal?: AbortSignal;
   abortSignal?: AbortSignal;
+  forceRun?: boolean;
+  durationSec?: number;
 }
 
 export interface AIJobRecord<TPayload = any, TResult = any> {
@@ -106,6 +108,7 @@ export interface DeviceResourceProfile {
   hasWebGPU: boolean;
   hasWebGL: boolean;
   hasWASM: boolean;
+  memoryKnown?: boolean;
   deviceMemoryGB?: number;
   availableRAMMB?: number;
   hardwareConcurrency: number;

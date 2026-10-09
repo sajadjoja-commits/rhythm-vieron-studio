@@ -14,8 +14,18 @@ export class SupabaseEdgeProvider extends RemoteProvider {
     super(keyManager);
   }
 
-  public isAvailable(): boolean {
-    return this.checkNetwork();
+  private getApiKey(): string | undefined {
+    const key =
+      this.keyManager.getKey("supabase-edge") ||
+      this.keyManager.getKey("supabase_edge") ||
+      this.keyManager.getKey("supabase");
+    return key && key.trim().length > 0 ? key.trim() : undefined;
+  }
+
+  public isAvailable(taskType?: AITaskType): boolean {
+    if (!this.checkNetwork()) return false;
+    if (taskType && !this.supportsTask(taskType)) return false;
+    return Boolean(this.getApiKey());
   }
 
   public async execute<TPayload = any, TResult = any>(
@@ -24,6 +34,19 @@ export class SupabaseEdgeProvider extends RemoteProvider {
     options?: AITaskOptions
   ): Promise<AIResponse<TResult>> {
     const startTime = Date.now();
+
+    const apiKey = this.getApiKey();
+    if (!apiKey) {
+      return {
+        success: false,
+        providerUsed: this.id,
+        error: createAIError(
+          "PROVIDER_NOT_CONFIGURED",
+          "Supabase Edge provider key is not configured in KeyManager",
+          this.id
+        ),
+      };
+    }
 
     if (!this.checkNetwork()) {
       return {
@@ -62,6 +85,15 @@ export class SupabaseEdgeProvider extends RemoteProvider {
     payload: SpeechToTextPayload,
     options?: AITaskOptions
   ): Promise<SpeechToTextResult> {
+    const audioSource =
+      payload?.audioBase64 ||
+      (payload as any)?.audioBase64OrUrl ||
+      (payload as any)?.mediaUrlOrBase64 ||
+      "";
+    if (!audioSource) {
+      throw new Error("audioBase64 is required for edge transcription");
+    }
+
     const lang = payload.language || options?.language || "auto";
     const isArabic = lang === "ar" || lang === "arabic";
     const langCode = isArabic ? "ar" : lang;
@@ -69,7 +101,7 @@ export class SupabaseEdgeProvider extends RemoteProvider {
     // Invoke standard transcribe Edge Function if remote is explicitly requested
     const response = await supabase.functions.invoke("transcribe", {
       body: {
-        audioBase64: payload.audioBase64,
+        audioBase64: audioSource,
         mimeType: payload.mimeType || "audio/wav",
         language: langCode,
       },

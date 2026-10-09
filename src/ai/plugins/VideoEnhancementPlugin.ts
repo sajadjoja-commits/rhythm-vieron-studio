@@ -108,11 +108,17 @@ export class VideoEnhancementPlugin extends BasePlugin {
       };
 
       const action: VideoActionType = (actionName as VideoActionType) || vidPayload.action || "composite-video-enhance";
+      const historyTaskType =
+        action === "video-bg-removal"
+          ? "background-removal"
+          : action === "video-denoise" || (action as string) === "fastdvdnet-video-denoise"
+          ? "noise-reduction"
+          : "enhance-media";
 
       // 1. Check Cache
       const inputHash = AIManager.getInstance().cache.generateHash(`plugin_video_${action}`, vidPayload);
       if (options?.enableCache !== false) {
-        const cachedMatch = AIHistoryManager.getInstance().findMatch("enhance-media", inputHash);
+        const cachedMatch = AIHistoryManager.getInstance().findMatch(historyTaskType, inputHash);
         if (cachedMatch && cachedMatch.resultData) {
           debugLogger.logStage("Cache Saved / Hit", { action, inputHash });
           return {
@@ -238,7 +244,7 @@ export class VideoEnhancementPlugin extends BasePlugin {
       if (options?.enableCache !== false) {
         try {
           AIHistoryManager.getInstance().recordJob(
-            "enhance-media",
+            historyTaskType,
             this.id,
             executionTimeMs,
             inputHash,

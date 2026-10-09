@@ -25,16 +25,15 @@ export class FluxProvider extends RemoteProvider {
   public isAvailable(taskType: AITaskType): boolean {
     if (!this.checkNetwork()) return false;
     if (!this.supportsTask(taskType)) return false;
-    const key = this.getApiKey();
-    return Boolean(key && key.trim().length > 0);
+    return Boolean(this.getApiKey());
   }
 
   private getApiKey(): string | undefined {
-    return (
+    const key =
       this.keyManager.getKey("flux") ||
       this.keyManager.getKey("bfl") ||
-      this.keyManager.getKey("blackforestlabs")
-    );
+      this.keyManager.getKey("blackforestlabs");
+    return key && key.trim().length > 0 ? key.trim() : undefined;
   }
 
   public async execute<TPayload = any, TResult = any>(
@@ -43,6 +42,19 @@ export class FluxProvider extends RemoteProvider {
     options?: AITaskOptions
   ): Promise<AIResponse<TResult>> {
     const startTime = Date.now();
+
+    const apiKey = this.getApiKey();
+    if (!apiKey) {
+      return {
+        success: false,
+        providerUsed: this.id,
+        error: createAIError(
+          "PROVIDER_NOT_CONFIGURED",
+          "Black Forest Labs (FLUX.1) API key is not configured in KeyManager",
+          this.id
+        ),
+      };
+    }
 
     if (!this.checkNetwork()) {
       return {
@@ -63,19 +75,6 @@ export class FluxProvider extends RemoteProvider {
         error: createAIError(
           "TASK_NOT_SUPPORTED",
           `Task ${taskType} is not supported by FluxProvider`,
-          this.id
-        ),
-      };
-    }
-
-    const apiKey = this.getApiKey();
-    if (!apiKey) {
-      return {
-        success: false,
-        providerUsed: this.id,
-        error: createAIError(
-          "MISSING_API_KEY",
-          "Black Forest Labs (FLUX.1) API Key is missing in KeyManager",
           this.id
         ),
       };
@@ -297,38 +296,14 @@ export class FluxProvider extends RemoteProvider {
       }
     }
 
-    // High Availability Fallback if BFL API endpoint is blocked or unavailable
     if (!postData) {
-      console.warn("[FluxProvider] BFL API direct connection unfulfilled, utilizing FLUX.1 cloud synthesis fallback.");
-      const encodedPrompt = encodeURIComponent(payload.prompt);
-      const fallbackSeed = payload.seed || Math.floor(Math.random() * 1000000);
-      const fallbackUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&seed=${fallbackSeed}&nologo=true&model=flux`;
-
-      const executionTimeMs = Date.now() - startTime;
+      const errMsg = directError || "FLUX.1 API direct connection failed";
       aiDebugLogger.updateLog(debugEntry.id, {
-        status: "success",
-        executionTimeMs,
-        resultUrl: fallbackUrl,
-        modelName: `${selectedModel} (Cloud Synthesis Fallback)`,
+        status: "error",
+        executionTimeMs: Date.now() - startTime,
+        errorDetails: errMsg,
       });
-
-      return {
-        imageUrl: fallbackUrl,
-        outputImageBase64OrUrl: fallbackUrl,
-        mimeType: `image/${payload.outputFormat || "jpeg"}`,
-        width,
-        height,
-        processingType: mode,
-        appliedEngine: "FLUX.1-Pro (Cloud Fallback)",
-        executionTimeMs,
-        seed: fallbackSeed,
-        requestId: `req_flux_fb_${Date.now()}`,
-        status: "Ready",
-        qualityMetrics: {
-          isLocalExecution: false,
-          seed: fallbackSeed,
-        },
-      };
+      throw new Error(errMsg);
     }
 
     // 2. Direct result check (if server responds synchronously)

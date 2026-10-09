@@ -15,135 +15,205 @@ export interface WorkerAudioTask {
 
 export interface WorkerAudioResponse {
   id: string;
-  success: boolean;
+  success?: boolean;
   type: string;
+  progress?: number;
   result?: any;
   error?: string;
 }
 
 // Active jobs map for cancellation support
-const activeJobs = new Set<string>();
+export const activeJobs = new Set<string>();
 
-self.onmessage = async (e: MessageEvent<WorkerAudioTask>) => {
-  const { id, type, sampleRate, channels, options } = e.data;
+/**
+ * Selects noise profile hop indices across the entire audio buffer where energy <= noiseThreshold * 1.6
+ * (up to maxWindows evenly distributed), without forcing hop 0. Falls back to the single quietest hop if none match.
+ */
+export function selectNoiseProfileHops(
+  frameEnergies: Float32Array,
+  noiseThreshold: number,
+  maxWindows: number = 400
+): number[] {
+  const numHops = frameEnergies.length;
+  if (numHops === 0) return [];
 
-  if (type === "cancel") {
-    activeJobs.delete(id);
-    return;
+  const maxCandidateEnergy = noiseThreshold * 1.6;
+  const candidateHops: number[] = [];
+
+  for (let h = 0; h < numHops; h++) {
+    if (frameEnergies[h] <= maxCandidateEnergy) {
+      candidateHops.push(h);
+    }
   }
 
-  activeJobs.add(id);
+  // If no window matched, use the quietest window across the entire file
+  if (candidateHops.length === 0) {
+    let minEnergy = Infinity;
+    let quietestHop = 0;
+    for (let h = 0; h < numHops; h++) {
+      if (frameEnergies[h] < minEnergy) {
+        minEnergy = frameEnergies[h];
+        quietestHop = h;
+      }
+    }
+    return [quietestHop];
+  }
 
-  try {
-    if (!channels || channels.length === 0 || !channels[0] || channels[0].length === 0) {
-      throw new Error("Invalid or empty audio buffer passed to worker");
+  if (candidateHops.length <= maxWindows) {
+    return candidateHops;
+  }
+
+  // Evenly distribute up to maxWindows across candidateHops
+  const selected: number[] = [];
+  for (let i = 0; i < maxWindows; i++) {
+    const idx = Math.floor((i * (candidateHops.length - 1)) / (maxWindows - 1));
+    selected.push(candidateHops[idx]);
+  }
+  return selected;
+}
+
+if (typeof self !== "undefined") {
+  self.onmessage = async (e: MessageEvent<WorkerAudioTask>) => {
+    const { id, type, sampleRate, channels, options } = e.data;
+
+    if (type === "cancel") {
+      activeJobs.delete(id);
+      return;
     }
 
-    if (type === "denoise") {
-      const cleaned = processDenoise(channels, sampleRate, options?.denoiseStrength ?? 0.85);
+    activeJobs.add(id);
 
-      if (!activeJobs.has(id)) {
-        return; // Cancelled
-      }
-
-      const res: WorkerAudioResponse = {
-        id,
-        success: true,
-        type,
-        result: {
-          channels: cleaned,
-          sampleRate,
-        },
-      };
-      // Transfer buffers back with zero copy
-      (self as any).postMessage(res, cleaned.map((c) => c.buffer));
-    } else if (type === "stem-separation") {
-      const stemsCount = options?.stemsCount || 2;
-      const stems = processStemSeparation(channels, sampleRate, stemsCount);
-
-      if (!activeJobs.has(id)) {
-        return; // Cancelled
-      }
-
-      const transferableBuffers: ArrayBuffer[] = [];
-
-      const resultPayload: any = {
-        vocals: stems.vocals,
-        instrumental: stems.instrumental,
-        sampleRate,
-      };
-
-      stems.vocals.forEach((c) => transferableBuffers.push(c.buffer as ArrayBuffer));
-      stems.instrumental.forEach((c) => transferableBuffers.push(c.buffer as ArrayBuffer));
-
-      if (stems.additionalStems) {
-        resultPayload.additionalStems = stems.additionalStems;
-        if (stems.additionalStems.drums) {
-          stems.additionalStems.drums.forEach((c) => transferableBuffers.push(c.buffer as ArrayBuffer));
-        }
-        if (stems.additionalStems.bass) {
-          stems.additionalStems.bass.forEach((c) => transferableBuffers.push(c.buffer as ArrayBuffer));
-        }
-        if (stems.additionalStems.other) {
-          stems.additionalStems.other.forEach((c) => transferableBuffers.push(c.buffer as ArrayBuffer));
-        }
-      }
-
-      const res: WorkerAudioResponse = {
-        id,
-        success: true,
-        type,
-        result: resultPayload,
-      };
-      (self as any).postMessage(res, transferableBuffers);
-    } else if (type === "silence-detection") {
-      const threshold = options?.vadThreshold || 0.02;
-      const minDurationMs = options?.minSilenceDurationMs || 350;
-      const regions = detectSilenceRegions(channels[0], sampleRate, threshold, minDurationMs);
-      const res: WorkerAudioResponse = {
-        id,
-        success: true,
-        type,
-        result: {
-          regions,
-        },
-      };
-      (self as any).postMessage(res);
-    } else if (type === "key-pitch-detection") {
-      const keyResult = detectKeyAndPitch(channels[0], sampleRate);
-      const res: WorkerAudioResponse = {
-        id,
-        success: true,
-        type,
-        result: keyResult,
-      };
-      (self as any).postMessage(res);
-    } else {
-      throw new Error(`Unknown worker task type: ${type}`);
-    }
-  } catch (err: any) {
-    console.error(`[AudioWorker] Error processing task "${id}" (${type}):`, err);
-    const errorRes: WorkerAudioResponse = {
-      id,
-      success: false,
-      type,
-      error: err?.message || String(err),
+    const postProgress = (progress: number) => {
+      if (!activeJobs.has(id)) return;
+      const clamped = Math.max(0, Math.min(100, Math.round(progress)));
+      (self as any).postMessage({ id, type: "progress", progress: clamped });
     };
-    (self as any).postMessage(errorRes);
-  } finally {
-    activeJobs.delete(id);
-  }
-};
+
+    try {
+      if (!channels || channels.length === 0 || !channels[0] || channels[0].length === 0) {
+        throw new Error("Invalid or empty audio buffer passed to worker");
+      }
+
+      if (type === "denoise") {
+        const cleaned = await processDenoise(
+          channels,
+          sampleRate,
+          options?.denoiseStrength ?? 0.85,
+          id,
+          postProgress
+        );
+
+        if (!cleaned || !activeJobs.has(id)) {
+          return; // Cancelled
+        }
+
+        const res: WorkerAudioResponse = {
+          id,
+          success: true,
+          type,
+          result: {
+            channels: cleaned,
+            sampleRate,
+          },
+        };
+        // Transfer buffers back with zero copy
+        (self as any).postMessage(res, cleaned.map((c) => c.buffer));
+      } else if (type === "stem-separation") {
+        const stemsCount = options?.stemsCount || 2;
+        const stems = await processStemSeparation(
+          channels,
+          sampleRate,
+          stemsCount,
+          id,
+          postProgress
+        );
+
+        if (!stems || !activeJobs.has(id)) {
+          return; // Cancelled
+        }
+
+        const transferableBuffers: ArrayBuffer[] = [];
+
+        const resultPayload: any = {
+          vocals: stems.vocals,
+          instrumental: stems.instrumental,
+          sampleRate,
+        };
+
+        stems.vocals.forEach((c) => transferableBuffers.push(c.buffer as ArrayBuffer));
+        stems.instrumental.forEach((c) => transferableBuffers.push(c.buffer as ArrayBuffer));
+
+        if (stems.additionalStems) {
+          resultPayload.additionalStems = stems.additionalStems;
+          if (stems.additionalStems.drums) {
+            stems.additionalStems.drums.forEach((c) => transferableBuffers.push(c.buffer as ArrayBuffer));
+          }
+          if (stems.additionalStems.bass) {
+            stems.additionalStems.bass.forEach((c) => transferableBuffers.push(c.buffer as ArrayBuffer));
+          }
+          if (stems.additionalStems.other) {
+            stems.additionalStems.other.forEach((c) => transferableBuffers.push(c.buffer as ArrayBuffer));
+          }
+        }
+
+        const res: WorkerAudioResponse = {
+          id,
+          success: true,
+          type,
+          result: resultPayload,
+        };
+        (self as any).postMessage(res, transferableBuffers);
+      } else if (type === "silence-detection") {
+        const threshold = options?.vadThreshold || 0.02;
+        const minDurationMs = options?.minSilenceDurationMs || 350;
+        const regions = detectSilenceRegions(channels[0], sampleRate, threshold, minDurationMs);
+        const res: WorkerAudioResponse = {
+          id,
+          success: true,
+          type,
+          result: {
+            regions,
+          },
+        };
+        (self as any).postMessage(res);
+      } else if (type === "key-pitch-detection") {
+        const keyResult = detectKeyAndPitch(channels[0], sampleRate);
+        const res: WorkerAudioResponse = {
+          id,
+          success: true,
+          type,
+          result: keyResult,
+        };
+        (self as any).postMessage(res);
+      } else {
+        throw new Error(`Unknown worker task type: ${type}`);
+      }
+    } catch (err: any) {
+      console.error(`[AudioWorker] Error processing task "${id}" (${type}):`, err);
+      const errorRes: WorkerAudioResponse = {
+        id,
+        success: false,
+        type,
+        error: err?.message || String(err),
+      };
+      (self as any).postMessage(errorRes);
+    } finally {
+      activeJobs.delete(id);
+    }
+  };
+}
 
 /**
  * High-precision Spectral Subtraction with Adaptive Noise Profiling,
  * Symmetric Overlap-Add Padding, Low-Rumble & Mains Hum Elimination.
  */
-function processDenoise(
+export async function processDenoise(
   channels: Float32Array[],
   sampleRate: number,
-  strength: number
-): Float32Array[] {
+  strength: number,
+  jobId?: string,
+  onProgress?: (progress: number) => void
+): Promise<Float32Array[] | null> {
   const numChannels = channels.length;
   const originalFrames = channels[0].length;
   const fftSize = 1024;
@@ -156,6 +226,8 @@ function processDenoise(
   const cleanedChannels: Float32Array[] = [];
 
   for (let ch = 0; ch < numChannels; ch++) {
+    if (jobId && !activeJobs.has(jobId)) return null;
+
     const rawInput = channels[ch];
 
     // Symmetric padding (fftSize at both ends) to ensure complete overlap-add across every sample
@@ -193,27 +265,30 @@ function processDenoise(
     const noiseThresholdIndex = Math.max(0, Math.min(numHops - 1, Math.floor(numHops * 0.20)));
     const noiseThreshold = Math.max(sortedEnergies[noiseThresholdIndex] || 0.00005, 0.00001);
 
-    // Average the spectrum of quietest background frames
+    // Average the spectrum of quietest background frames across the entire file (max 400 evenly spaced, never forcing hop 0)
+    const selectedProfileHops = selectNoiseProfileHops(frameEnergies, noiseThreshold, 400);
     const noiseSpectrum = new Float32Array(fftSize / 2);
     let noiseFrameCount = 0;
     const tempReal = new Float32Array(fftSize);
     const tempImag = new Float32Array(fftSize);
 
-    const maxProfileHops = Math.min(numHops, 250);
-    for (let h = 0; h < maxProfileHops; h++) {
-      if (frameEnergies[h] <= noiseThreshold * 1.6 || noiseFrameCount === 0) {
-        const offset = h * hopSize;
-        for (let i = 0; i < fftSize; i++) {
-          tempReal[i] = paddedInput[offset + i] * window[i];
-          tempImag[i] = 0;
-        }
-        transformFFT(tempReal, tempImag);
-        for (let k = 0; k < fftSize / 2; k++) {
-          const mag = Math.sqrt(tempReal[k] * tempReal[k] + tempImag[k] * tempImag[k]);
-          noiseSpectrum[k] += mag;
-        }
-        noiseFrameCount++;
+    for (let idx = 0; idx < selectedProfileHops.length; idx++) {
+      if (idx > 0 && idx % 150 === 0) {
+        await new Promise((r) => setTimeout(r, 0));
+        if (jobId && !activeJobs.has(jobId)) return null;
       }
+      const h = selectedProfileHops[idx];
+      const offset = h * hopSize;
+      for (let i = 0; i < fftSize; i++) {
+        tempReal[i] = paddedInput[offset + i] * window[i];
+        tempImag[i] = 0;
+      }
+      transformFFT(tempReal, tempImag);
+      for (let k = 0; k < fftSize / 2; k++) {
+        const mag = Math.sqrt(tempReal[k] * tempReal[k] + tempImag[k] * tempImag[k]);
+        noiseSpectrum[k] += mag;
+      }
+      noiseFrameCount++;
     }
 
     if (noiseFrameCount > 0) {
@@ -241,8 +316,18 @@ function processDenoise(
     const real = new Float32Array(fftSize);
     const imag = new Float32Array(fftSize);
     const priorSNR = new Float32Array(fftSize / 2);
+    const totalAllHops = Math.max(1, numChannels * numHops);
 
     for (let h = 0; h < numHops; h++) {
+      if (h > 0 && h % 150 === 0) {
+        await new Promise((r) => setTimeout(r, 0));
+        if (jobId && !activeJobs.has(jobId)) return null;
+        if (onProgress) {
+          const pct = Math.min(99, Math.round(((ch * numHops + h) / totalAllHops) * 100));
+          onProgress(pct);
+        }
+      }
+
       const offset = h * hopSize;
       for (let i = 0; i < fftSize; i++) {
         real[i] = paddedInput[offset + i] * window[i];
@@ -310,6 +395,7 @@ function processDenoise(
     cleanedChannels.push(cleanChannel);
   }
 
+  onProgress?.(100);
   return cleanedChannels;
 }
 
@@ -318,11 +404,13 @@ function processDenoise(
  * Produces clean Vocals & Instrumental (or 4 stems: Vocals, Drums, Bass, Other).
  * Uses symmetric boundary padding to eliminate truncation and edge distortion.
  */
-function processStemSeparation(
+export async function processStemSeparation(
   channels: Float32Array[],
   sampleRate: number,
-  stemsCount: 2 | 4
-): {
+  stemsCount: 2 | 4,
+  jobId?: string,
+  onProgress?: (progress: number) => void
+): Promise<{
   vocals: Float32Array[];
   instrumental: Float32Array[];
   additionalStems?: {
@@ -330,7 +418,7 @@ function processStemSeparation(
     bass?: Float32Array[];
     other?: Float32Array[];
   };
-} {
+} | null> {
   const originalFrames = channels[0].length;
   const isStereo = channels.length > 1;
 
@@ -391,8 +479,17 @@ function processStemSeparation(
   const vocalMinBin = Math.max(1, Math.floor(220 / binHz));
   const vocalMaxBin = Math.min(fftSize / 2 - 1, Math.floor(4800 / binHz));
   const bassMaxBin = Math.max(1, Math.floor(200 / binHz)); // Bass drums and bass guitar preserve in instrumental
+  const maxStftPct = stemsCount === 4 ? 85 : 99;
 
   for (let h = 0; h < numHops; h++) {
+    if (h > 0 && h % 150 === 0) {
+      await new Promise((r) => setTimeout(r, 0));
+      if (jobId && !activeJobs.has(jobId)) return null;
+      if (onProgress) {
+        onProgress(Math.min(maxStftPct, Math.round((h / Math.max(1, numHops)) * maxStftPct)));
+      }
+    }
+
     const offset = h * hopSize;
 
     for (let i = 0; i < fftSize; i++) {
@@ -494,6 +591,8 @@ function processStemSeparation(
     }
   }
 
+  if (jobId && !activeJobs.has(jobId)) return null;
+
   // Extract exactly original duration
   const vocalsLeft = new Float32Array(originalFrames);
   const vocalsRight = new Float32Array(originalFrames);
@@ -534,8 +633,17 @@ function processStemSeparation(
     const slowRelease = Math.exp(-1 / (sampleRate * 0.12));
     let fastEnv = 0;
     let slowEnv = 0;
+    const sampleYieldStep = 150 * hopSize;
 
     for (let i = 0; i < originalFrames; i++) {
+      if (i > 0 && i % sampleYieldStep === 0) {
+        await new Promise((r) => setTimeout(r, 0));
+        if (jobId && !activeJobs.has(jobId)) return null;
+        if (onProgress) {
+          onProgress(85 + Math.min(14, Math.round((i / Math.max(1, originalFrames)) * 14)));
+        }
+      }
+
       lpL += alphaLp * (instLeft[i] - lpL);
       lpR += alphaLp * (instRight[i] - lpR);
       bassLeft[i] = lpL;
@@ -571,6 +679,7 @@ function processStemSeparation(
     };
   }
 
+  onProgress?.(100);
   return result;
 }
 

@@ -150,6 +150,8 @@ export interface AudioEnhancementResult {
   enhancedAudioUrlOrBase64: string;
   processedAudioUrlOrBase64?: string;
   mimeType: string;
+  unchanged?: boolean;
+  message?: string;
   stems?: AudioStems;
   appliedDenoiseEngine?: string;
   appliedSeparationEngine?: string;

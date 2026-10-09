@@ -56,7 +56,7 @@ export class PayloadValidator {
     if (rawPayload.isImage === true) return "image";
     if (rawPayload.isAudio === true) return "audio";
     if (rawPayload.videoFile || (rawPayload.videoBase64OrUrl && !rawPayload.imageBase64OrUrl && !rawPayload.audioBase64OrUrl)) return "video";
-    if (rawPayload.audioFile || (rawPayload.audioBase64OrUrl && !rawPayload.imageBase64OrUrl && !rawPayload.videoBase64OrUrl)) return "audio";
+    if (rawPayload.audioFile || ((rawPayload.audioBase64OrUrl || rawPayload.audioBase64) && !rawPayload.imageBase64OrUrl && !rawPayload.videoBase64OrUrl)) return "audio";
     if (rawPayload.imageBlob || (rawPayload.imageBase64OrUrl && !rawPayload.videoBase64OrUrl && !rawPayload.audioBase64OrUrl)) return "image";
 
     // 3. Inspect candidate URL / Data URI header first for definitive typing
@@ -65,6 +65,7 @@ export class PayloadValidator {
       rawPayload.imageBase64OrUrl ||
       rawPayload.videoBase64OrUrl ||
       rawPayload.audioBase64OrUrl ||
+      rawPayload.audioBase64 ||
       rawPayload.mediaUrl ||
       rawPayload.url ||
       rawPayload.src ||
@@ -158,7 +159,7 @@ export class PayloadValidator {
       : undefined;
 
     const audioBase64OrUrl = inputMediaType === "audio"
-      ? (rawPayload.audioBase64OrUrl || (typeof rawPayload.audio === "string" ? rawPayload.audio : "") || mediaCandidate)
+      ? (rawPayload.audioBase64OrUrl || rawPayload.audioBase64 || (typeof rawPayload.audio === "string" ? rawPayload.audio : "") || mediaCandidate)
       : undefined;
 
     const imageBlob = inputMediaType === "image"

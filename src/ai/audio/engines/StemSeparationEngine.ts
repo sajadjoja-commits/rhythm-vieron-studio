@@ -116,7 +116,16 @@ export class StemSeparationEngine {
           channels: rawChannels,
           options: { stemsCount },
         },
-        transferableBuffers
+        transferableBuffers,
+        (workerPct) => {
+          const mappedPct = Math.min(79, Math.max(35, Math.round(35 + (workerPct / 100) * 44)));
+          this.jobManager.updateProgress(
+            job.id,
+            mappedPct,
+            "SEPARATING",
+            `جاري فصل المسارات الصوتية (${stemsCount === 4 ? "4 مسارات كاملة" : "غناء وموسيقى"})...`
+          );
+        }
       );
 
       if (options.abortSignal?.aborted) {
@@ -179,7 +188,7 @@ export class StemSeparationEngine {
           const drumsUrl = URL.createObjectURL(drumsBlob);
           createdUrls.push(drumsUrl);
           result.additionalStems.drums = {
-            name: "Drums (الإيقاع والدرامز)",
+            name: "Drums (الإيقاع والدرامز - تقريبي)",
             stemType: "drums",
             url: drumsUrl,
             blob: drumsBlob,
@@ -193,7 +202,7 @@ export class StemSeparationEngine {
           const bassUrl = URL.createObjectURL(bassBlob);
           createdUrls.push(bassUrl);
           result.additionalStems.bass = {
-            name: "Bass (البيز والترددات المنخفضة)",
+            name: "Bass (البيز والترددات المنخفضة - تقريبي)",
             stemType: "bass",
             url: bassUrl,
             blob: bassBlob,
@@ -207,7 +216,7 @@ export class StemSeparationEngine {
           const otherUrl = URL.createObjectURL(otherBlob);
           createdUrls.push(otherUrl);
           result.additionalStems.other = {
-            name: "Other Instruments (باقي الآلات والمؤثرات)",
+            name: "Other Instruments (باقي الآلات والمؤثرات - تقريبي)",
             stemType: "other",
             url: otherUrl,
             blob: otherBlob,

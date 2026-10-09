@@ -55,7 +55,7 @@ export class AIJobQueue {
     this.insertByPriority(jobRecord, executor, resolvePromise!);
 
     // Trigger process queue
-    setTimeout(() => this.processNext(), 0);
+    void this.processNext();
 
     return { jobId, promise };
   }
@@ -65,7 +65,13 @@ export class AIJobQueue {
     executor: (...args: any[]) => any,
     resolveFn: (res: AIResponse) => void
   ): void {
-    const item = { jobRecord, executor, resolveFn };
+    let resolved = false;
+    const safeResolve = (res: AIResponse) => {
+      if (resolved) return;
+      resolved = true;
+      resolveFn(res);
+    };
+    const item = { jobRecord, executor, resolveFn: safeResolve };
     (jobRecord as any)._internal = item;
 
     const priorityRank: Record<JobPriority, number> = {
@@ -109,6 +115,14 @@ export class AIJobQueue {
       const response: AIResponse = await internal.executor(jobRecord);
 
       jobRecord.completedAt = Date.now();
+      if ((jobRecord.status as JobStatus) === "cancelled") {
+        internal.resolveFn({
+          success: false,
+          error: { code: "CANCELLED", message: "User cancelled job" },
+        });
+        return;
+      }
+
       if (response.success) {
         jobRecord.status = "completed";
         jobRecord.result = response.data;
@@ -128,8 +142,16 @@ export class AIJobQueue {
 
       internal.resolveFn(response);
     } catch (err: any) {
-      jobRecord.status = "failed";
       jobRecord.completedAt = Date.now();
+      if ((jobRecord.status as JobStatus) === "cancelled") {
+        internal.resolveFn({
+          success: false,
+          error: { code: "CANCELLED", message: "User cancelled job" },
+        });
+        return;
+      }
+
+      jobRecord.status = "failed";
       const errorObj = {
         code: "EXECUTION_EXCEPTION",
         message: err?.message || "Unhandled exception during task execution",
@@ -143,19 +165,24 @@ export class AIJobQueue {
       });
     } finally {
       this.activeJobs.delete(jobRecord.id);
-      setTimeout(() => this.processNext(), 0);
+      void this.processNext();
     }
   }
 
   public cancelJob(jobId: string, reason: string = "User cancelled job"): boolean {
-    // 1. Check if in active jobs
+    // 1. Check if in active jobs: mark cancelled & abort, keep in activeJobs until executor finishes (finally)
     const active = this.activeJobs.get(jobId);
     if (active) {
       active.status = "cancelled";
       active.abortController.abort(reason);
       this.progressManager.updateProgress(jobId, 100, "Cancelled", "cancelled");
-      this.activeJobs.delete(jobId);
-      setTimeout(() => this.processNext(), 0);
+      const internal = (active as any)._internal;
+      if (internal) {
+        internal.resolveFn({
+          success: false,
+          error: { code: "CANCELLED", message: reason },
+        });
+      }
       return true;
     }
 

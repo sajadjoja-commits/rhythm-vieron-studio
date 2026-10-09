@@ -18,7 +18,9 @@ export abstract class BaseTask<TPayload = any, TResult = any> {
 
     const candidates = providers.filter((p) => {
       if (!p.supportedTasks.includes(this.taskType)) return false;
-      if (payload && typeof p.isAvailable === "function") {
+      if (mode === "local" && p.type !== "local") return false;
+      if ((mode === "remote" || mode === "cloud") && p.type !== "remote") return false;
+      if (typeof p.isAvailable === "function") {
         try {
           const avail = p.isAvailable(this.taskType, payload);
           if (avail === false) return false;
@@ -70,11 +72,29 @@ export abstract class BaseTask<TPayload = any, TResult = any> {
     providers: AIProvider[],
     options?: AITaskOptions
   ): Promise<AIResponse<TResult>> {
+    const mode = options?.executionMode || "auto";
+    const modeMatchingProviders = providers.filter((p) => {
+      if (!p.supportedTasks.includes(this.taskType)) return false;
+      if (mode === "local" && p.type !== "local") return false;
+      if ((mode === "remote" || mode === "cloud") && p.type !== "remote") return false;
+      return true;
+    });
+
+    if (modeMatchingProviders.length === 0) {
+      return {
+        success: false,
+        error: createAIError("NO_PROVIDER", `No provider registered supporting task "${this.taskType}"`),
+      };
+    }
+
     const candidates = this.selectCandidateProviders(providers, options, payload);
     if (candidates.length === 0) {
       return {
         success: false,
-        error: createAIError("NO_PROVIDER", `No provider registered supporting task "${this.taskType}"`),
+        error: createAIError(
+          "PROVIDER_NOT_CONFIGURED",
+          `No configured or available provider for task "${this.taskType}". Verify API keys or network connection.`
+        ),
       };
     }
 

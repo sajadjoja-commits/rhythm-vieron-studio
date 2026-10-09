@@ -8,17 +8,21 @@ import { createAIError } from "../../utils/errorUtils";
 export class GroqProvider extends RemoteProvider {
   public id = "groq";
   public name = "Groq AI Cloud";
-  public supportedTasks: AITaskType[] = ["speech-to-text", "translation"];
+  public supportedTasks: AITaskType[] = ["speech-to-text"];
 
   constructor(keyManager: KeyManager) {
     super(keyManager);
   }
 
+  private getApiKey(): string | undefined {
+    const key = this.keyManager.getKey("groq");
+    return key && key.trim().length > 0 ? key.trim() : undefined;
+  }
+
   public isAvailable(taskType: AITaskType): boolean {
     if (!this.checkNetwork()) return false;
     if (!this.supportsTask(taskType)) return false;
-    const key = this.keyManager.getKey("groq");
-    return Boolean(key && key.trim().length > 0);
+    return Boolean(this.getApiKey());
   }
 
   public async execute<TPayload = any, TResult = any>(
@@ -27,6 +31,19 @@ export class GroqProvider extends RemoteProvider {
     options?: AITaskOptions
   ): Promise<AIResponse<TResult>> {
     const startTime = Date.now();
+
+    const apiKey = this.getApiKey();
+    if (!apiKey) {
+      return {
+        success: false,
+        providerUsed: this.id,
+        error: createAIError(
+          "PROVIDER_NOT_CONFIGURED",
+          "Groq API key is not configured in KeyManager",
+          this.id
+        ),
+      };
+    }
 
     if (!this.checkNetwork()) {
       return {
@@ -42,7 +59,7 @@ export class GroqProvider extends RemoteProvider {
 
     if (taskType === "speech-to-text") {
       try {
-        const result = await this.transcribeSpeech(payload as unknown as SpeechToTextPayload, options);
+        const result = await this.transcribeSpeech(payload as unknown as SpeechToTextPayload, apiKey, options);
         return {
           success: true,
           data: result as unknown as TResult,
@@ -67,15 +84,20 @@ export class GroqProvider extends RemoteProvider {
 
   private async transcribeSpeech(
     payload: SpeechToTextPayload,
+    apiKey: string,
     options?: AITaskOptions
   ): Promise<SpeechToTextResult> {
-    const apiKey = this.keyManager.getKey("groq");
-    if (!apiKey) {
-      throw new Error("Groq API Key is missing");
+    const audioSource =
+      payload?.audioBase64 ||
+      (payload as any)?.audioBase64OrUrl ||
+      (payload as any)?.mediaUrlOrBase64 ||
+      "";
+    if (!audioSource) {
+      throw new Error("Audio base64 data is required for transcription");
     }
 
     const mimeType = payload.mimeType || "audio/wav";
-    const audioBlob = base64ToBlob(payload.audioBase64, mimeType);
+    const audioBlob = base64ToBlob(audioSource, mimeType);
     const filename = mimeType.includes("wav") ? "audio.wav" : "audio.mp3";
 
     const formData = new FormData();

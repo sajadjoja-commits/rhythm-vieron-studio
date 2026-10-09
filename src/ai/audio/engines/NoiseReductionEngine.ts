@@ -161,7 +161,16 @@ export class NoiseReductionEngine {
             denoiseStrength: options.denoiseStrength ?? 0.85,
           },
         },
-        transferableBuffers
+        transferableBuffers,
+        (workerPct) => {
+          const mappedPct = Math.min(84, Math.max(45, Math.round(45 + (workerPct / 100) * 39)));
+          this.jobManager.updateProgress(
+            job.id,
+            mappedPct,
+            "DENOISE",
+            "تطبيق خوارزمية التنقية الطيفية التكيفية وإزالة الطنين والتشويش..."
+          );
+        }
       );
 
       if (options.abortSignal?.aborted) {

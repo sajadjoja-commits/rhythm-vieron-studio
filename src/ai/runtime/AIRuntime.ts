@@ -76,16 +76,34 @@ export class AIRuntime {
       }
 
       // 2. Resource check & capability validation
+      const profile = this.resourceManager.getProfile();
       const bestCapability = this.capabilityRegistry.findBestForTask(
         taskType,
         options?.executionMode === "local",
-        this.resourceManager.getProfile().isAndroid
+        profile.isAndroid
       );
 
       if (bestCapability) {
         debugLogger.logStage("Capability Selected", { capabilityId: bestCapability.id, providerId: bestCapability.providerId });
-        const check = this.resourceManager.canRunCapability(bestCapability);
+        const durationSec =
+          options?.durationSec ??
+          (payload as any)?.durationSec ??
+          (payload as any)?.duration ??
+          (payload as any)?.durationSeconds;
+        const check = this.resourceManager.canRunCapability(bestCapability, {
+          durationSec: typeof durationSec === "number" ? durationSec : undefined,
+        });
         if (!check.allowed) {
+          if (profile.memoryKnown === true && options?.forceRun !== true) {
+            return {
+              success: false,
+              error: {
+                code: "RESOURCE_LIMIT",
+                message: "الذاكرة المتاحة غير كافية لتشغيل هذه الأداة. يُنصح بتقصير المقطع أو استخدام دقة أقل.",
+                details: check.reason,
+              },
+            };
+          }
           console.warn(`[AIRuntime] Resource check warning for ${bestCapability.id}: ${check.reason}`);
         }
       }
@@ -97,7 +115,7 @@ export class AIRuntime {
         payload,
         async (jobRecord) => {
           // Execute via core AIManager
-          this.progressManager.updateProgress(jobId, 40, "Running AI Provider", "processing");
+          this.progressManager.updateProgress(jobRecord.id, 40, "Running AI Provider", "processing");
 
           const res = await this.aiManager.execute<TPayload, TResult>(taskType, payload, {
             executionMode: options?.executionMode,

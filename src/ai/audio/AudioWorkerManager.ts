@@ -13,6 +13,7 @@ export class AudioWorkerManager {
     {
       resolve: (value: any) => void;
       reject: (reason: any) => void;
+      onProgress?: (progress: number) => void;
     }
   > = new Map();
 
@@ -36,9 +37,20 @@ export class AudioWorkerManager {
       );
 
       this.worker.onmessage = (e: MessageEvent<WorkerAudioResponse>) => {
-        const { id, success, result, error } = e.data;
+        const { id, type, progress, success, result, error } = e.data;
         const pending = this.pendingRequests.get(id);
         if (!pending) return;
+
+        if (type === "progress") {
+          if (pending.onProgress && typeof progress === "number") {
+            try {
+              pending.onProgress(progress);
+            } catch (err) {
+              console.warn("[AudioWorkerManager] Progress listener error:", err);
+            }
+          }
+          return;
+        }
 
         this.pendingRequests.delete(id);
 
@@ -86,7 +98,8 @@ export class AudioWorkerManager {
 
   public async runTask<TResult = any>(
     task: WorkerAudioTask,
-    transferableBuffers: ArrayBuffer[] = []
+    transferableBuffers: ArrayBuffer[] = [],
+    onProgress?: (progress: number) => void
   ): Promise<TResult> {
     if (!this.worker) {
       this.initWorker();
@@ -97,7 +110,7 @@ export class AudioWorkerManager {
     }
 
     return new Promise<TResult>((resolve, reject) => {
-      this.pendingRequests.set(task.id, { resolve, reject });
+      this.pendingRequests.set(task.id, { resolve, reject, onProgress });
       this.worker!.postMessage(task, transferableBuffers);
     });
   }

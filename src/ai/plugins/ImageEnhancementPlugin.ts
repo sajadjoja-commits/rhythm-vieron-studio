@@ -125,11 +125,17 @@ export class ImageEnhancementPlugin extends BasePlugin {
       };
 
       const action: ImageActionType = (actionName as ImageActionType) || imgPayload.action || "composite-enhance";
+      const historyTaskType =
+        action === "remove-background" || action === "object-remove"
+          ? "background-removal"
+          : action === "denoise"
+          ? "noise-reduction"
+          : "enhance-media";
 
       // Cache lookup
       const inputHash = AIManager.getInstance().cache.generateHash(`plugin_image_${action}`, imgPayload);
       if (options?.enableCache !== false) {
-        const cachedMatch = AIHistoryManager.getInstance().findMatch("background-removal", inputHash);
+        const cachedMatch = AIHistoryManager.getInstance().findMatch(historyTaskType, inputHash);
         if (cachedMatch && cachedMatch.resultData) {
           debugLogger.logStage("Cache Saved / Hit", { action, inputHash });
           return {

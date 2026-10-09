@@ -80,37 +80,41 @@ export class AICapabilityRegistry {
       description: "Isolate vocals or extract instrumental tracks using local spectral masking",
     });
 
-    // 5. Image & Video Background Removal
+    // 5. Image Background Removal (Local Neural Engine)
     this.register({
-      id: "bg-removal-gemini",
-      name: "Gemini Vision BG Removal",
+      id: "ai-bg-removal",
+      name: "Neural Background Removal (MediaPipe & RMBG)",
       taskType: "background-removal",
       domain: "image",
-      executionMode: "auto",
-      providerId: "gemini",
-      supportedInputFormats: ["png", "jpg", "jpeg", "mp4", "webm"],
-      supportedOutputFormats: ["png", "webm"],
+      executionMode: "local",
+      providerId: "local-image-processor",
+      supportedInputFormats: ["png", "jpg", "jpeg", "webp"],
+      supportedOutputFormats: ["png", "webp"],
+      requiresWASM: true,
+      estimatedRAMMB: 1400,
       webSupported: true,
       androidSupported: true,
-      description: "Smart background removal for media assets",
+      description: "Local neural foreground extraction & alpha matting",
     });
 
-    // 6. Media Enhancement & Upscaling
+    // 6. Media Enhancement (Local Video & Image Processing)
     this.register({
-      id: "enhance-media-gemini",
-      name: "Gemini Super Resolution & Enhance",
+      id: "ai-video-clarity-enhancer",
+      name: "AI Video Clarity & Detail Enhancer",
       taskType: "enhance-media",
       domain: "video",
-      executionMode: "auto",
-      providerId: "gemini",
-      supportedInputFormats: ["png", "jpg", "mp4"],
-      supportedOutputFormats: ["png", "mp4"],
+      executionMode: "local",
+      providerId: "local-video-processor",
+      supportedInputFormats: ["mp4", "webm", "mov"],
+      supportedOutputFormats: ["mp4", "webm"],
+      requiresWASM: false,
+      estimatedRAMMB: 90,
       webSupported: true,
       androidSupported: true,
-      description: "Enhance image and video quality using AI upscaling",
+      description: "Enhance video clarity, contrast, and micro-detail sharpness locally",
     });
 
-    // 7. Image Generation & Editing (Replicate FLUX.2 Pro)
+    // 7. Image Generation & Editing (Replicate FLUX.2 Pro & BFL FLUX.1)
     this.register({
       id: "image-gen-replicate-flux",
       name: "Replicate FLUX.2 Pro",
@@ -122,7 +126,7 @@ export class AICapabilityRegistry {
       supportedOutputFormats: ["webp", "jpeg", "png"],
       webSupported: true,
       androidSupported: true,
-      description: "Generates ultra-realistic state-of-the-art images using Black Forest Labs FLUX.2 Pro via Replicate",
+      description: "Generates images using Black Forest Labs FLUX.2 Pro via Replicate",
     });
 
     this.register({
@@ -136,40 +140,48 @@ export class AICapabilityRegistry {
       supportedOutputFormats: ["webp", "jpeg", "png"],
       webSupported: true,
       androidSupported: true,
-      description: "Edits real images using Black Forest Labs FLUX.2 Pro via Replicate",
+      description: "Edits images using Black Forest Labs FLUX.2 Pro via Replicate",
     });
 
     this.register({
-      id: "image-gen-gemini",
-      name: "Gemini Image Generator",
+      id: "image-gen-bfl-flux",
+      name: "Black Forest Labs FLUX.1",
       taskType: "image-generation",
       domain: "image",
       executionMode: "remote",
-      providerId: "gemini",
+      providerId: "flux",
       supportedInputFormats: ["text"],
-      supportedOutputFormats: ["png", "jpeg"],
+      supportedOutputFormats: ["jpeg", "png", "webp"],
       webSupported: true,
       androidSupported: true,
-      description: "Generates high quality images from text prompts",
+      description: "Generates high quality images from text prompts via BFL API",
     });
 
     // 8. Translation
     this.register({
-      id: "translation-groq-gemini",
-      name: "Multi-Provider Translation Engine",
+      id: "translation-gemini",
+      name: "Gemini Translation Engine",
       taskType: "translation",
       domain: "text",
-      executionMode: "auto",
-      providerId: "groq",
+      executionMode: "remote",
+      providerId: "gemini",
       supportedInputFormats: ["text"],
       supportedOutputFormats: ["text"],
       webSupported: true,
       androidSupported: true,
-      description: "Translates captions and text across 50+ languages",
+      description: "Translates captions and text via Google Gemini API",
     });
   }
 
   public register(capability: AICapability): void {
+    const existing = this.capabilities.get(capability.id);
+    if (existing && existing.estimatedRAMMB && (!capability.estimatedRAMMB || capability.estimatedRAMMB < existing.estimatedRAMMB)) {
+      this.capabilities.set(capability.id, {
+        ...capability,
+        estimatedRAMMB: existing.estimatedRAMMB,
+      });
+      return;
+    }
     this.capabilities.set(capability.id, capability);
   }
 

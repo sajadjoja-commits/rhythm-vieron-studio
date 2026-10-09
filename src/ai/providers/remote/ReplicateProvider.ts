@@ -34,9 +34,19 @@ export class ReplicateProvider extends RemoteProvider {
     this.progressManager = AIProgressManager.getInstance();
   }
 
+  private getApiKey(): string | undefined {
+    const key =
+      this.keyManager.getKey("replicate") ||
+      (typeof process !== "undefined" && process.env
+        ? process.env.REPLICATE_API_TOKEN || process.env.REPLICATE_API_KEY
+        : undefined);
+    return key && key.trim().length > 0 ? key.trim() : undefined;
+  }
+
   public isAvailable(taskType: AITaskType): boolean {
     if (!this.checkNetwork()) return false;
-    return this.supportsTask(taskType);
+    if (!this.supportsTask(taskType)) return false;
+    return Boolean(this.getApiKey());
   }
 
   public async execute<TPayload = any, TResult = any>(
@@ -46,6 +56,19 @@ export class ReplicateProvider extends RemoteProvider {
   ): Promise<AIResponse<TResult>> {
     const startTime = Date.now();
     const jobId = options?.signal ? undefined : `job_replicate_${startTime}_${Math.random().toString(36).substring(2, 6)}`;
+
+    const apiKey = this.getApiKey();
+    if (!apiKey) {
+      return {
+        success: false,
+        providerUsed: this.id,
+        error: createAIError(
+          "PROVIDER_NOT_CONFIGURED",
+          "Replicate API key is not configured in KeyManager",
+          this.id
+        ),
+      };
+    }
 
     if (!this.checkNetwork()) {
       return {

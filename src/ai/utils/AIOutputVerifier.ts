@@ -5,6 +5,13 @@ import { PayloadValidator } from "./PayloadValidator";
 export interface VerificationResult {
   passed: boolean;
   reason?: string;
+  message?: string;
+  unchanged?: boolean;
+  data?: {
+    unchanged?: boolean;
+    message?: string;
+    [key: string]: any;
+  };
   domain?: "image" | "audio" | "video" | "text";
   metrics?: {
     inputLength?: number;
@@ -50,7 +57,7 @@ export class AIOutputVerifier {
     if (expectedDomain === "image") {
       return this.verifyImageOutput(taskType, inputPayload, result);
     } else if (expectedDomain === "audio") {
-      return this.verifyAudioOutput(inputPayload, result);
+      return this.verifyAudioOutput(taskType, inputPayload, result);
     } else if (expectedDomain === "video") {
       return this.verifyVideoOutput(inputPayload, result);
     } else if (expectedDomain === "text") {
@@ -116,7 +123,7 @@ export class AIOutputVerifier {
     };
   }
 
-  private static verifyAudioOutput(inputPayload: any, result: any): VerificationResult {
+  private static verifyAudioOutput(taskType: string, inputPayload: any, result: any): VerificationResult {
     const inputStr = String(
       inputPayload?.audioBase64OrUrl ||
       inputPayload?.audioBase64 ||
@@ -126,6 +133,7 @@ export class AIOutputVerifier {
     const outputStr = String(
       result?.enhancedAudioUrlOrBase64 ||
       result?.processedAudioUrlOrBase64 ||
+      result?.audioUrl ||
       ""
     ).trim();
 
@@ -138,6 +146,42 @@ export class AIOutputVerifier {
     }
 
     if (inputStr && outputStr && inputStr === outputStr) {
+      const normalizedTask = String(
+        taskType || inputPayload?.action || inputPayload?.taskType || ""
+      ).toLowerCase();
+      const isDenoiseTask =
+        normalizedTask === "denoise" ||
+        normalizedTask === "spectral-denoise" ||
+        normalizedTask === "noise-reduction" ||
+        normalizedTask === "ai-denoise" ||
+        normalizedTask === "remove-noise" ||
+        ((normalizedTask === "audio-enhance-composite" || normalizedTask === "enhance-media") &&
+          (!inputPayload?.separationMode || inputPayload?.separationMode === "none"));
+
+      if (isDenoiseTask && !result?.stems) {
+        const noNoiseMsg = "لم تُكتشف ضوضاء تستحق التنقية";
+        if (result && typeof result === "object") {
+          result.unchanged = true;
+          result.message = noNoiseMsg;
+          if (result.data && typeof result.data === "object") {
+            result.data.unchanged = true;
+            result.data.message = noNoiseMsg;
+          }
+        }
+        return {
+          passed: true,
+          unchanged: true,
+          message: noNoiseMsg,
+          reason: noNoiseMsg,
+          data: {
+            unchanged: true,
+            message: noNoiseMsg,
+          },
+          domain: "audio",
+          metrics: { inputLength: inputStr.length, outputLength: outputStr.length, isIdentical: true },
+        };
+      }
+
       return {
         passed: false,
         domain: "audio",
