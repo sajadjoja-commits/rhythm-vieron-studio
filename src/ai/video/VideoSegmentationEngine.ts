@@ -181,6 +181,7 @@ export class VideoSegmentationEngine {
     let useCategoryMask = false;
     let invertConfidence = false;
     let bestStats: MaskVerificationStats | null = null;
+    let fallbackStats: MaskVerificationStats | null = null;
 
     // A. Test confidence mask candidate
     if (candidatePersonIdx >= 0 && candidatePersonIdx < masks.length) {
@@ -190,6 +191,7 @@ export class VideoSegmentationEngine {
         const w = confMask.width;
         const h = confMask.height;
         const stats = testMask(rawData, w, h);
+        fallbackStats = stats;
 
         if (stats.isValid) {
           // Spatial orientation validation:
@@ -244,6 +246,7 @@ export class VideoSegmentationEngine {
           catFloat[i] = catData[i] === 1 ? 1.0 : 0.0;
         }
         const catStats = testMask(catFloat, w, h);
+        if (!fallbackStats) fallbackStats = catStats;
         if (catStats.isValid && catStats.foregroundPercentage >= 0.5 && catStats.centerForegroundRatio >= catStats.edgeForegroundRatio) {
           console.log(
             `[VideoSegmentationEngine] Using categoryMask (Category 1 = Person). fgPct=${catStats.foregroundPercentage.toFixed(1)}%, center=${catStats.centerForegroundRatio.toFixed(3)}, edge=${catStats.edgeForegroundRatio.toFixed(3)}`
@@ -265,26 +268,29 @@ export class VideoSegmentationEngine {
 
     // D. Validation & Resilient Fallback
     if (!chosenMaskData || !bestStats || !bestStats.isValid) {
-      console.warn("[VideoSegmentationEngine] Initial frame did not yield high-contrast subject calibration; using robust default Person policy.");
+      console.warn("[VideoSegmentationEngine] Initial frame did not yield high-contrast subject calibration.");
       const fallbackPolicy: MaskOrientationPolicy = {
         personMaskIndex: candidatePersonIdx >= 0 ? candidatePersonIdx : 1,
         useCategoryMask: false,
         invertConfidence: false,
-        stats: {
-          min: 0,
-          max: 1,
-          mean: 0.5,
-          foregroundPercentage: 35,
-          backgroundPercentage: 65,
-          transparentPercentage: 65,
-          centerForegroundRatio: 0.75,
-          edgeForegroundRatio: 0.1,
-          detectionConfidence: 0.85,
-          foregroundPixelCount: 22937,
-          backgroundPixelCount: 42599,
-          alphaRatio: 0.35,
-          isValid: true,
-        },
+        stats: fallbackStats
+          ? { ...fallbackStats, isValid: false }
+          : {
+              min: 0,
+              max: 0,
+              mean: 0,
+              foregroundPercentage: 0,
+              backgroundPercentage: 100,
+              transparentPercentage: 100,
+              centerForegroundRatio: 0,
+              edgeForegroundRatio: 0,
+              detectionConfidence: 0,
+              foregroundPixelCount: 0,
+              backgroundPixelCount: this.INFERENCE_WIDTH * this.INFERENCE_HEIGHT,
+              alphaRatio: 0,
+              isValid: false,
+              error: "No valid person mask detected on calibration frame",
+            },
       };
       this.cachedOrientationPolicy = fallbackPolicy;
       return fallbackPolicy;
@@ -467,6 +473,7 @@ export class VideoSegmentationEngine {
         // (GitHub #4501, #5879, #6296). The CPU delegate runs XNNPack WASM SIMD directly in CPU memory,
         // delivering 100% reliable masks with zero WebGL texture readback issues and blazing-fast inference (>100 FPS).
         let segmenter: ImageSegmenter | null = null;
+        let activeDelegate: "CPU" | "GPU" = "CPU";
         try {
           segmenter = await ImageSegmenter.createFromOptions(vision, {
             baseOptions: {
@@ -477,6 +484,7 @@ export class VideoSegmentationEngine {
             outputCategoryMask: true,
             outputConfidenceMasks: true,
           });
+          activeDelegate = "CPU";
           console.log("[VideoSegmentationEngine] Successfully initialized ImageSegmenter with CPU (XNNPack SIMD) delegate.");
         } catch (cpuError) {
           console.warn("[VideoSegmentationEngine] CPU delegate initialization failed, attempting GPU delegate fallback:", cpuError);
@@ -489,14 +497,15 @@ export class VideoSegmentationEngine {
             outputCategoryMask: true,
             outputConfidenceMasks: true,
           });
+          activeDelegate = "GPU";
         }
 
         if (!segmenter) {
           throw new Error("Failed to instantiate MediaPipe ImageSegmenter with GPU or CPU delegates.");
         }
 
-        // Quick self-test to verify mask readability
-        if (typeof document !== "undefined") {
+        // Only verify mask readability with self-test if GPU delegate was used (CPU XNNPack has no WebGL2 readback issue)
+        if (activeDelegate === "GPU" && typeof document !== "undefined") {
           try {
             const testCanvas = document.createElement("canvas");
             testCanvas.width = 64;
@@ -513,24 +522,25 @@ export class VideoSegmentationEngine {
               tCtx.fillRect(16, 44, 32, 20);
 
               const testRes = segmenter.segment(testCanvas);
-              // In MediaPipe Selfie Segmenter, index 1 is Person, index 0 is Background.
-              const mask = testRes.confidenceMasks?.[1] || testRes.confidenceMasks?.[0];
-              const testData = mask?.getAsFloat32Array?.();
-
-              let hasVariance = false;
-              if (testData && testData.length > 0) {
-                for (let i = 0; i < testData.length; i++) {
-                  if (testData[i] > 0.001) {
-                    hasVariance = true;
-                    break;
+              const masks = testRes.confidenceMasks || [];
+              let hasReadbackData = false;
+              for (const m of masks) {
+                const testData = m?.getAsFloat32Array?.();
+                if (testData && testData.length > 0) {
+                  for (let i = 0; i < testData.length; i++) {
+                    if (testData[i] > 0.001) {
+                      hasReadbackData = true;
+                      break;
+                    }
                   }
                 }
+                if (hasReadbackData) break;
               }
 
               try { (testRes as any).close?.(); } catch {}
 
-              if (!hasVariance) {
-                console.warn("[VideoSegmentationEngine] Segmenter delegate returned zero mask in self-test. Forcing CPU delegate.");
+              if (!hasReadbackData) {
+                console.warn("[VideoSegmentationEngine] GPU delegate returned zero masks in self-test. Forcing CPU delegate.");
                 try { segmenter.close(); } catch {}
                 segmenter = await ImageSegmenter.createFromOptions(vision, {
                   baseOptions: {
@@ -541,6 +551,7 @@ export class VideoSegmentationEngine {
                   outputCategoryMask: true,
                   outputConfidenceMasks: true,
                 });
+                activeDelegate = "CPU";
               }
             }
           } catch (testErr) {

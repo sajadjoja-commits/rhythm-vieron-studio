@@ -97,9 +97,9 @@ export class AIManager {
   private registerDefaultTasks(): void {
     this.tasks.set("speech-to-text", new SpeechToTextTask());
     this.tasks.set("background-removal", new BackgroundRemovalTask());
-    this.tasks.set("vocal-isolation", new AudioIsolationTask());
-    this.tasks.set("noise-reduction", new AudioIsolationTask());
-    this.tasks.set("music-removal", new AudioIsolationTask());
+    this.tasks.set("vocal-isolation", new AudioIsolationTask("vocal-isolation"));
+    this.tasks.set("noise-reduction", new AudioIsolationTask("noise-reduction"));
+    this.tasks.set("music-removal", new AudioIsolationTask("music-removal"));
     this.tasks.set("enhance-media", new EnhanceMediaTask());
     this.tasks.set("image-generation", new ImageGenerationTask());
     this.tasks.set("image-editing", new ImageEditingTask());

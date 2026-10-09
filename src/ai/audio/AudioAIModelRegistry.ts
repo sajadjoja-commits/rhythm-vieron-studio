@@ -26,7 +26,7 @@ export class AudioAIModelRegistry {
   private registerKnownModels(): void {
     // 1. Local Adaptive Spectral Denoise DSP
     this.registerModel({
-      id: "local-rnnoise-spectral",
+      id: "local-spectral-denoise",
       name: "Adaptive Spectral Noise Subtraction (DSP)",
       version: "1.2.0",
       runtime: "local-worker",
@@ -39,23 +39,23 @@ export class AudioAIModelRegistry {
     // 2. Local Center-Channel & Spectrogram Stem Separator DSP
     this.registerModel({
       id: "local-stem-separator",
-      name: "Harmonic Spectrogram & Center-Channel Stem Filter (DSP)",
+      name: "Center-Channel & Formant Spectral Stem Filter (DSP)",
       version: "2.1.0",
       runtime: "local-worker",
       approxSizeBytes: 0,
-      description: "Local STFT harmonic/percussive and center-panning frequency isolation filter.",
+      description: "Local STFT vocal formant and center-panning frequency isolation filter.",
       capabilities: ["vocal-isolation", "music-removal"],
       isLocal: true,
     });
 
     // 3. Local Voice Activity Detector (VAD)
     this.registerModel({
-      id: "local-silero-vad",
+      id: "local-energy-vad",
       name: "Energy Voice Activity Detector (VAD)",
       version: "4.0.0",
       runtime: "local-worker",
       approxSizeBytes: 0,
-      description: "Local energy and spectral entropy voice activity segmentation.",
+      description: "Local RMS energy threshold voice activity and silence segmentation.",
       capabilities: ["silence-removal"],
       isLocal: true,
     });
@@ -68,7 +68,7 @@ export class AudioAIModelRegistry {
       runtime: "local-worker",
       approxSizeBytes: 0,
       description: "Musical key detection (Major/Minor) and fundamental pitch tracking via Chromagram.",
-      capabilities: ["key-pitch-detection", "pitch-correction"],
+      capabilities: ["key-pitch-detection"],
       isLocal: true,
     });
   }

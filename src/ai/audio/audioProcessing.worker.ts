@@ -512,7 +512,7 @@ function processStemSeparation(
     instrumental: isStereo ? [instLeft, instRight] : [instLeft],
   };
 
-  // If 4-stems requested, decompose instrumental into Drums, Bass, Other
+  // If 4-stems requested, decompose instrumental into Bass (<200Hz low-pass), Drums (transient envelope), and Other
   if (stemsCount === 4) {
     const drumsLeft = new Float32Array(originalFrames);
     const drumsRight = new Float32Array(originalFrames);
@@ -521,22 +521,47 @@ function processStemSeparation(
     const otherLeft = new Float32Array(originalFrames);
     const otherRight = new Float32Array(originalFrames);
 
-    for (let i = 0; i < originalFrames; i++) {
-      // Bass: low-frequency sub
-      const bassSampleL = instLeft[i] * 0.4;
-      const bassSampleR = instRight[i] * 0.4;
-      bassLeft[i] = bassSampleL;
-      bassRight[i] = bassSampleR;
+    // 1st-order RC low-pass filter at 200 Hz for bass extraction
+    const dt = 1 / Math.max(1, sampleRate);
+    const rc = 1 / (2 * Math.PI * 200);
+    const alphaLp = dt / (rc + dt);
+    let lpL = 0;
+    let lpR = 0;
 
-      // Drums: transient percussive
-      const drumSampleL = (instLeft[i] - bassSampleL) * 0.5;
-      const drumSampleR = (instRight[i] - bassSampleR) * 0.5;
+    // Fast vs slow envelope followers for percussive transient detection
+    const fastAttack = Math.exp(-1 / (sampleRate * 0.003));
+    const fastRelease = Math.exp(-1 / (sampleRate * 0.025));
+    const slowRelease = Math.exp(-1 / (sampleRate * 0.12));
+    let fastEnv = 0;
+    let slowEnv = 0;
+
+    for (let i = 0; i < originalFrames; i++) {
+      lpL += alphaLp * (instLeft[i] - lpL);
+      lpR += alphaLp * (instRight[i] - lpR);
+      bassLeft[i] = lpL;
+      bassRight[i] = lpR;
+
+      const midHighL = instLeft[i] - lpL;
+      const midHighR = instRight[i] - lpR;
+      const absMidHigh = 0.5 * (Math.abs(midHighL) + Math.abs(midHighR));
+
+      fastEnv = absMidHigh > fastEnv
+        ? fastAttack * fastEnv + (1 - fastAttack) * absMidHigh
+        : fastRelease * fastEnv + (1 - fastRelease) * absMidHigh;
+      slowEnv = absMidHigh > slowEnv
+        ? fastRelease * slowEnv + (1 - fastRelease) * absMidHigh
+        : slowRelease * slowEnv + (1 - slowRelease) * absMidHigh;
+
+      const transientRatio = slowEnv > 1e-5 ? Math.max(0, (fastEnv - slowEnv) / slowEnv) : 0;
+      const drumMask = Math.min(1.0, transientRatio * 1.5);
+
+      const drumSampleL = midHighL * drumMask;
+      const drumSampleR = midHighR * drumMask;
       drumsLeft[i] = drumSampleL;
       drumsRight[i] = drumSampleR;
 
-      // Other: harmonic remnants
-      otherLeft[i] = instLeft[i] - bassSampleL - drumSampleL;
-      otherRight[i] = instRight[i] - bassSampleR - drumSampleR;
+      otherLeft[i] = midHighL - drumSampleL;
+      otherRight[i] = midHighR - drumSampleR;
     }
 
     result.additionalStems = {
@@ -702,23 +727,85 @@ function detectKeyAndPitch(
     }
   }
 
-  const avgPitch = pitchCount > 0 ? totalPitchHz / pitchCount : 220;
+  if (pitchCount === 0) {
+    return {
+      detectedKey: "Unknown",
+      scale: "major",
+      keyConfidence: 0,
+      estimatedBpm: estimateBpmFromOnsets(channel, sampleRate),
+      averagePitchHz: 0,
+      pitchRangeHz: { min: 0, max: 0 },
+      dominantNote: "",
+      dominantMidi: 0,
+    };
+  }
+
+  const avgPitch = totalPitchHz / pitchCount;
   const dominantMidi = Math.round(12 * Math.log2(avgPitch / 440) + 69);
   const dominantNote = noteNames[(dominantMidi % 12 + 12) % 12] + Math.floor((dominantMidi - 12) / 12);
+  const rawConfidence = bestCorr > 0 ? Math.min(1.0, bestCorr) : 0;
 
   return {
     detectedKey: bestKeyName,
     scale: bestScale,
-    keyConfidence: Math.min(1.0, Math.max(0.4, (bestCorr + 1.0) / 2.0)),
-    estimatedBpm: 120,
+    keyConfidence: Math.round(rawConfidence * 100) / 100,
+    estimatedBpm: estimateBpmFromOnsets(channel, sampleRate),
     averagePitchHz: Math.round(avgPitch * 10) / 10,
     pitchRangeHz: {
-      min: minPitchHz === 9999 ? 110 : Math.round(minPitchHz),
-      max: maxPitchHz === 0 ? 440 : Math.round(maxPitchHz),
+      min: minPitchHz === 9999 ? 0 : Math.round(minPitchHz),
+      max: maxPitchHz === 0 ? 0 : Math.round(maxPitchHz),
     },
     dominantNote,
     dominantMidi,
   };
+}
+
+function estimateBpmFromOnsets(channel: Float32Array, sampleRate: number): number {
+  const hopSamples = Math.max(1, Math.floor(sampleRate * 0.02)); // 20ms frame (50 Hz envelope)
+  const numFrames = Math.floor(channel.length / hopSamples);
+  if (numFrames < 50) return 0; // Need at least 1s of audio
+
+  const onsetFlux = new Float32Array(numFrames);
+  let prevEnergy = 0;
+  let maxFlux = 0;
+  for (let f = 0; f < numFrames; f++) {
+    const start = f * hopSamples;
+    let sumSq = 0;
+    for (let i = 0; i < hopSamples; i++) {
+      const s = channel[start + i];
+      sumSq += s * s;
+    }
+    const rms = Math.sqrt(sumSq / hopSamples);
+    const diff = Math.max(0, rms - prevEnergy);
+    onsetFlux[f] = diff;
+    if (diff > maxFlux) maxFlux = diff;
+    prevEnergy = rms;
+  }
+
+  if (maxFlux < 1e-4) return 0;
+
+  const envRate = sampleRate / hopSamples; // ~50 Hz
+  const minLag = Math.max(1, Math.round((envRate * 60) / 180)); // 180 BPM
+  const maxLag = Math.min(numFrames - 1, Math.round((envRate * 60) / 60)); // 60 BPM
+  if (minLag >= maxLag) return 0;
+
+  let bestLag = 0;
+  let bestAutoCorr = 0;
+  for (let lag = minLag; lag <= maxLag; lag++) {
+    let sum = 0;
+    const count = numFrames - lag;
+    for (let i = 0; i < count; i++) {
+      sum += onsetFlux[i] * onsetFlux[i + lag];
+    }
+    const norm = sum / Math.max(1, count);
+    if (norm > bestAutoCorr) {
+      bestAutoCorr = norm;
+      bestLag = lag;
+    }
+  }
+
+  if (bestLag <= 0 || bestAutoCorr <= 0) return 0;
+  return Math.round((60 * envRate) / bestLag);
 }
 
 function calculateCorrelation(data: Float32Array, profile: number[], shift: number): number {

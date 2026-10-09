@@ -1,13 +1,72 @@
 /**
- * Real AI Noise Reduction Engine
- * Intelligent multi-band spectral subtraction and recurrent neural noise suppression.
- * Eliminates fan noise, air conditioner hum, street rumble, and microphone hiss.
+ * Local Spectral Noise Reduction Engine (DSP)
+ * Multi-band STFT spectral subtraction and decision-directed Wiener noise suppression.
+ * Attenuates stationary background noise, air conditioner hum, low rumble, and hiss.
  */
 
 import { AudioWorkerManager } from "../AudioWorkerManager";
 import { AudioAIJobManager } from "../AudioAIJobManager";
 import { decodeAudioSource, encodeWavBlob, calculateAudioStats } from "../utils/audioBufferUtils";
 import { DenoiseResult, AudioAIJobOptions } from "../types";
+
+/**
+ * Calculates the RMS level (in dBFS) of the quietest `quietRatio` (default 10%)
+ * of 50ms windows on the given channel.
+ */
+export function calculateQuietestWindowsRmsDb(
+  channel: Float32Array,
+  sampleRate: number,
+  windowMs: number = 50,
+  quietRatio: number = 0.1
+): number {
+  if (!channel || channel.length === 0) return -100;
+  const windowSamples = Math.max(1, Math.floor((sampleRate * windowMs) / 1000));
+  const numWindows = Math.floor(channel.length / windowSamples);
+
+  if (numWindows <= 0) {
+    return calculateAudioStats(channel).rmsDbfs;
+  }
+
+  const windowRmsDbs: number[] = [];
+  for (let w = 0; w < numWindows; w++) {
+    const start = w * windowSamples;
+    let sumSquares = 0;
+    for (let i = 0; i < windowSamples; i++) {
+      const val = channel[start + i];
+      sumSquares += val * val;
+    }
+    const rms = Math.sqrt(sumSquares / windowSamples);
+    const rmsDbfs = rms > 0.00001 ? 20 * Math.log10(rms) : -100;
+    windowRmsDbs.push(rmsDbfs);
+  }
+
+  windowRmsDbs.sort((a, b) => a - b);
+  const quietCount = Math.max(1, Math.floor(numWindows * quietRatio));
+  let sumDb = 0;
+  for (let i = 0; i < quietCount; i++) {
+    sumDb += windowRmsDbs[i];
+  }
+  return sumDb / quietCount;
+}
+
+/**
+ * Measures real noise floor reduction in dB between original and processed channel 0
+ * using 50ms windows over the quietest 10% of windows.
+ * Returns 0 if reduction is less than 0.5 dB.
+ */
+export function calculateNoiseFloorReductionDb(
+  originalCh0: Float32Array,
+  processedCh0: Float32Array,
+  sampleRate: number
+): number {
+  const beforeQuietDb = calculateQuietestWindowsRmsDb(originalCh0, sampleRate, 50, 0.1);
+  const afterQuietDb = calculateQuietestWindowsRmsDb(processedCh0, sampleRate, 50, 0.1);
+  const noiseFloorReductionDb = beforeQuietDb - afterQuietDb;
+  if (!Number.isFinite(noiseFloorReductionDb) || noiseFloorReductionDb < 0.5) {
+    return 0;
+  }
+  return Math.round(noiseFloorReductionDb * 10) / 10;
+}
 
 export class NoiseReductionEngine {
   private static instance: NoiseReductionEngine;
@@ -113,32 +172,15 @@ export class NoiseReductionEngine {
         throw new Error("Noise reduction worker returned empty audio channels");
       }
 
-      // Verify that real acoustic DSP modification occurred
-      let maxSampleDiff = 0;
       const originalCh0 = audioBuffer.getChannelData(0);
       const processedCh0 = workerResult.channels[0];
-      const checkFrames = Math.min(originalCh0.length, processedCh0.length, 10000);
-      for (let i = 0; i < checkFrames; i++) {
-        const diff = Math.abs(originalCh0[i] - processedCh0[i]);
-        if (diff > maxSampleDiff) maxSampleDiff = diff;
-      }
-
-      if (maxSampleDiff < 1e-5 && checkFrames > 0) {
-        console.warn("[NoiseReductionEngine] DSP output was identical to original. Applying adaptive acoustic attenuation.");
-        for (let i = 0; i < processedCh0.length; i++) {
-          // Attenuate low-level noise floor softly
-          if (Math.abs(processedCh0[i]) < 0.05) {
-            processedCh0[i] *= 0.6;
-          }
-        }
-      }
 
       this.jobManager.updateProgress(job.id, 85, "ENCODE", "ترميز المقطع الصوتي المنقى بصيغة WAV بدون فقدان...");
 
-      const statsAfter = calculateAudioStats(workerResult.channels[0]);
-      const estimatedSnrImprovement = Math.max(
-        3.5,
-        Math.min(22.0, statsBefore.rmsDbfs - statsAfter.rmsDbfs + 6.0)
+      const noiseFloorReductionDb = calculateNoiseFloorReductionDb(
+        originalCh0,
+        processedCh0,
+        sampleRate
       );
 
       const wavBlob = encodeWavBlob(workerResult.channels, sampleRate);
@@ -150,14 +192,17 @@ export class NoiseReductionEngine {
         duration,
         sampleRate,
         channels: numChannels,
-        noiseProfileDetected: "Acoustic Background / Stationary Fan / Electrical Hum",
-        snrImprovementEstDb: Math.round(estimatedSnrImprovement * 10) / 10,
+        noiseProfileDetected:
+          noiseFloorReductionDb > 0 ? "Stationary Spectral Noise Floor (STFT Wiener)" : undefined,
+        snrImprovementEstDb: noiseFloorReductionDb,
         providerUsed: "local-adaptive-spectral-worker",
       };
 
       this.jobManager.completeJob(
         job.id,
-        `تمت إزالة الضوضاء بنجاح وتحسين وضوح الصوت (+${result.snrImprovementEstDb} dB)!`
+        noiseFloorReductionDb > 0
+          ? `تمت تنقية الضوضاء بنجاح (خفض أرضية الضوضاء ${result.snrImprovementEstDb} dB)`
+          : "تمت معالجة الصوت بمرشح الطيف التكيفي"
       );
 
       return result;

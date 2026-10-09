@@ -164,7 +164,7 @@ export const AI_STUDIO_TOOLS: AIToolConfig[] = [
     icon: Volume2,
     color: "#10b981",
     bg: "rgba(16, 185, 129, 0.12)",
-    executionModeLabel: "Hybrid",
+    executionModeLabel: "Local",
     accept: "audio",
   },
 ];

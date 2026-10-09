@@ -1,7 +1,6 @@
 /**
- * Real Stem Separation Engine
- * Isolates Vocals, Instrumental, Drums, Bass, and Other without fake filters.
- * Conserves phase and duration; guarantees original == vocals + instrumental.
+ * Local Spectral Stem Separation Engine (DSP)
+ * Separates Vocals and Instrumental using STFT center-channel and vocal formant masking.
  */
 
 import { AudioWorkerManager } from "../AudioWorkerManager";
@@ -9,7 +8,6 @@ import { AudioAIJobManager } from "../AudioAIJobManager";
 import {
   decodeAudioSource,
   encodeWavBlob,
-  getSharedAudioContext,
 } from "../utils/audioBufferUtils";
 import {
   StemSeparationResult,
@@ -132,24 +130,6 @@ export class StemSeparationEngine {
         workerResult.instrumental.length === 0
       ) {
         throw new Error("Stem separation worker returned empty stems");
-      }
-
-      // Verify vocals and instrumental actually differ from input and each other
-      let vocalInstDiff = 0;
-      const voc0 = workerResult.vocals[0];
-      const inst0 = workerResult.instrumental[0];
-      const checkFrames = Math.min(voc0.length, inst0.length, 10000);
-      for (let i = 0; i < checkFrames; i++) {
-        const d = Math.abs(voc0[i] - inst0[i]);
-        if (d > vocalInstDiff) vocalInstDiff = d;
-      }
-
-      if (vocalInstDiff < 1e-5 && checkFrames > 0) {
-        console.warn("[StemSeparationEngine] Vocals and instrumental were identical, enforcing formant separation");
-        // Ensure vocal track emphasizes speech range and instrumental notches it
-        for (let i = 0; i < voc0.length; i++) {
-          inst0[i] *= 0.5;
-        }
       }
 
       this.jobManager.updateProgress(job.id, 80, "ENCODING", "جاري ترميز ملفات الـ Stems بصيغة WAV عالية النقاء...");

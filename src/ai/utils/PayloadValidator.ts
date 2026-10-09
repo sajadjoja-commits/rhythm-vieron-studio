@@ -86,7 +86,7 @@ export class PayloadValidator {
     if (toolId.includes("vid") || toolId.includes("video") || toolId.includes("rife") || toolId.includes("frame") || toolId.includes("matting") || toolId.includes("fastdvdnet") || toolId.includes("rvm")) {
       return "video";
     }
-    if (toolId.includes("audio") || toolId.includes("denoise-audio") || toolId.includes("vocal") || toolId.includes("music") || toolId.includes("demucs") || toolId.includes("deepfilter") || toolId.includes("transcribe")) {
+    if (toolId.includes("audio") || toolId.includes("denoise-audio") || toolId.includes("vocal") || toolId.includes("music") || toolId.includes("spectral-denoise") || toolId.includes("stem-separation") || toolId.includes("transcribe")) {
       return "audio";
     }
     if (toolId.includes("img") || toolId.includes("image") || toolId.includes("upscale") || toolId.includes("rmbg") || toolId.includes("gfpgan") || toolId.includes("lama") || toolId.includes("scunet") || toolId.includes("face")) {

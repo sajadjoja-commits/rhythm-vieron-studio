@@ -238,12 +238,54 @@ export class VideoProcessingEngine {
         throw new Error("فشل إنشاء سياق المعالجة ثنائي الأبعاد (Canvas 2D Context).");
       }
 
-      // Pre-warm neural model if segmentation
+      // Pre-warm neural model and calibrate Person mask orientation early if segmentation
+      let orientationPolicy: MaskOrientationPolicy | null = null;
+      let calibratedAtLaterTimestamp = false;
       if (taskType === "remove-video-background") {
         logStage("MODEL_LOADING", { model: "mediapipe-selfie-segmenter" });
         emitProgress("LOADING", 8, 0, totalFrames, "جاري تحميل محرك الذكاء الاصطناعي للفصل...");
         await this.segmentationEngine.getSegmenter();
         logStage("MODEL_READY");
+
+        emitProgress("PROCESSING", 9, 0, totalFrames, "جاري فحص قناع الشخص وتأكيد اتجاه العزل...");
+        await this.frameExtractor.seekToTimestamp(video, 0);
+        ctx.clearRect(0, 0, width, height);
+        ctx.drawImage(video, 0, 0, width, height);
+        orientationPolicy = await this.segmentationEngine.calibrateOrientation(processCanvas);
+
+        if (!orientationPolicy.stats.isValid || orientationPolicy.stats.foregroundPercentage < 0.5) {
+          const probeRatios = [0.25, 0.5, 0.75];
+          for (const ratio of probeRatios) {
+            const probeTime = Math.max(0, Math.min(durationSeconds - 0.05, durationSeconds * ratio));
+            if (probeTime <= 0) continue;
+            await this.frameExtractor.seekToTimestamp(video, probeTime);
+            ctx.clearRect(0, 0, width, height);
+            ctx.drawImage(video, 0, 0, width, height);
+            const candidatePolicy = await this.segmentationEngine.calibrateOrientation(processCanvas);
+            if (candidatePolicy.stats.isValid && candidatePolicy.stats.foregroundPercentage >= 0.5) {
+              orientationPolicy = candidatePolicy;
+              calibratedAtLaterTimestamp = true;
+              break;
+            }
+          }
+          if (!webCodecsDecoder) {
+            await this.frameExtractor.seekToTimestamp(video, 0);
+          }
+        }
+
+        logStage("MASK_CALIBRATED", {
+          personMaskIndex: orientationPolicy.personMaskIndex,
+          useCategoryMask: orientationPolicy.useCategoryMask,
+          invertConfidence: orientationPolicy.invertConfidence,
+          foregroundPct: orientationPolicy.stats.foregroundPercentage,
+          centerFgRatio: orientationPolicy.stats.centerForegroundRatio,
+          edgeFgRatio: orientationPolicy.stats.edgeForegroundRatio,
+          isValid: orientationPolicy.stats.isValid,
+        });
+
+        if (!orientationPolicy.stats.isValid || orientationPolicy.stats.foregroundPercentage < 0.5) {
+          throw new Error("فشل عزل الفيديو: لم يتم العثور على أي شخص أو عنصر أساسي لعزله في الفيديو (Foreground ≈ 0%). يرجى التأكد من احتواء المقطع على شخص واضح.");
+        }
       }
 
       // 4. Initialize Streaming Encoder
@@ -283,24 +325,7 @@ export class VideoProcessingEngine {
       let maxTransparentPct = 0;
       let totalForegroundPixelsAllFrames = 0;
       let maxForegroundPct = 0;
-
-      // Calibrate Person mask orientation on frame 0
-      let orientationPolicy: MaskOrientationPolicy | null = null;
-      if (taskType === "remove-video-background") {
-        emitProgress("PROCESSING", 8, 0, totalFrames, "جاري فحص قناع الشخص وتأكيد اتجاه العزل...");
-        await this.frameExtractor.seekToTimestamp(video, 0);
-        ctx.clearRect(0, 0, width, height);
-        ctx.drawImage(video, 0, 0, width, height);
-        orientationPolicy = await this.segmentationEngine.calibrateOrientation(processCanvas);
-        logStage("MASK_CALIBRATED", {
-          personMaskIndex: orientationPolicy.personMaskIndex,
-          useCategoryMask: orientationPolicy.useCategoryMask,
-          invertConfidence: orientationPolicy.invertConfidence,
-          foregroundPct: orientationPolicy.stats.foregroundPercentage,
-          centerFgRatio: orientationPolicy.stats.centerForegroundRatio,
-          edgeFgRatio: orientationPolicy.stats.edgeForegroundRatio,
-        });
-      }
+      const earlyForegroundCheckFrame = Math.min(totalFrames, Math.max(15, Math.ceil(fps)));
 
       // 5. High-Performance Frame Processing Loop
       try {
@@ -364,30 +389,53 @@ export class VideoProcessingEngine {
 
           // Apply task-specific processing via Dedicated Worker / Accelerated Model pipeline
           if (taskType === "enhance-video" || taskType === "video-denoise") {
-            const res = await this.workerManager.processEnhanceFrame(
-              width,
-              height,
-              imageData,
-              options,
-              prevLuminanceBuffer,
-              origDataCopy
-            );
-            prevLuminanceBuffer = res.currentLuminance;
-
-            if (isSampleFrame && res.metrics) {
-              if (res.metrics.meanPixelDifference > maxMeanDiff) maxMeanDiff = res.metrics.meanPixelDifference;
-              if (res.metrics.changedPixelPercentage > maxChangedPct) maxChangedPct = res.metrics.changedPixelPercentage;
-              console.log(
-                `[VideoProcessingEngine] Frame ${frameIdx + 1}/${totalFrames} [Enhance]: meanDiff=${res.metrics.meanPixelDifference.toFixed(2)}, changed%=${res.metrics.changedPixelPercentage.toFixed(1)}%, lum=[${res.metrics.luminanceOriginal.toFixed(1)}->${res.metrics.luminanceProcessed.toFixed(1)}], contrast=[${res.metrics.contrastOriginal.toFixed(1)}->${res.metrics.contrastProcessed.toFixed(1)}]`
+            let enhancedPixels: Uint8ClampedArray;
+            try {
+              const res = await this.workerManager.processEnhanceFrame(
+                width,
+                height,
+                imageData,
+                options,
+                prevLuminanceBuffer,
+                origDataCopy
               );
+              prevLuminanceBuffer = res.currentLuminance;
+              enhancedPixels = res.data;
+
+              if (isSampleFrame && res.metrics) {
+                if (res.metrics.meanPixelDifference > maxMeanDiff) maxMeanDiff = res.metrics.meanPixelDifference;
+                if (res.metrics.changedPixelPercentage > maxChangedPct) maxChangedPct = res.metrics.changedPixelPercentage;
+                console.log(
+                  `[VideoProcessingEngine] Frame ${frameIdx + 1}/${totalFrames} [Enhance]: meanDiff=${res.metrics.meanPixelDifference.toFixed(2)}, changed%=${res.metrics.changedPixelPercentage.toFixed(1)}%, lum=[${res.metrics.luminanceOriginal.toFixed(1)}->${res.metrics.luminanceProcessed.toFixed(1)}], contrast=[${res.metrics.contrastOriginal.toFixed(1)}->${res.metrics.contrastProcessed.toFixed(1)}]`
+                );
+              }
+            } catch (enhErr) {
+              console.warn("[VideoProcessingEngine] Enhance worker warning, falling back to local engine:", enhErr);
+              const validImageData =
+                imageData.data.byteLength > 0 ? imageData : ctx.getImageData(0, 0, width, height);
+              const validPrevLum =
+                prevLuminanceBuffer && prevLuminanceBuffer.byteLength > 0 ? prevLuminanceBuffer : null;
+              const fallbackRes = this.enhancementEngine.processFrame(validImageData, options, validPrevLum);
+              prevLuminanceBuffer = fallbackRes.currentLuminance;
+              enhancedPixels = validImageData.data;
             }
 
+            const outImageData =
+              imageData.data.byteLength > 0 && enhancedPixels.buffer === imageData.data.buffer
+                ? imageData
+                : new ImageData(
+                    new Uint8ClampedArray(enhancedPixels.buffer as ArrayBuffer, enhancedPixels.byteOffset, enhancedPixels.length),
+                    width,
+                    height
+                  );
             ctx.clearRect(0, 0, width, height);
-            ctx.putImageData(imageData, 0, 0);
+            ctx.putImageData(outImageData, 0, 0);
           } else if (taskType === "remove-video-background") {
+            let outputPixels: Uint8ClampedArray;
+            let maskInfo: Awaited<ReturnType<typeof this.segmentationEngine.segmentImageSource>> | null = null;
             try {
               // 1. High-speed 256x256 segmentation (runs in ~6ms)
-              const maskInfo = await this.segmentationEngine.segmentImageSource(
+              maskInfo = await this.segmentationEngine.segmentImageSource(
                 sourceImage,
                 orientationPolicy || undefined,
                 frameIdx
@@ -411,6 +459,7 @@ export class VideoProcessingEngine {
                 origDataCopy
               );
               prevAlphaBuffer = compRes.currentAlpha;
+              outputPixels = compRes.data;
 
               if (isSampleFrame && compRes.stats) {
                 const s = compRes.stats;
@@ -422,24 +471,83 @@ export class VideoProcessingEngine {
               }
             } catch (segErr) {
               console.warn("[VideoProcessingEngine] Segmenter execution warning, falling back to engine:", segErr);
-              const res = await this.segmentationEngine.processFrame(
-                processCanvas,
-                imageData,
-                { ...options, frameIndex: frameIdx } as typeof options & { frameIndex: number },
-                prevAlphaBuffer
-              );
-              prevAlphaBuffer = res.currentAlphaBuffer;
-              if (res.stats) {
-                totalForegroundPixelsAllFrames += res.stats.foregroundPixelCount;
-                if (res.stats.foregroundPercentage > maxForegroundPct) {
-                  maxForegroundPct = res.stats.foregroundPercentage;
+              const validImageData =
+                imageData.data.byteLength > 0 ? imageData : ctx.getImageData(0, 0, width, height);
+              const validPrevAlpha =
+                prevAlphaBuffer && prevAlphaBuffer.byteLength > 0 ? prevAlphaBuffer : null;
+
+              if (maskInfo) {
+                const activeMaskInfo =
+                  maskInfo.maskData.byteLength > 0
+                    ? maskInfo
+                    : await this.segmentationEngine.segmentImageSource(
+                        sourceImage,
+                        orientationPolicy || undefined,
+                        frameIdx
+                      );
+                const compFallback = await this.workerManager.processSegmentationComposition(
+                  width,
+                  height,
+                  validImageData,
+                  activeMaskInfo.maskData,
+                  activeMaskInfo.maskWidth,
+                  activeMaskInfo.maskHeight,
+                  { ...options, frameIndex: frameIdx },
+                  validPrevAlpha,
+                  origDataCopy && origDataCopy.byteLength > 0 ? origDataCopy : null
+                );
+                prevAlphaBuffer = compFallback.currentAlpha;
+                outputPixels = compFallback.data;
+                if (isSampleFrame && compFallback.stats) {
+                  if (compFallback.stats.alphaMean < minAlphaMean) minAlphaMean = compFallback.stats.alphaMean;
+                  if (compFallback.stats.transparentPercentage > maxTransparentPct) {
+                    maxTransparentPct = compFallback.stats.transparentPercentage;
+                  }
+                }
+              } else {
+                const res = await this.segmentationEngine.processFrame(
+                  processCanvas,
+                  validImageData,
+                  { ...options, frameIndex: frameIdx } as typeof options & { frameIndex: number },
+                  validPrevAlpha
+                );
+                prevAlphaBuffer = res.currentAlphaBuffer;
+                outputPixels = validImageData.data;
+                if (res.stats) {
+                  totalForegroundPixelsAllFrames += res.stats.foregroundPixelCount;
+                  if (res.stats.foregroundPercentage > maxForegroundPct) {
+                    maxForegroundPct = res.stats.foregroundPercentage;
+                  }
+                  if (isSampleFrame) {
+                    const estAlphaMean = res.stats.mean * 255;
+                    if (estAlphaMean < minAlphaMean) minAlphaMean = estAlphaMean;
+                    if (res.stats.transparentPercentage > maxTransparentPct) {
+                      maxTransparentPct = res.stats.transparentPercentage;
+                    }
+                  }
                 }
               }
             }
 
+            if (
+              !calibratedAtLaterTimestamp &&
+              frameIdx + 1 >= earlyForegroundCheckFrame &&
+              (totalForegroundPixelsAllFrames === 0 || maxForegroundPct < 0.5)
+            ) {
+              throw new Error("فشل عزل الفيديو: لم يتم العثور على أي شخص أو عنصر أساسي لعزله في الفيديو (Foreground ≈ 0%). يرجى التأكد من احتواء المقطع على شخص واضح.");
+            }
+
+            const outImageData =
+              imageData.data.byteLength > 0 && outputPixels.buffer === imageData.data.buffer
+                ? imageData
+                : new ImageData(
+                    new Uint8ClampedArray(outputPixels.buffer as ArrayBuffer, outputPixels.byteOffset, outputPixels.length),
+                    width,
+                    height
+                  );
             // Clear canvas completely before putting modified image data so no original frame remnants exist underneath
             ctx.clearRect(0, 0, width, height);
-            ctx.putImageData(imageData, 0, 0);
+            ctx.putImageData(outImageData, 0, 0);
           }
 
           // Release active hardware VideoFrame immediately to guarantee zero memory accumulation

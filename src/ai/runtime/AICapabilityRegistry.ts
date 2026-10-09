@@ -50,34 +50,34 @@ export class AICapabilityRegistry {
     // 3. Local Audio DSP Filter (VAD & Noise Reduction)
     this.register({
       id: "audio-local-dsp",
-      name: "Local WebAssembly Audio Filter",
+      name: "Local Spectral Audio DSP Filter",
       taskType: "noise-reduction",
       domain: "audio",
       executionMode: "local",
       providerId: "local-audio-filter",
       supportedInputFormats: ["wav", "pcm"],
       supportedOutputFormats: ["wav", "pcm"],
-      requiresWASM: true,
+      requiresWASM: false,
       estimatedRAMMB: 30,
       webSupported: true,
       androidSupported: true,
-      description: "Client-side low latency noise and voice activity filter",
+      description: "Client-side low latency STFT spectral noise and voice activity filter",
     });
 
     // 4. Vocal & Music Isolation
     this.register({
       id: "audio-vocal-isolation",
-      name: "Vocal and Music Isolation",
+      name: "Vocal and Music Isolation (DSP)",
       taskType: "vocal-isolation",
       domain: "audio",
-      executionMode: "auto",
+      executionMode: "local",
       providerId: "local-audio-filter",
       supportedInputFormats: ["wav", "mp3", "aac"],
-      supportedOutputFormats: ["wav", "mp3"],
+      supportedOutputFormats: ["wav"],
       estimatedRAMMB: 60,
       webSupported: true,
       androidSupported: true,
-      description: "Isolate vocals or extract instrumental tracks",
+      description: "Isolate vocals or extract instrumental tracks using local spectral masking",
     });
 
     // 5. Image & Video Background Removal

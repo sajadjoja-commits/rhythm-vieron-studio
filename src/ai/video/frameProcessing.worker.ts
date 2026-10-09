@@ -66,6 +66,29 @@ export type WorkerMessageIn =
   | WorkerPingPayload;
 
 // ---------------------------------------------------------------------------
+// PRECOMPUTED DSP LOOKUP TABLES (Allocated once per Worker lifecycle)
+// ---------------------------------------------------------------------------
+
+// spatialWeight[dx*dx + dy*dy]: spatialDist can be 0, 1, or 2
+const SPATIAL_WEIGHT_LUT = new Float32Array([
+  1.0,                       // dist 0
+  0.6065306597126334,        // exp(-1/2) for dist 1
+  0.36787944117144233        // exp(-2/2) for dist 2
+]);
+
+// rangeWeightLUT[diff]: |centerLum - nLum| is 0..255
+const RANGE_WEIGHT_LUT = new Float32Array(256);
+for (let d = 0; d < 256; d++) {
+  RANGE_WEIGHT_LUT[d] = Math.exp(-(d * d) / 400);
+}
+
+// Precomputed Sigmoid Alpha LUT (1001 entries) eliminating millions of Math.exp() calls per frame
+const SIGMOID_LUT = new Float32Array(1001);
+for (let i = 0; i <= 1000; i++) {
+  SIGMOID_LUT[i] = 1 / (1 + Math.exp(-12 * (i / 1000 - 0.5)));
+}
+
+// ---------------------------------------------------------------------------
 // DSP ALGORITHMS
 // ---------------------------------------------------------------------------
 
@@ -157,7 +180,11 @@ function processEnhancement(
     }
   }
 
-  const enhancedLuminance = new Float32Array(numPixels);
+  // Reuse transferred prevLuminance buffer in-place when dimensions match
+  const enhancedLuminance =
+    prevLuminance && prevLuminance.length === numPixels
+      ? prevLuminance
+      : new Float32Array(numPixels);
 
   // Bilinear interpolation
   for (let y = 0; y < height; y++) {
@@ -194,19 +221,6 @@ function processEnhancement(
     }
   }
 
-  // Precomputed bilateral lookup tables for 10x faster DSP execution
-  // spatialWeight[dx*dx + dy*dy]: spatialDist can be 0, 1, or 2
-  const spatialWeight = new Float32Array([
-    1.0,                       // dist 0
-    0.6065306597126334,        // exp(-1/2) for dist 1
-    0.36787944117144233        // exp(-2/2) for dist 2
-  ]);
-  // rangeWeightLUT[diff]: |centerLum - nLum| is 0..255
-  const rangeWeightLUT = new Float32Array(256);
-  for (let d = 0; d < 256; d++) {
-    rangeWeightLUT[d] = Math.exp(-(d * d) / 400);
-  }
-
   // Bilateral Denoising & Spatial Unsharp Mask with zero transcendent calls in inner loop
   for (let y = 0; y < height; y++) {
     const rowOffset = y * width;
@@ -232,7 +246,7 @@ function processEnhancement(
           const spatialDist = dx * dx + dy * dy;
           const lumDiff = Math.min(255, Math.abs(Math.round(centerLum - nLum)));
 
-          const w = spatialWeight[spatialDist] * rangeWeightLUT[lumDiff];
+          const w = SPATIAL_WEIGHT_LUT[spatialDist] * RANGE_WEIGHT_LUT[lumDiff];
           sumWeight += w;
           sumVal += nLum * w;
         }
@@ -292,7 +306,11 @@ function processSegmentationComposition(
   const smoothingFactor = options?.temporalSmoothing ?? 0.65;
   const bgColor = options?.backgroundColor || "transparent";
 
-  const currentAlpha = new Float32Array(numPixels);
+  // Reuse transferred prevAlpha buffer in-place when dimensions match to avoid ~4-8MB allocation per frame
+  const currentAlpha =
+    prevAlpha && prevAlpha.length === numPixels
+      ? prevAlpha
+      : new Float32Array(numPixels);
 
   let bgR = 0, bgG = 0, bgB = 0, bgA = 0;
   const bgLower = bgColor.toLowerCase().trim();
@@ -317,12 +335,6 @@ function processSegmentationComposition(
   let transCount = 0;
 
   const isDirectResolution = maskWidth === width && maskHeight === height;
-
-  // Precomputed Sigmoid Alpha LUT (1001 entries) eliminating millions of Math.exp() calls per frame
-  const sigmoidLUT = new Float32Array(1001);
-  for (let i = 0; i <= 1000; i++) {
-    sigmoidLUT[i] = 1 / (1 + Math.exp(-12 * (i / 1000 - 0.5)));
-  }
 
   for (let y = 0; y < height; y++) {
     const rowOffset = y * width;
@@ -357,7 +369,7 @@ function processSegmentationComposition(
       rawConfidence = Math.max(0, Math.min(1, rawConfidence));
 
       const lutIdx = Math.round(rawConfidence * 1000);
-      const normalizedConfidence = sigmoidLUT[lutIdx];
+      const normalizedConfidence = SIGMOID_LUT[lutIdx];
       let finalAlpha = normalizedConfidence;
 
       if (prevAlpha && prevAlpha.length === numPixels) {

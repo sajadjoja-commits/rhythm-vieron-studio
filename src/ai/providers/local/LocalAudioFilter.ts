@@ -8,7 +8,7 @@ import { PayloadValidator } from "../../utils/PayloadValidator";
 
 export class LocalAudioFilter extends LocalProvider {
   public id = "local-audio-filter";
-  public name = "Local Neural & Adaptive Audio AI Processor";
+  public name = "Local Spectral Audio DSP Filter";
   public supportedTasks: AITaskType[] = ["noise-reduction", "vocal-isolation", "music-removal", "enhance-media"];
 
   private modelLoader: LocalModelLoader;
@@ -59,7 +59,7 @@ export class LocalAudioFilter extends LocalProvider {
         return {
           success: false,
           providerUsed: this.id,
-          error: createAIError("LOCAL_MODEL_FAILED", "Failed to initialize local audio model", this.id),
+          error: createAIError("LOCAL_MODEL_FAILED", "Failed to initialize local audio DSP filter", this.id),
         };
       }
     }
@@ -80,8 +80,13 @@ export class LocalAudioFilter extends LocalProvider {
         ? "separate"
         : "audio-enhance-composite";
 
-    const audioPayload = typeof payload === "string" ? { audioBase64OrUrl: payload } : payload;
-    const res = await plugin.execute(action, audioPayload, {
+    const basePayload = typeof payload === "string" ? { audioBase64OrUrl: payload } : { ...(payload as any) };
+    if (taskType === "music-removal" && !basePayload.mode && !basePayload.separationMode) {
+      basePayload.mode = "remove-music";
+      basePayload.separationMode = "remove-music";
+    }
+
+    const res = await plugin.execute(action, basePayload, {
       ...options,
       executionMode: "local",
     });
