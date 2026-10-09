@@ -14,7 +14,7 @@ import {
 import { SMART_TEMPLATES, buildSmartTemplateStyle } from "../lib/smartTemplates";
 import { pickNearestFrameIndex } from "../lib/frameMatching";
 import { analyzeFramesInWorker, type FrameBufferData } from "../lib/workers/videoAnalysis.worker";
-import { mapBeatsToTimeline, type BeatAnalysisResult } from "../lib/beatDetector";
+import { analyzeAudioBuffer, mapBeatsToTimeline, type BeatAnalysisResult } from "../lib/beatDetector";
 import type { MediaItem } from "@/context/MediaContext";
 
 beforeAll(() => {
@@ -806,5 +806,201 @@ describe("Comprehensive Smart Cut & Rhythm Engine Test Suite", () => {
       expect(plan.frameInterval).toBeCloseTo(expectedInterval, 6);
       expect(plan.sampleTimes).toEqual(expectedTimes);
     }
+  });
+
+  // --------------------------------------------------------------------------
+  // Beat Detector (analyzeAudioBuffer) High-Precision Unit Tests
+  // --------------------------------------------------------------------------
+  function createSyntheticAudioBuffer(
+    durationSec: number,
+    sampleRate: number,
+    fillFn: (data: Float32Array, sr: number) => void
+  ): AudioBuffer {
+    const length = Math.floor(durationSec * sampleRate);
+    const data = new Float32Array(length);
+    fillFn(data, sampleRate);
+    return {
+      sampleRate,
+      length,
+      duration: durationSec,
+      numberOfChannels: 1,
+      getChannelData: () => data,
+      copyFromChannel: () => {},
+      copyToChannel: () => {},
+    } as unknown as AudioBuffer;
+  }
+
+  function addDrumClick(
+    data: Float32Array,
+    sampleRate: number,
+    timeSec: number,
+    bassAmp: number = 0.8,
+    highAmp: number = 0.5,
+    clickDurSec: number = 0.012
+  ): void {
+    const startIdx = Math.floor(timeSec * sampleRate);
+    const clickSamples = Math.floor(clickDurSec * sampleRate);
+    for (let j = 0; j < clickSamples; j++) {
+      const idx = startIdx + j;
+      if (idx >= 0 && idx < data.length) {
+        const env = 1 - j / clickSamples;
+        // 110Hz bass thump + high-frequency transient burst
+        const bass = Math.sin((2 * Math.PI * 110 * j) / sampleRate) * bassAmp * env;
+        const high = (j % 2 === 0 ? 1 : -1) * highAmp * env;
+        data[idx] += bass + high;
+      }
+    }
+  }
+
+  it("Scenario 22: analyzeAudioBuffer detects fractional BPM (119.75) without rounding drift over 180s", async () => {
+    const trueBpm = 119.75;
+    const trueInterval = 60 / trueBpm;
+    const trueOffset = 0.23;
+    const durationSec = 180;
+    const sampleRate = 10000;
+
+    const trueClickTimes: number[] = [];
+    const buffer = createSyntheticAudioBuffer(durationSec, sampleRate, (data, sr) => {
+      for (let t = trueOffset; t < durationSec - 0.05; t += trueInterval) {
+        trueClickTimes.push(t);
+        addDrumClick(data, sr, t, 0.85, 0.45);
+      }
+    });
+
+    const res = await analyzeAudioBuffer(buffer);
+
+    // Must not round 119.75 to integer 120
+    expect(Math.abs(res.bpm - trueBpm)).toBeLessThan(0.08);
+    expect(res.bpm).not.toBe(120);
+    expect(res.gridConfidence).toBeGreaterThan(0.85);
+
+    // Check beats near the end of the 3-minute track (where integer 120 BPM would drift by ~375ms)
+    const lateTrueClicks = trueClickTimes.slice(-10);
+    for (const trueTime of lateTrueClicks) {
+      let minDiff = Infinity;
+      for (const bt of res.beatTimes) {
+        const d = Math.abs(bt - trueTime);
+        if (d < minDiff) minDiff = d;
+      }
+      expect(minDiff).toBeLessThanOrEqual(0.02);
+    }
+  });
+
+  it("Scenario 23: analyzeAudioBuffer aligns beats to local timing shifts (+25ms) and filters single-beat outliers via 5-beat median", async () => {
+    const bpm = 120;
+    const interval = 60 / bpm; // 0.5s
+    const offset = 0.2;
+    const durationSec = 20;
+    const sampleRate = 10000;
+
+    const actualClicks: number[] = [];
+    const buffer = createSyntheticAudioBuffer(durationSec, sampleRate, (data, sr) => {
+      let idx = 0;
+      for (let baseT = offset; baseT < durationSec - 0.1; baseT += interval) {
+        // Beats 12..24 are locally shifted by +25ms (slight tempo variation),
+        // Beat 5 is a single outlier shifted by +45ms (should be rejected by 5-beat median filter)
+        let shift = 0;
+        if (idx >= 12 && idx <= 24) shift = 0.025;
+        if (idx === 5) shift = 0.045;
+        const clickT = baseT + shift;
+        actualClicks.push(clickT);
+        addDrumClick(data, sr, clickT, 0.85, 0.5);
+        idx++;
+      }
+    });
+
+    const res = await analyzeAudioBuffer(buffer);
+    expect(res.gridConfidence).toBeGreaterThan(0.8);
+
+    // Beats in the middle of the shifted region (indices 14..22) must align closely to the +25ms shifted clicks
+    for (let i = 14; i <= 22; i++) {
+      const targetClick = actualClicks[i];
+      const nearestBeat = res.beatTimes.reduce((best, bt) =>
+        Math.abs(bt - targetClick) < Math.abs(best - targetClick) ? bt : best
+      , res.beatTimes[0]);
+      expect(Math.abs(nearestBeat - targetClick)).toBeLessThanOrEqual(0.015);
+    }
+
+    // Single-beat outlier at index 5 (+45ms) should stay near the unshifted grid due to 5-beat median filter
+    const unshiftedBeat5 = offset + 5 * interval;
+    const nearestToBeat5 = res.beatTimes.reduce((best, bt) =>
+      Math.abs(bt - unshiftedBeat5) < Math.abs(best - unshiftedBeat5) ? bt : best
+    , res.beatTimes[0]);
+    expect(Math.abs(nearestToBeat5 - unshiftedBeat5)).toBeLessThanOrEqual(0.015);
+  });
+
+  it("Scenario 24: analyzeAudioBuffer distinguishes 3/4 waltz meter from 4/4 meter", async () => {
+    const sampleRate = 10000;
+    const durationSec = 18;
+    const interval = 0.5; // 120 BPM
+
+    // 1. 3/4 Waltz track: strong bass+high downbeat every 3 beats, light beats on 2 & 3
+    const waltzBuffer = createSyntheticAudioBuffer(durationSec, sampleRate, (data, sr) => {
+      let beatIdx = 0;
+      for (let t = 0.2; t < durationSec - 0.1; t += interval) {
+        const isDownbeat = beatIdx % 3 === 0;
+        addDrumClick(data, sr, t, isDownbeat ? 0.95 : 0.18, isDownbeat ? 0.7 : 0.15);
+        beatIdx++;
+      }
+    });
+
+    const waltzRes = await analyzeAudioBuffer(waltzBuffer);
+    expect(waltzRes.beatsPerBar).toBe(3);
+    expect(waltzRes.downbeats.length).toBeGreaterThan(5);
+    // Consecutive downbeats in 3/4 at 120 BPM are 3 * 0.5s = 1.5s apart
+    expect(waltzRes.downbeats[1] - waltzRes.downbeats[0]).toBeCloseTo(1.5, 1);
+
+    // 2. 4/4 Standard track: strong downbeat every 4 beats
+    const fourFourBuffer = createSyntheticAudioBuffer(durationSec, sampleRate, (data, sr) => {
+      let beatIdx = 0;
+      for (let t = 0.2; t < durationSec - 0.1; t += interval) {
+        const isDownbeat = beatIdx % 4 === 0;
+        addDrumClick(data, sr, t, isDownbeat ? 0.95 : 0.22, isDownbeat ? 0.7 : 0.18);
+        beatIdx++;
+      }
+    });
+
+    const fourFourRes = await analyzeAudioBuffer(fourFourBuffer);
+    expect(fourFourRes.beatsPerBar).toBe(4);
+    expect(fourFourRes.downbeats[1] - fourFourRes.downbeats[0]).toBeCloseTo(2.0, 1);
+  });
+
+  it("Scenario 25: analyzeAudioBuffer classifies compressed flat-RMS tracks as verse (not all drop) and dynamic tracks into calm/verse/drop", async () => {
+    const sampleRate = 8000;
+    const durationSec = 24;
+
+    // 1. Heavily compressed track with constant loud RMS throughout
+    const compressedBuffer = createSyntheticAudioBuffer(durationSec, sampleRate, (data, sr) => {
+      for (let i = 0; i < data.length; i++) {
+        data[i] = Math.sin((2 * Math.PI * 220 * i) / sr) * 0.85;
+      }
+      for (let t = 0.25; t < durationSec - 0.1; t += 0.5) {
+        addDrumClick(data, sr, t, 0.2, 0.2);
+      }
+    });
+
+    const compRes = await analyzeAudioBuffer(compressedBuffer);
+    const dropSectionsInFlat = compRes.sections.filter((s) => s.type === "drop");
+    expect(dropSectionsInFlat.length).toBe(0);
+    expect(compRes.sections.every((s) => s.type === "verse")).toBe(true);
+
+    // 2. Dynamic track: 0..7s calm (amp 0.08), 7..16s verse (amp 0.35), 16..24s drop (amp 0.90)
+    const dynamicBuffer = createSyntheticAudioBuffer(durationSec, sampleRate, (data, sr) => {
+      for (let i = 0; i < data.length; i++) {
+        const t = i / sr;
+        const amp = t < 7 ? 0.08 : t < 16 ? 0.35 : 0.90;
+        data[i] = Math.sin((2 * Math.PI * 180 * i) / sr) * amp;
+      }
+      for (let t = 0.25; t < durationSec - 0.1; t += 0.5) {
+        const amp = t < 7 ? 0.15 : t < 16 ? 0.45 : 0.95;
+        addDrumClick(data, sr, t, amp, amp * 0.6);
+      }
+    });
+
+    const dynRes = await analyzeAudioBuffer(dynamicBuffer);
+    const sectionTypes = new Set(dynRes.sections.map((s) => s.type));
+    expect(sectionTypes.has("calm")).toBe(true);
+    expect(sectionTypes.has("verse")).toBe(true);
+    expect(sectionTypes.has("drop")).toBe(true);
   });
 });
