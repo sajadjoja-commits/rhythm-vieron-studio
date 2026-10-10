@@ -18,8 +18,8 @@ public class VieronWebViewShell {
 
     public static void configureShell(Context context, WebView webView) {
         // Custom PathHandler for https://appassets.androidplatform.net/
-        // Maps root and SPA routes to assets/www/index.html and static assets to assets/www/...
-        WebViewAssetLoader.PathHandler wwwPathHandler = new WebViewAssetLoader.PathHandler() {
+        // Maps root and SPA routes to assets/public/index.html and static assets to assets/public/...
+        WebViewAssetLoader.PathHandler publicPathHandler = new WebViewAssetLoader.PathHandler() {
             @Override
             public WebResourceResponse handle(String path) {
                 try {
@@ -31,7 +31,7 @@ public class VieronWebViewShell {
                         assetPath = "index.html";
                     }
 
-                    String targetAsset = "www/" + assetPath;
+                    String targetAsset = "public/" + assetPath;
                     InputStream is = null;
                     try {
                         is = context.getAssets().open(targetAsset);
@@ -39,7 +39,7 @@ public class VieronWebViewShell {
                         // SPA fallback: if static resource not found (e.g. /editor, /projects), serve index.html
                         if (!assetPath.contains(".") || assetPath.endsWith(".html") || !isStaticAsset(assetPath)) {
                             try {
-                                targetAsset = "www/index.html";
+                                targetAsset = "public/index.html";
                                 is = context.getAssets().open(targetAsset);
                             } catch (Exception ignored) {}
                         }
@@ -57,7 +57,7 @@ public class VieronWebViewShell {
         };
 
         final WebViewAssetLoader assetLoader = new WebViewAssetLoader.Builder()
-                .addPathHandler("/", wwwPathHandler)
+                .addPathHandler("/", publicPathHandler)
                 .build();
 
         webView.setWebViewClient(new WebViewClientCompat() {
@@ -91,8 +91,8 @@ public class VieronWebViewShell {
         // Add JavaScript bridge interface
         webView.addJavascriptInterface(new VieronNativeBridge(context), "VieronNativeBridgeImpl");
 
-        // Load exact root URL without leading slashes
-        Log.i(TAG, "[VIREON WEB START] url=https://appassets.androidplatform.net/");
+        // Load exact root URL without leading slashes with startup log [VIREON_NATIVE_WEB]
+        Log.i(TAG, "[VIREON_NATIVE_WEB] startupUrl=https://appassets.androidplatform.net/");
         webView.loadUrl("https://appassets.androidplatform.net/");
     }
 
@@ -102,7 +102,8 @@ public class VieronWebViewShell {
                lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".svg") ||
                lower.endsWith(".wasm") || lower.endsWith(".ico") || lower.endsWith(".json") ||
                lower.endsWith(".mp3") || lower.endsWith(".wav") || lower.endsWith(".mp4") ||
-               lower.endsWith(".woff") || lower.endsWith(".woff2") || lower.endsWith(".ttf");
+               lower.endsWith(".woff") || lower.endsWith(".woff2") || lower.endsWith(".ttf") ||
+               lower.endsWith(".otf");
     }
 
     private static String getMimeType(String path) {
@@ -119,6 +120,7 @@ public class VieronWebViewShell {
         if (lower.endsWith(".woff")) return "font/woff";
         if (lower.endsWith(".woff2")) return "font/woff2";
         if (lower.endsWith(".ttf")) return "font/ttf";
+        if (lower.endsWith(".otf")) return "font/otf";
         if (lower.endsWith(".wasm")) return "application/wasm";
         if (lower.endsWith(".mp3")) return "audio/mpeg";
         if (lower.endsWith(".wav")) return "audio/wav";
