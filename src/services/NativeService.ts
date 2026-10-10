@@ -45,7 +45,8 @@ export function blobToBase64(blob: Blob): Promise<string> {
 export async function writeBlobInChunksToCache(
   blob: Blob,
   finalFileName: string,
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number) => void,
+  isCancelled?: () => boolean
 ): Promise<string> {
   const chunkSize = 2 * 1024 * 1024; // 2MB Blob chunks
   const totalChunks = Math.ceil(blob.size / chunkSize);
@@ -54,6 +55,14 @@ export async function writeBlobInChunksToCache(
   let cacheUri = '';
 
   for (let i = 0; i < totalChunks; i++) {
+    if (isCancelled && isCancelled()) {
+      if (i > 0) {
+        try {
+          await Filesystem.deleteFile({ path: finalFileName, directory: Directory.Cache });
+        } catch {}
+      }
+      throw new Error("Save operation cancelled by user.");
+    }
     const start = i * chunkSize;
     const end = Math.min(blob.size, start + chunkSize);
     const chunkBlob = blob.slice(start, end);
@@ -164,8 +173,11 @@ export async function saveVideoToGallery(
   try {
     if (blob.size > 2 * 1024 * 1024) {
       try {
-        cacheUri = await writeBlobInChunksToCache(blob, finalFileName);
+        cacheUri = await writeBlobInChunksToCache(blob, finalFileName, undefined, isCancelled);
       } catch (chunkErr: any) {
+        if (isCancelled && isCancelled()) {
+          return { success: false, path: '', warning: 'Save operation cancelled by user.' };
+        }
         console.warn("[NativeService] Chunked write failed or unsupported, trying single-shot write fallback:", chunkErr);
         const base64Data = await blobToBase64Optimized(blob);
         const writeResult = await Filesystem.writeFile({
@@ -185,6 +197,9 @@ export async function saveVideoToGallery(
       cacheUri = writeResult.uri;
     }
   } catch (fsError: any) {
+    if (isCancelled && isCancelled()) {
+      return { success: false, path: '', warning: 'Save operation cancelled by user.' };
+    }
     console.error("[NativeService] Capacitor Filesystem error details:", {
       name: fsError?.name,
       message: fsError?.message,
@@ -205,6 +220,9 @@ export async function saveVideoToGallery(
 
   if (isCancelled && isCancelled()) {
     console.log("[NativeService] Save operation cancelled after filesystem write.");
+    try {
+      await Filesystem.deleteFile({ path: finalFileName, directory: Directory.Cache });
+    } catch {}
     return { success: false, path: cacheUri, warning: 'Save operation cancelled by user.' };
   }
 

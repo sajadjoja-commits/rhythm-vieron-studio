@@ -6,11 +6,16 @@ import {
   clearVideoAnalysisCache, 
   buildVideoCacheKey,
   setCacheEntry,
+  getCachedInterestScan,
   computeSegmentScore,
   buildVideoSampleTimes,
   computeVisionSampleIndices,
+  applyInterestScanToSegments,
+  snapSliceToShot,
+  alignToMotionPeak,
   type Segment,
 } from "../lib/autoMontage";
+import { scanVideoInterest, type InterestScanDecoderLike } from "../lib/videoInterestScan";
 import { SMART_TEMPLATES, buildSmartTemplateStyle } from "../lib/smartTemplates";
 import { pickNearestFrameIndex } from "../lib/frameMatching";
 import { analyzeFramesInWorker, type FrameBufferData } from "../lib/workers/videoAnalysis.worker";
@@ -1002,5 +1007,392 @@ describe("Comprehensive Smart Cut & Rhythm Engine Test Suite", () => {
     expect(sectionTypes.has("calm")).toBe(true);
     expect(sectionTypes.has("verse")).toBe(true);
     expect(sectionTypes.has("drop")).toBe(true);
+  });
+
+  // --------------------------------------------------------------------------
+  // Dense Video Interest Scan & Scene/Motion Alignment Tests (a - e)
+  // --------------------------------------------------------------------------
+  function makeSyntheticScanDecoder(options: {
+    durationSec: number;
+    fps?: number;
+    renderFrame: (timeSec: number, frameIdx: number, w: number, h: number) => Uint8ClampedArray;
+    onFrameClosed?: () => void;
+    onDecoderClosed?: () => void;
+    onFrameDecoded?: (frameIdx: number, timeSec: number) => void;
+  }): () => InterestScanDecoderLike {
+    const fps = options.fps ?? 10;
+    const totalFrames = Math.max(1, Math.floor(options.durationSec * fps));
+
+    return () => {
+      let currentIdx = 0;
+      return {
+        prepare: async () => ({
+          width: 1280,
+          height: 720,
+          durationSeconds: options.durationSec,
+          fps,
+          totalFrames,
+          codec: "avc1.42E01E",
+        }),
+        getNextFrame: async () => {
+          if (currentIdx >= totalFrames) return null;
+          const idx = currentIdx++;
+          const timeSec = idx / fps;
+          options.onFrameDecoded?.(idx, timeSec);
+          return {
+            frame: {
+              getRgba: (w: number, h: number) => options.renderFrame(timeSec, idx, w, h),
+              close: () => {
+                options.onFrameClosed?.();
+              },
+            },
+            timestampMicros: Math.round(timeSec * 1_000_000),
+            frameIndex: idx,
+            isKeyFrame: idx % 10 === 0,
+          };
+        },
+        close: () => {
+          options.onDecoderClosed?.();
+        },
+      };
+    };
+  }
+
+  it("Scenario 26 (a): scanVideoInterest with synthetic frames (static -> moving -> sharp cut) yields low then high motion and detects cut within <= 0.4s", async () => {
+    const durationSec = 6.0;
+    const trueCutTimeSec = 4.4;
+    let framesClosed = 0;
+    let decoderClosed = false;
+
+    const decoderFactory = makeSyntheticScanDecoder({
+      durationSec,
+      fps: 10,
+      onFrameClosed: () => {
+        framesClosed++;
+      },
+      onDecoderClosed: () => {
+        decoderClosed = true;
+      },
+      renderFrame: (timeSec, frameIdx, w, h) => {
+        const buf = new Uint8ClampedArray(w * h * 4);
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            const p = (y * w + x) * 4;
+            if (timeSec < 2.0) {
+              // Phase 1 (0..2.0s): completely static dark-gray scene (r=40, g=40, b=40)
+              buf[p] = 40;
+              buf[p + 1] = 40;
+              buf[p + 2] = 40;
+              buf[p + 3] = 255;
+            } else if (timeSec < trueCutTimeSec) {
+              // Phase 2 (2.0..4.4s): oscillating high-motion pattern within the same scene palette
+              const osc = frameIdx % 2 === 0 ? 35 : 95;
+              const check = (x + y + frameIdx * 7) % 2 === 0 ? osc : 60;
+              buf[p] = check;
+              buf[p + 1] = check;
+              buf[p + 2] = check;
+              buf[p + 3] = 255;
+            } else {
+              // Phase 3 (>= 4.4s): hard scene cut to a bright high-contrast scene (r=235, g=220, b=200)
+              const edge = (x + y) % 2 === 0 ? 245 : 210;
+              buf[p] = edge;
+              buf[p + 1] = 225;
+              buf[p + 2] = 200;
+              buf[p + 3] = 255;
+            }
+          }
+        }
+        return buf;
+      },
+    });
+
+    const scan = await scanVideoInterest("blob:synthetic-6s", durationSec, {
+      bucketSec: 0.4,
+      decoderFactory,
+    });
+
+    expect(scan).not.toBeNull();
+    expect(decoderClosed).toBe(true);
+    expect(framesClosed).toBe(60);
+
+    // Buckets 0..4 (0.0s .. 1.6s) are static -> near-zero motion
+    const staticBuckets = scan!.motion.slice(1, 5);
+    const avgStaticMotion = staticBuckets.reduce((a, b) => a + b, 0) / staticBuckets.length;
+    expect(avgStaticMotion).toBeLessThan(0.01);
+
+    // Buckets 6..9 (2.4s .. 3.6s) have active motion -> significantly higher than static
+    const movingBuckets = scan!.motion.slice(6, 10);
+    const avgMovingMotion = movingBuckets.reduce((a, b) => a + b, 0) / movingBuckets.length;
+    expect(avgMovingMotion).toBeGreaterThan(0.08);
+    expect(avgMovingMotion).toBeGreaterThan(avgStaticMotion * 10);
+
+    // Cuts array must include the hard scene cut at 4.4s within <= 0.4s error
+    expect(scan!.cuts.length).toBeGreaterThanOrEqual(1);
+    const nearestCutError = Math.min(...scan!.cuts.map((c) => Math.abs(c - trueCutTimeSec)));
+    expect(nearestCutError).toBeLessThanOrEqual(0.4);
+  });
+
+  it("Scenario 27 (b): 120s video adjacent segments in different motion windows receive distinct motion & scores (instead of identical burst values) while preserving faceScore/handScore", async () => {
+    const durationSec = 120;
+    const media: MediaItem[] = [
+      {
+        id: "vid-120s",
+        name: "long_120.mp4",
+        type: "video",
+        url: "blob:long-120",
+        duration: durationSec,
+        width: 1920,
+        height: 1080,
+        size: 0,
+        file: undefined as any,
+      },
+    ];
+
+    // Simulate sparse worker returning identical motion (0.3) for adjacent segments [0, 3] and [3, 6]
+    // because in 120s burst mode both are closest to Burst Anchor 0 (~7.5s)
+    mockWorkerAnalyzeFrames.mockImplementation(
+      async (_frames: any[], segments: Array<{ in: number; out: number }>) =>
+        segments.map((s) => ({
+          in: s.in,
+          out: s.out,
+          motion: 0.3, // Identical before dense scan!
+          sharpness: 0.6,
+          blurPenalty: 1.0,
+          exposureQuality: 1.0,
+          actionIntensity: 0.3,
+          temporalStability: 0.8,
+          faceScore: 0.72,
+          handScore: 0.44,
+          handVelocityScore: 0.25,
+          brightness: 0.5,
+          colorfulness: 0.5,
+          containsTransition: false,
+          overallQuality: 0.6,
+        }))
+    );
+
+    // Dense scan: 0..3s is static, 3..6s has intense motion, and a cut occurs at 4.5s
+    const decoderFactory = makeSyntheticScanDecoder({
+      durationSec,
+      fps: 5,
+      renderFrame: (timeSec, frameIdx, w, h) => {
+        const buf = new Uint8ClampedArray(w * h * 4);
+        const isHighMotionWindow = timeSec >= 3.0 && timeSec < 6.0;
+        const val = isHighMotionWindow ? (frameIdx % 2 === 0 ? 25 : 230) : 100;
+        for (let p = 0; p < buf.length; p += 4) {
+          buf[p] = val;
+          buf[p + 1] = val;
+          buf[p + 2] = val;
+          buf[p + 3] = 255;
+        }
+        return buf;
+      },
+    });
+
+    await runSmartBeatMontage({
+      media,
+      beatTimes: [1.5, 3.0, 4.5, 6.0],
+      targetDuration: 6.0,
+      interestScanOptions: { decoderFactory, bucketSec: 0.4 },
+    });
+
+    const cacheKey = buildVideoCacheKey(media[0]);
+    const cachedScan = getCachedInterestScan(cacheKey);
+    expect(cachedScan).toBeDefined();
+    expect(cachedScan!.times.length).toBe(Math.ceil(120 / 0.4));
+
+    // Verify applyInterestScanToSegments differentiates adjacent segments [0, 3] and [3, 6]
+    const rawAdjacentSegments: Segment[] = [
+      {
+        mediaId: "vid-120s",
+        in: 0,
+        out: 3,
+        score: 0.5,
+        motion: 0.3,
+        sharpness: 0.6,
+        blurPenalty: 1,
+        exposureQuality: 1,
+        actionIntensity: 0.3,
+        temporalStability: 0.8,
+        audioEnergy: 0.5,
+        faceScore: 0.72,
+        handScore: 0.44,
+        handVelocityScore: 0.25,
+        brightness: 0.5,
+        colorfulness: 0.5,
+        containsTransition: false,
+        overallQuality: 0.5,
+      },
+      {
+        mediaId: "vid-120s",
+        in: 3,
+        out: 6,
+        score: 0.5,
+        motion: 0.3,
+        sharpness: 0.6,
+        blurPenalty: 1,
+        exposureQuality: 1,
+        actionIntensity: 0.3,
+        temporalStability: 0.8,
+        audioEnergy: 0.5,
+        faceScore: 0.72,
+        handScore: 0.44,
+        handVelocityScore: 0.25,
+        brightness: 0.5,
+        colorfulness: 0.5,
+        containsTransition: false,
+        overallQuality: 0.5,
+      },
+    ];
+
+    const refined = applyInterestScanToSegments(rawAdjacentSegments, cachedScan!);
+    expect(refined[0].motion).toBeLessThan(0.1);
+    expect(refined[1].motion).toBeGreaterThan(0.8);
+    expect(refined[1].actionIntensity).toBeGreaterThan(0.8);
+    expect(refined[0].motion).not.toBeCloseTo(refined[1].motion, 2);
+    // Preserves faceScore and handScore from existing analysis
+    expect(refined[0].faceScore).toBe(0.72);
+    expect(refined[0].handScore).toBe(0.44);
+    expect(refined[1].faceScore).toBe(0.72);
+    expect(refined[1].handScore).toBe(0.44);
+  });
+
+  it("Scenario 28 (c): snapSliceToShot and alignToMotionPeak handle no-cuts, internal cut snapping, fallback to previous shot, and edge-clamped motion peaks", () => {
+    // 1. snapSliceToShot: no cuts -> unchanged
+    expect(snapSliceToShot(2.0, 2.0, [], 10.0)).toBe(2.0);
+    expect(snapSliceToShot(2.0, 2.0, undefined, 10.0)).toBe(2.0);
+
+    // 2. snapSliceToShot: cut within first 0.15s (< 0.2s from sliceIn) -> unchanged
+    expect(snapSliceToShot(2.0, 2.0, [2.12], 10.0)).toBe(2.0);
+
+    // 3. snapSliceToShot: cut inside slice (>= sliceIn + 0.2) and remaining fits dur -> snaps forward to cut
+    expect(snapSliceToShot(2.0, 2.0, [2.8], 10.0)).toBeCloseTo(2.8, 3);
+
+    // 4. snapSliceToShot: cut inside slice near end of video where remaining does NOT fit dur,
+    //    but previous shot [5.5, 8.8] fits dur (3.3s >= 2.0s) -> snaps to start of previous shot (5.5)
+    expect(snapSliceToShot(7.5, 2.0, [5.5, 8.8], 10.0)).toBeCloseTo(5.5, 3);
+
+    // 5. snapSliceToShot: neither remaining nor previous shot fits dur -> unchanged
+    expect(snapSliceToShot(8.2, 2.0, [7.4, 9.0], 10.0)).toBeCloseTo(8.2, 3);
+
+    // 6. alignToMotionPeak: strong/downbeat places peak at ~0.15 * dur from slice start; normal beat at ~0.35 * dur
+    // Bucket 11 at bucketSec = 0.4 is at peakTime = 4.4s
+    const curve = new Array(30).fill(0.1);
+    curve[11] = 0.95; // Peak at 4.4s
+    const strongIn = alignToMotionPeak(4.0, 2.0, curve, 0.4, true, 12.0);
+    // 4.4 - 0.15 * 2.0 = 4.1s
+    expect(strongIn).toBeCloseTo(4.1, 2);
+
+    const normalIn = alignToMotionPeak(4.0, 2.0, curve, 0.4, false, 12.0);
+    // 4.4 - 0.35 * 2.0 = 3.7s
+    expect(normalIn).toBeCloseTo(3.7, 2);
+
+    // 7. alignToMotionPeak: peak near video start edge (0.0s) clamps to >= 0
+    const edgeStartCurve = new Array(30).fill(0.1);
+    edgeStartCurve[0] = 0.99; // Peak at 0.0s
+    const clampedStart = alignToMotionPeak(0.2, 2.0, edgeStartCurve, 0.4, true, 12.0);
+    expect(clampedStart).toBeGreaterThanOrEqual(0);
+
+    // 8. alignToMotionPeak: peak near video end edge clamps to <= mediaDur - dur
+    const edgeEndCurve = new Array(25).fill(0.1); // 10.0s total
+    edgeEndCurve[21] = 0.99; // Peak at 8.4s
+    const clampedEnd = alignToMotionPeak(7.8, 2.0, edgeEndCurve, 0.4, true, 10.0);
+    expect(clampedEnd).toBeLessThanOrEqual(8.0);
+  });
+
+  it("Scenario 29 (d): Aborting signal during scanVideoInterest stops scanning immediately and cleans up decoder & frames", async () => {
+    const abortCtrl = new AbortController();
+    let decodedCount = 0;
+    let closedFramesCount = 0;
+    let decoderClosed = false;
+
+    const decoderFactory = makeSyntheticScanDecoder({
+      durationSec: 30,
+      fps: 10,
+      onFrameDecoded: (idx) => {
+        decodedCount++;
+        if (idx >= 5) {
+          abortCtrl.abort();
+        }
+      },
+      onFrameClosed: () => {
+        closedFramesCount++;
+      },
+      onDecoderClosed: () => {
+        decoderClosed = true;
+      },
+      renderFrame: (_t, _i, w, h) => new Uint8ClampedArray(w * h * 4).fill(128),
+    });
+
+    const res = await scanVideoInterest("blob:abort-test", 30, {
+      bucketSec: 0.4,
+      signal: abortCtrl.signal,
+      decoderFactory,
+    });
+
+    expect(res).toBeNull();
+    expect(decodedCount).toBeLessThan(15); // Stopped early out of 300 frames
+    expect(closedFramesCount).toBe(decodedCount);
+    expect(decoderClosed).toBe(true);
+  });
+
+  it("Scenario 30 (e): Scan failure falls back cleanly to legacy sparse analysis in runSmartBeatMontage without throwing", async () => {
+    const media: MediaItem[] = [
+      {
+        id: "vid-fallback",
+        name: "fallback.mp4",
+        type: "video",
+        url: "blob:fallback-30",
+        duration: 30,
+        width: 1920,
+        height: 1080,
+        size: 0,
+        file: undefined as any,
+      },
+    ];
+
+    const failingDecoderFactory = (): InterestScanDecoderLike => ({
+      prepare: async () => {
+        throw new Error("Simulated hardware decoder failure");
+      },
+      getNextFrame: async () => null,
+      close: () => {},
+    });
+
+    const result = await runSmartBeatMontage({
+      media,
+      beatTimes: [1.0, 2.0, 3.0, 4.0],
+      targetDuration: 4.0,
+      interestScanOptions: { decoderFactory: failingDecoderFactory },
+    });
+
+    expect(result.clips.length).toBeGreaterThan(0);
+    expect(result.totalDuration).toBeGreaterThan(0);
+  });
+
+  it("Scenario 31: Benchmarks 60s video interest scan execution time in test environment", async () => {
+    const durationSec = 60;
+    const decoderFactory = makeSyntheticScanDecoder({
+      durationSec,
+      fps: 15, // 900 frames across 60s (150 buckets of 0.4s)
+      renderFrame: (timeSec, idx, w, h) => {
+        const buf = new Uint8ClampedArray(w * h * 4);
+        const v = (idx * 13 + Math.floor(timeSec * 10)) & 0xff;
+        buf.fill(v);
+        return buf;
+      },
+    });
+
+    const t0 = performance.now();
+    const res = await scanVideoInterest("blob:bench-60s", durationSec, {
+      bucketSec: 0.4,
+      decoderFactory,
+    });
+    const elapsedMs = performance.now() - t0;
+
+    expect(res).not.toBeNull();
+    expect(res!.times.length).toBe(150);
+    console.info(`[Benchmark 60s VideoInterestScan] 900 frames / 150 buckets completed in ${elapsedMs.toFixed(1)} ms`);
+    expect(elapsedMs).toBeLessThan(5000);
   });
 });

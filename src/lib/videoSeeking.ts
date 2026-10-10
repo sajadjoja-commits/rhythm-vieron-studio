@@ -7,6 +7,7 @@
 export interface SeekOptions {
   timeoutMs?: number;
   toleranceSec?: number;
+  fps?: number;
   signal?: AbortSignal;
 }
 
@@ -15,7 +16,13 @@ export async function robustSeekVideo(
   targetTime: number,
   options: SeekOptions = {}
 ): Promise<boolean> {
-  const { timeoutMs = 1500, toleranceSec = 0.04, signal } = options;
+  const { timeoutMs = 1500, toleranceSec, fps, signal } = options;
+  const effectiveTolerance =
+    toleranceSec !== undefined
+      ? toleranceSec
+      : fps && Number.isFinite(fps) && fps > 0
+      ? 0.5 / fps
+      : 0.5 / 30;
 
   if (signal?.aborted) {
     return false;
@@ -28,8 +35,8 @@ export async function robustSeekVideo(
   // Clamp target time to valid bounds
   const clampedTime = Math.max(0, Math.min(targetTime, Math.max(0, video.duration - 0.02)));
 
-  // If video is already at the target frame position and ready to render
-  if (Math.abs(video.currentTime - clampedTime) <= toleranceSec && video.readyState >= 2) {
+  // If video is already at the target frame position, not mid-seek, and ready to render
+  if (!video.seeking && Math.abs(video.currentTime - clampedTime) <= effectiveTolerance && video.readyState >= 2) {
     return true;
   }
 
@@ -113,7 +120,7 @@ export async function robustSeekVideo(
 
     // Interval poller checking actual currentTime alignment & readiness
     pollInterval = setInterval(() => {
-      if (video.readyState >= 2 && Math.abs(video.currentTime - clampedTime) <= toleranceSec + 0.02) {
+      if (!video.seeking && video.readyState >= 2 && Math.abs(video.currentTime - clampedTime) <= effectiveTolerance) {
         finish(true);
       }
     }, 20);

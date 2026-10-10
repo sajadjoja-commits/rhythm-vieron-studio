@@ -4,7 +4,41 @@
  * Directly encodes canvas frames into H.264/AAC MP4 streams without intermediate RAM files.
  */
 
-import { Muxer, ArrayBufferTarget } from "mp4-muxer";
+import { Muxer, ArrayBufferTarget, StreamTarget } from "mp4-muxer";
+
+async function waitForEncoderDequeue(
+  encoder: { encodeQueueSize: number; addEventListener?: any; removeEventListener?: any },
+  maxQueueSize: number
+): Promise<void> {
+  if (encoder.encodeQueueSize <= maxQueueSize) return;
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (typeof encoder.removeEventListener === "function") {
+        try {
+          encoder.removeEventListener("dequeue", onDequeue);
+        } catch {}
+      }
+      resolve();
+    };
+    const onDequeue = () => {
+      if (encoder.encodeQueueSize <= maxQueueSize) {
+        done();
+      }
+    };
+    const timer = setTimeout(done, 40);
+    if (typeof encoder.addEventListener === "function") {
+      try {
+        encoder.addEventListener("dequeue", onDequeue);
+        return;
+      } catch {}
+    }
+    setTimeout(done, 8);
+  });
+}
 
 export interface WebCodecsExportOptions {
   canvas: HTMLCanvasElement;
@@ -128,14 +162,85 @@ export async function exportWithWebCodecs(options: WebCodecsExportOptions): Prom
     audioEncoderReady = true;
   }
 
-  // 2. Initialize MP4 Muxer with matching audio configuration
-  const muxerTarget = new ArrayBufferTarget();
+  const totalFrames = Math.max(1, Math.ceil(totalDuration * fps));
+  const frameDurationSec = 1 / fps;
+  const frameDurationUs = Math.round(frameDurationSec * 1_000_000);
+  const frameChunkSize = 1024;
+  const expectedAudioChunks =
+    audioEncoderReady && renderedAudioBuffer
+      ? Math.ceil(renderedAudioBuffer.length / frameChunkSize) + 32
+      : 0;
+  const expectedVideoChunks = totalFrames + 32;
+
+  // 2. Initialize MP4 Muxer (prefer OPFS disk-backed StreamTarget, fallback to ArrayBufferTarget)
+  let opfsDir: FileSystemDirectoryHandle | null = null;
+  let opfsFileHandle: FileSystemFileHandle | null = null;
+  let opfsWritable: FileSystemWritableFileStream | null = null;
+  const opfsFileName = `vireon_export_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.mp4`;
+  let opfsWriteChain: Promise<void> = Promise.resolve();
+  let opfsWriteError: Error | null = null;
+
+  if (
+    typeof navigator !== "undefined" &&
+    navigator.storage &&
+    typeof navigator.storage.getDirectory === "function"
+  ) {
+    try {
+      opfsDir = await navigator.storage.getDirectory();
+      opfsFileHandle = await opfsDir.getFileHandle(opfsFileName, { create: true });
+      if (typeof (opfsFileHandle as any).createWritable === "function") {
+        opfsWritable = await (opfsFileHandle as any).createWritable();
+      }
+    } catch {
+      opfsDir = null;
+      opfsFileHandle = null;
+      opfsWritable = null;
+    }
+  }
+
+  const cleanupOpfsTemp = async () => {
+    if (opfsWritable) {
+      try {
+        await opfsWritable.abort();
+      } catch {}
+      opfsWritable = null;
+    }
+    if (opfsDir && opfsFileName) {
+      try {
+        await opfsDir.removeEntry(opfsFileName);
+      } catch {}
+    }
+  };
+
+  const muxerTarget = opfsWritable
+    ? new StreamTarget({
+        chunked: true,
+        chunkSize: 16 * 1024 * 1024,
+        onData: (data: Uint8Array, position: number) => {
+          if (!opfsWritable || opfsWriteError) return;
+          const chunkCopy = data.slice();
+          opfsWriteChain = opfsWriteChain
+            .then(() =>
+              opfsWritable!.write({
+                type: "write",
+                data: chunkCopy,
+                position,
+              })
+            )
+            .catch((err) => {
+              opfsWriteError = err instanceof Error ? err : new Error(String(err));
+            });
+        },
+      })
+    : new ArrayBufferTarget();
+
   const muxer = new Muxer({
-    target: muxerTarget,
+    target: muxerTarget as any,
     video: {
       codec: "avc",
       width: exportWidth,
       height: exportHeight,
+      frameRate: Math.round(fps),
     },
     audio: audioEncoderReady
       ? {
@@ -144,14 +249,22 @@ export async function exportWithWebCodecs(options: WebCodecsExportOptions): Prom
           sampleRate: audioSampleRate,
         }
       : undefined,
-    fastStart: "in-memory",
+    fastStart: {
+      expectedVideoChunks,
+      expectedAudioChunks,
+    },
   });
 
   // 3. Initialize VideoEncoder
   let videoEncoderError: Error | null = null;
   const videoEncoder = new VideoEncoder({
     output: (chunk, meta) => {
-      muxer.addVideoChunk(chunk, meta);
+      try {
+        muxer.addVideoChunk(chunk, meta);
+      } catch (muxErr: any) {
+        console.error("[WebCodecs] Video muxing error:", muxErr);
+        videoEncoderError = muxErr instanceof Error ? muxErr : new Error(String(muxErr));
+      }
     },
     error: (e) => {
       console.error("[WebCodecs] VideoEncoder error:", e);
@@ -169,134 +282,158 @@ export async function exportWithWebCodecs(options: WebCodecsExportOptions): Prom
     bitrateMode: "variable",
   });
 
-  // 4. Encode audio samples with strict f32-planar alignment and error propagation
-  if (audioEncoderReady && renderedAudioBuffer) {
-    let audioEncoderError: Error | null = null;
+  try {
+    // 4. Encode audio samples with strict f32-planar alignment and error propagation
+    if (audioEncoderReady && renderedAudioBuffer) {
+      let audioEncoderError: Error | null = null;
 
-    const audioEncoder = new AudioEncoder({
-      output: (chunk, meta) => {
-        try {
-          muxer.addAudioChunk(chunk, meta);
-        } catch (muxErr: any) {
-          console.error("[WebCodecs] Audio muxing error:", muxErr);
-          audioEncoderError = muxErr instanceof Error ? muxErr : new Error(String(muxErr));
+      const audioEncoder = new AudioEncoder({
+        output: (chunk, meta) => {
+          try {
+            muxer.addAudioChunk(chunk, meta);
+          } catch (muxErr: any) {
+            console.error("[WebCodecs] Audio muxing error:", muxErr);
+            audioEncoderError = muxErr instanceof Error ? muxErr : new Error(String(muxErr));
+          }
+        },
+        error: (e) => {
+          console.error("[WebCodecs] AudioEncoder error:", e);
+          audioEncoderError = e instanceof Error ? e : new Error(String(e));
+        },
+      });
+
+      audioEncoder.configure({
+        codec: "mp4a.40.2", // AAC LC
+        numberOfChannels: audioChannels,
+        sampleRate: audioSampleRate,
+        bitrate: 192_000,
+      });
+
+      const length = renderedAudioBuffer.length;
+      let sampleOffset = 0;
+
+      while (sampleOffset < length) {
+        if (isAborted()) {
+          try { audioEncoder.close(); } catch {}
+          try { videoEncoder.close(); } catch {}
+          throw new Error("Export cancelled");
         }
-      },
-      error: (e) => {
-        console.error("[WebCodecs] AudioEncoder error:", e);
-        audioEncoderError = e instanceof Error ? e : new Error(String(e));
-      },
-    });
 
-    audioEncoder.configure({
-      codec: "mp4a.40.2", // AAC LC
-      numberOfChannels: audioChannels,
-      sampleRate: audioSampleRate,
-      bitrate: 192_000,
-    });
+        if (audioEncoderError) {
+          try { audioEncoder.close(); } catch {}
+          throw audioEncoderError;
+        }
+        if (opfsWriteError) {
+          try { audioEncoder.close(); } catch {}
+          throw opfsWriteError;
+        }
 
-    const length = renderedAudioBuffer.length;
-    // Standard AAC frame size is 1024 samples
-    const frameChunkSize = 1024;
-    let sampleOffset = 0;
+        await waitForEncoderDequeue(audioEncoder, 16);
 
-    while (sampleOffset < length) {
-      if (isAborted()) {
-        try { audioEncoder.close(); } catch {}
-        try { videoEncoder.close(); } catch {}
-        throw new Error("Export cancelled");
+        const framesInChunk = Math.min(frameChunkSize, length - sampleOffset);
+        const planarData = new Float32Array(framesInChunk * audioChannels);
+
+        for (let ch = 0; ch < audioChannels; ch++) {
+          const channelData = renderedAudioBuffer.getChannelData(ch);
+          const destOffset = ch * framesInChunk;
+          for (let s = 0; s < framesInChunk; s++) {
+            const sample = channelData[sampleOffset + s];
+            if (Number.isNaN(sample) || !Number.isFinite(sample)) {
+              planarData[destOffset + s] = 0;
+            } else {
+              planarData[destOffset + s] = Math.max(-1.0, Math.min(1.0, sample));
+            }
+          }
+        }
+
+        const timestampUs = Math.round((sampleOffset / audioSampleRate) * 1_000_000);
+        const audioData = new AudioData({
+          format: "f32-planar",
+          sampleRate: audioSampleRate,
+          numberOfFrames: framesInChunk,
+          numberOfChannels: audioChannels,
+          timestamp: timestampUs,
+          data: planarData,
+        });
+
+        audioEncoder.encode(audioData);
+        audioData.close();
+        sampleOffset += framesInChunk;
       }
+
+      await audioEncoder.flush();
 
       if (audioEncoderError) {
         try { audioEncoder.close(); } catch {}
         throw audioEncoderError;
       }
 
-      const framesInChunk = Math.min(frameChunkSize, length - sampleOffset);
-      // Construct strict f32-planar memory layout:
-      // Channel 0 occupies [0 .. framesInChunk - 1]
-      // Channel 1 occupies [framesInChunk .. 2 * framesInChunk - 1]
-      const planarData = new Float32Array(framesInChunk * audioChannels);
+      audioEncoder.close();
+    }
 
-      for (let ch = 0; ch < audioChannels; ch++) {
-        const channelData = renderedAudioBuffer.getChannelData(ch);
-        const destOffset = ch * framesInChunk;
-        for (let s = 0; s < framesInChunk; s++) {
-          const sample = channelData[sampleOffset + s];
-          if (Number.isNaN(sample) || !Number.isFinite(sample)) {
-            planarData[destOffset + s] = 0;
-          } else {
-            // Soft-clamp into [-1.0, 1.0] to prevent clipping distortions
-            planarData[destOffset + s] = Math.max(-1.0, Math.min(1.0, sample));
-          }
-        }
+    // 5. Frame-by-frame rendering and hardware encoding loop
+    for (let i = 0; i < totalFrames; i++) {
+      if (isAborted()) {
+        try { videoEncoder.close(); } catch {}
+        throw new Error("Export cancelled");
       }
 
-      const timestampUs = Math.round((sampleOffset / audioSampleRate) * 1_000_000);
-      const audioData = new AudioData({
-        format: "f32-planar",
-        sampleRate: audioSampleRate,
-        numberOfFrames: framesInChunk,
-        numberOfChannels: audioChannels,
-        timestamp: timestampUs,
-        data: planarData,
-      });
+      if (videoEncoderError) {
+        throw videoEncoderError;
+      }
+      if (opfsWriteError) {
+        throw opfsWriteError;
+      }
 
-      audioEncoder.encode(audioData);
-      audioData.close();
-      sampleOffset += framesInChunk;
+      await waitForEncoderDequeue(videoEncoder, 8);
+
+      const elapsed = i * frameDurationSec;
+
+      // Render exact frame to canvas
+      await renderFrameAtTime(elapsed);
+
+      // Create VideoFrame directly from canvas without intermediate JPEG files or RAM memory accumulation
+      const timestampUs = Math.round((i / fps) * 1_000_000);
+      const videoFrame = new VideoFrame(canvas, { timestamp: timestampUs, duration: frameDurationUs });
+
+      // Keyframe insertion every 2 seconds
+      const isKeyframe = i % Math.max(1, Math.round(fps * 2)) === 0;
+      videoEncoder.encode(videoFrame, { keyFrame: isKeyframe });
+
+      // CRITICAL: Immediately release video frame to prevent GPU/RAM memory leaks
+      videoFrame.close();
+
+      const progressP = (i + 1) / totalFrames;
+      onProgress(0.25 + 0.70 * progressP);
     }
 
-    await audioEncoder.flush();
-
-    if (audioEncoderError) {
-      try { audioEncoder.close(); } catch {}
-      throw audioEncoderError;
-    }
-
-    audioEncoder.close();
-  }
-
-  // 5. Frame-by-frame rendering and hardware encoding loop
-  const totalFrames = Math.ceil(totalDuration * fps);
-  const frameDurationSec = 1 / fps;
-
-  for (let i = 0; i < totalFrames; i++) {
-    if (isAborted()) {
-      try { videoEncoder.close(); } catch {}
-      throw new Error("Export cancelled");
-    }
-
+    // Flush and finalize muxer
+    await videoEncoder.flush();
     if (videoEncoderError) {
       throw videoEncoderError;
     }
+    videoEncoder.close();
 
-    const elapsed = i * frameDurationSec;
+    muxer.finalize();
 
-    // Render exact frame to canvas
-    await renderFrameAtTime(elapsed);
+    if (opfsWritable && opfsFileHandle) {
+      await opfsWriteChain;
+      if (opfsWriteError) {
+        throw opfsWriteError;
+      }
+      await opfsWritable.close();
+      opfsWritable = null;
+      const diskFile = await opfsFileHandle.getFile();
+      return diskFile.slice(0, diskFile.size, "video/mp4");
+    }
 
-    // Create VideoFrame directly from canvas without intermediate JPEG files or RAM memory accumulation
-    const timestampUs = Math.round((i / fps) * 1_000_000);
-    const videoFrame = new VideoFrame(canvas, { timestamp: timestampUs });
-
-    // Keyframe insertion every 2 seconds
-    const isKeyframe = i % (fps * 2) === 0;
-    videoEncoder.encode(videoFrame, { keyFrame: isKeyframe });
-
-    // CRITICAL: Immediately release video frame to prevent GPU/RAM memory leaks
-    videoFrame.close();
-
-    const progressP = (i + 1) / totalFrames;
-    onProgress(0.25 + 0.70 * progressP);
+    const { buffer } = muxer.target as ArrayBufferTarget;
+    return new Blob([buffer], { type: "video/mp4" });
+  } catch (err) {
+    try {
+      if (videoEncoder.state !== "closed") videoEncoder.close();
+    } catch {}
+    await cleanupOpfsTemp();
+    throw err;
   }
-
-  // Flush and finalize muxer
-  await videoEncoder.flush();
-  videoEncoder.close();
-
-  muxer.finalize();
-
-  const { buffer } = muxer.target;
-  return new Blob([buffer], { type: "video/mp4" });
 }

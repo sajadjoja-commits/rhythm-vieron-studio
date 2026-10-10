@@ -19,6 +19,12 @@ import {
 } from "./visionAnalyzer";
 import { VideoAnalysisWorkerManager } from "./videoAnalysisWorkerManager";
 import type { FrameBufferData, WorkerSegmentResult } from "./workers/videoAnalysis.worker";
+import {
+  scanVideoInterest,
+  canRunVideoInterestScan,
+  type VideoInterestScanResult,
+  type VideoInterestScanOptions,
+} from "./videoInterestScan";
 
 export interface MontageProgressInfo {
   clipIndex: number;
@@ -73,9 +79,12 @@ export interface Segment {
   overallQuality: number;
 }
 
-// Bounded LRU Cache for analyzed segments to prevent Android memory growth & re-analysis
+// Bounded LRU Cache for analyzed segments and lightweight interest scan curves to prevent Android memory growth & re-analysis
 const videoAnalysisCache = new Map<string, Segment[]>();
+const videoInterestScanCache = new Map<string, VideoInterestScanResult>();
 const MAX_CACHE_ENTRIES = 16;
+const MAX_SCAN_CACHE_BUCKETS = 12000; // ~240KB max across all cached scan curves
+let currentScanCacheBuckets = 0;
 
 export function buildVideoCacheKey(m: MediaItem): string {
   const fileSig = m.file ? `${m.file.name}_${m.file.size}_${m.file.lastModified}` : (m.url || m.id);
@@ -84,16 +93,64 @@ export function buildVideoCacheKey(m: MediaItem): string {
   return `v4_${m.id}_${fileSig}_${durStr}_${resStr}`;
 }
 
-export function setCacheEntry(key: string, value: Segment[]): void {
-  if (videoAnalysisCache.size >= MAX_CACHE_ENTRIES) {
+export function setCachedInterestScan(key: string, scan: VideoInterestScanResult): void {
+  const existing = videoInterestScanCache.get(key);
+  if (existing) {
+    currentScanCacheBuckets = Math.max(0, currentScanCacheBuckets - existing.times.length);
+    videoInterestScanCache.delete(key);
+  }
+  const incomingBuckets = scan.times?.length || 0;
+  if (incomingBuckets > MAX_SCAN_CACHE_BUCKETS) return;
+
+  while (
+    videoInterestScanCache.size >= MAX_CACHE_ENTRIES ||
+    (videoInterestScanCache.size > 0 && currentScanCacheBuckets + incomingBuckets > MAX_SCAN_CACHE_BUCKETS)
+  ) {
+    const oldestKey = videoInterestScanCache.keys().next().value;
+    if (!oldestKey) break;
+    const oldest = videoInterestScanCache.get(oldestKey);
+    if (oldest) {
+      currentScanCacheBuckets = Math.max(0, currentScanCacheBuckets - oldest.times.length);
+    }
+    videoInterestScanCache.delete(oldestKey);
+  }
+
+  videoInterestScanCache.set(key, scan);
+  currentScanCacheBuckets += incomingBuckets;
+}
+
+export function getCachedInterestScan(key: string): VideoInterestScanResult | undefined {
+  const scan = videoInterestScanCache.get(key);
+  if (scan) {
+    // Refresh LRU order
+    videoInterestScanCache.delete(key);
+    videoInterestScanCache.set(key, scan);
+  }
+  return scan;
+}
+
+export function setCacheEntry(
+  key: string,
+  value: Segment[],
+  scan?: VideoInterestScanResult | null
+): void {
+  if (videoAnalysisCache.has(key)) {
+    videoAnalysisCache.delete(key);
+  } else if (videoAnalysisCache.size >= MAX_CACHE_ENTRIES) {
     const firstKey = videoAnalysisCache.keys().next().value;
     if (firstKey) videoAnalysisCache.delete(firstKey);
   }
   videoAnalysisCache.set(key, value);
+
+  if (scan) {
+    setCachedInterestScan(key, scan);
+  }
 }
 
 export function clearVideoAnalysisCache(): void {
   videoAnalysisCache.clear();
+  videoInterestScanCache.clear();
+  currentScanCacheBuckets = 0;
 }
 
 // Global active montage controller for safe cancellation & preventing concurrent decoders
@@ -109,6 +166,7 @@ export function abortActiveMontage(): void {
 }
 
 export const LONG_VIDEO_BURST_THRESHOLD_SEC = 25;
+export const INTEREST_SCAN_MIN_DURATION_SEC = 12;
 export const MAX_BURST_ANCHORS = 8;
 export const FRAMES_PER_BURST = 3;
 export const BURST_FRAME_STEP_SEC = 0.3;
@@ -128,7 +186,8 @@ export function computeVisionSampleIndices(frameCount: number, maxCalls: number 
 export function buildVideoSampleTimes(
   duration: number,
   fastMode: boolean = true,
-  coarseSampling: boolean = false
+  coarseSampling: boolean = false,
+  reduceSparseForScan: boolean = false
 ): {
   sampleTimes: number[];
   frameCount: number;
@@ -136,11 +195,11 @@ export function buildVideoSampleTimes(
   visionStride: number;
   isBurstSampling: boolean;
 } {
-  const maxFrames = coarseSampling ? 5 : (fastMode ? 24 : 36);
-  const targetStepSec = coarseSampling ? 3.5 : (fastMode ? 0.9 : 0.75);
+  const maxFrames = coarseSampling ? 5 : reduceSparseForScan ? 12 : (fastMode ? 24 : 36);
+  const targetStepSec = coarseSampling ? 3.5 : reduceSparseForScan ? 1.8 : (fastMode ? 0.9 : 0.75);
 
   if (!coarseSampling && duration > LONG_VIDEO_BURST_THRESHOLD_SEC) {
-    const anchorCount = MAX_BURST_ANCHORS;
+    const anchorCount = reduceSparseForScan ? 4 : MAX_BURST_ANCHORS;
     const sampleTimes: number[] = [];
     const minT = 0.4;
     const maxT = Math.max(minT, duration - 0.4);
@@ -199,7 +258,8 @@ async function analyzeVideoAdvanced(
   fastMode: boolean = true,
   coarseSampling: boolean = false,
   signal?: AbortSignal,
-  onFrameProgress?: (fraction: number) => void
+  onFrameProgress?: (fraction: number) => void,
+  reduceSparseForScan: boolean = false
 ): Promise<Segment[]> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
@@ -234,7 +294,8 @@ async function analyzeVideoAdvanced(
     const { sampleTimes, frameInterval, visionStride } = buildVideoSampleTimes(
       duration,
       fastMode,
-      coarseSampling
+      coarseSampling,
+      reduceSparseForScan
     );
 
     // Candidate segment windows across the video
@@ -909,6 +970,226 @@ export function computeSegmentScore(
   return baseScore * blurPen * expoQual * transitionPen * fallbackPen;
 }
 
+/**
+ * Pure helper that merges dense interest scan curves (motion, brightness, sharpness, cuts)
+ * into candidate Segments within each segment's [in, out] window.
+ * Preserves faceScore and handScore from sparse vision analysis.
+ */
+export function applyInterestScanToSegments(
+  segments: Segment[],
+  scan: VideoInterestScanResult
+): Segment[] {
+  if (!scan || !scan.motion || scan.motion.length === 0 || segments.length === 0) {
+    return segments;
+  }
+
+  const bucketSec = scan.bucketSec > 0 ? scan.bucketSec : 0.4;
+  const numBuckets = scan.motion.length;
+
+  // Compute 95th percentile of motion across the video for normalization
+  const finiteMotions = scan.motion.filter((v) => Number.isFinite(v) && v >= 0);
+  const sortedMotions = [...finiteMotions].sort((a, b) => a - b);
+  const p95Idx =
+    sortedMotions.length > 0
+      ? Math.min(sortedMotions.length - 1, Math.floor(sortedMotions.length * 0.95))
+      : 0;
+  let rawP95 = sortedMotions.length > 0 ? sortedMotions[p95Idx] : 0;
+  if (rawP95 <= 1e-4 && sortedMotions.length > 0) {
+    const activeMotions = sortedMotions.filter((v) => v > 1e-4);
+    if (activeMotions.length > 0) {
+      const actIdx = Math.min(activeMotions.length - 1, Math.floor(activeMotions.length * 0.95));
+      rawP95 = activeMotions[actIdx];
+    }
+  }
+  const normDenom = rawP95 > 1e-6 ? rawP95 : 1;
+
+  return segments.map((seg) => {
+    const startB = Math.min(numBuckets - 1, Math.max(0, Math.floor(seg.in / bucketSec)));
+    const endB = Math.min(
+      numBuckets - 1,
+      Math.max(startB, Math.ceil(seg.out / bucketSec) - 1)
+    );
+    const count = Math.max(1, endB - startB + 1);
+
+    let sumMotion = 0;
+    let sumBrightness = 0;
+    let sumSharpness = 0;
+    for (let b = startB; b <= endB; b++) {
+      sumMotion += scan.motion[b] ?? 0;
+      sumBrightness += scan.brightness[b] ?? seg.brightness;
+      sumSharpness += scan.sharpness[b] ?? seg.sharpness;
+    }
+
+    const meanRawMotion = sumMotion / count;
+    const normMotion =
+      rawP95 > 1e-6 ? Math.min(1, Math.max(0, meanRawMotion / normDenom)) : 0;
+    const meanBrightness = sumBrightness / count;
+    const meanSharpness = sumSharpness / count;
+
+    const blendedBrightness = Math.min(
+      1,
+      Math.max(0, 0.5 * seg.brightness + 0.5 * meanBrightness)
+    );
+    const blendedSharpness = Math.min(
+      1,
+      Math.max(0, 0.5 * seg.sharpness + 0.5 * meanSharpness)
+    );
+    const containsTransition =
+      Array.isArray(scan.cuts) &&
+      scan.cuts.some((cutTime) => cutTime >= seg.in + 0.15 && cutTime < seg.out);
+    const temporalStability = Math.max(0, 1 - Math.abs(normMotion - 0.45) * 1.2);
+
+    const updated: Segment = {
+      ...seg,
+      motion: normMotion,
+      actionIntensity: normMotion,
+      brightness: blendedBrightness,
+      sharpness: blendedSharpness,
+      containsTransition,
+      temporalStability,
+    };
+    updated.score = computeSegmentScore(updated, updated.faceScore > 0.12);
+    updated.overallQuality = updated.score;
+    return updated;
+  });
+}
+
+/**
+ * Scene-aware slice adjustment:
+ * If a scene cut falls inside [sliceIn + 0.2, sliceIn + dur), moves sliceIn to that cut
+ * if the remaining shot fits dur; otherwise moves to the start of the preceding shot if it fits dur;
+ * otherwise leaves sliceIn unchanged.
+ */
+export function snapSliceToShot(
+  sliceIn: number,
+  dur: number,
+  cuts?: readonly number[] | null,
+  mediaDur?: number
+): number {
+  if (!cuts || cuts.length === 0 || !Number.isFinite(dur) || dur <= 0) {
+    return sliceIn;
+  }
+  const safeMediaDur =
+    typeof mediaDur === "number" && Number.isFinite(mediaDur) && mediaDur > 0
+      ? mediaDur
+      : Infinity;
+  const sortedCuts = [...cuts]
+    .filter((c) => Number.isFinite(c) && c > 0 && c < safeMediaDur)
+    .sort((a, b) => a - b);
+  if (sortedCuts.length === 0) {
+    return sliceIn;
+  }
+
+  const sliceOut = sliceIn + dur;
+  const internalCut = sortedCuts.find((c) => c >= sliceIn + 0.2 && c < sliceOut - 1e-6);
+  if (internalCut === undefined) {
+    return sliceIn;
+  }
+
+  // Next cut after internalCut (or mediaDur if none)
+  const nextCut = sortedCuts.find((c) => c > internalCut + 1e-6) ?? safeMediaDur;
+  if (internalCut + dur <= Math.min(nextCut, safeMediaDur) + 1e-6) {
+    return Number(internalCut.toFixed(3));
+  }
+
+  // Otherwise try moving to the start of the previous shot if [prevShotStart, internalCut] fits dur
+  let prevShotStart = 0;
+  for (const c of sortedCuts) {
+    if (c < internalCut - 1e-6) {
+      prevShotStart = c;
+    } else {
+      break;
+    }
+  }
+
+  if (
+    internalCut - prevShotStart >= dur - 1e-6 &&
+    prevShotStart + dur <= safeMediaDur + 1e-6
+  ) {
+    return Number(prevShotStart.toFixed(3));
+  }
+
+  return sliceIn;
+}
+
+/**
+ * Aligns slice start so the local motion peak within [sliceIn - dur/2, sliceIn + dur/2]
+ * lands at ~0.15 * dur from slice start on strong/downbeats, or ~0.35 * dur on normal beats.
+ * Bounds shift to ±dur/2 and [0, mediaDur - dur], and optionally applies snapSliceToShot afterwards.
+ */
+export function alignToMotionPeak(
+  sliceIn: number,
+  dur: number,
+  motionCurve?: readonly number[] | null,
+  bucketSec: number = 0.4,
+  beatStrongness: boolean | number | "strong" | "downbeat" | "normal" = false,
+  mediaDur?: number,
+  cuts?: readonly number[] | null
+): number {
+  if (
+    !motionCurve ||
+    motionCurve.length === 0 ||
+    !Number.isFinite(dur) ||
+    dur <= 0 ||
+    !Number.isFinite(bucketSec) ||
+    bucketSec <= 0
+  ) {
+    return cuts ? snapSliceToShot(sliceIn, dur, cuts, mediaDur) : sliceIn;
+  }
+
+  const effectiveMediaDur =
+    typeof mediaDur === "number" && Number.isFinite(mediaDur) && mediaDur > 0
+      ? mediaDur
+      : motionCurve.length * bucketSec;
+
+  const winStart = Math.max(0, sliceIn - dur / 2);
+  const winEnd = Math.min(effectiveMediaDur, sliceIn + dur / 2);
+
+  const startIdx = Math.max(0, Math.floor((winStart + 1e-6) / bucketSec));
+  const endIdx = Math.min(
+    motionCurve.length - 1,
+    Math.max(startIdx, Math.floor((winEnd + 1e-6) / bucketSec))
+  );
+
+  let peakIdx = startIdx;
+  let maxMotion = -Infinity;
+  let minMotion = Infinity;
+
+  for (let i = startIdx; i <= endIdx; i++) {
+    const val = Number.isFinite(motionCurve[i]) ? motionCurve[i] : 0;
+    if (val > maxMotion) {
+      maxMotion = val;
+      peakIdx = i;
+    }
+    if (val < minMotion) {
+      minMotion = val;
+    }
+  }
+
+  let alignedIn = sliceIn;
+  if (maxMotion > minMotion + 1e-6) {
+    const isStrong =
+      beatStrongness === true ||
+      beatStrongness === "strong" ||
+      beatStrongness === "downbeat" ||
+      (typeof beatStrongness === "number" && beatStrongness >= 0.7);
+    const targetOffsetFromStart = (isStrong ? 0.15 : 0.35) * dur;
+    const peakTime = peakIdx * bucketSec;
+    const desiredIn = peakTime - targetOffsetFromStart;
+    const clampedShift = Math.max(-dur / 2, Math.min(dur / 2, desiredIn - sliceIn));
+    alignedIn = sliceIn + clampedShift;
+  }
+
+  const maxValidIn = Math.max(0, effectiveMediaDur - dur);
+  alignedIn = Number(Math.max(0, Math.min(maxValidIn, alignedIn)).toFixed(3));
+
+  if (cuts && cuts.length > 0) {
+    alignedIn = snapSliceToShot(alignedIn, dur, cuts, effectiveMediaDur);
+  }
+
+  return alignedIn;
+}
+
 export interface SmartBeatMontageParams {
   media: MediaItem[];
   beatTimes?: number[];
@@ -921,6 +1202,8 @@ export interface SmartBeatMontageParams {
   interleave?: boolean;
   transition?: { type: TransitionType; duration: number };
   weights?: SegmentScoringWeights;
+  alignToMotion?: boolean;
+  interestScanOptions?: VideoInterestScanOptions;
   signal?: AbortSignal;
   onProgress?: MontageProgressCallback;
 }
@@ -942,6 +1225,8 @@ export async function runSmartBeatMontage({
   interleave = false,
   transition,
   weights,
+  alignToMotion = true,
+  interestScanOptions,
   signal,
   onProgress,
 }: SmartBeatMontageParams): Promise<MontageResult> {
@@ -1010,6 +1295,7 @@ export async function runSmartBeatMontage({
 
   // 2. Candidate Extraction with Intelligent Caching
   const allCandidateSegments: Segment[] = [];
+  const mediaScanMap = new Map<string, VideoInterestScanResult>();
   const totalCount = validMedia.length;
 
   for (let mIdx = 0; mIdx < totalCount; mIdx++) {
@@ -1030,10 +1316,22 @@ export async function runSmartBeatMontage({
       const cacheKey = buildVideoCacheKey(m);
       if (videoAnalysisCache.has(cacheKey)) {
         const cached = videoAnalysisCache.get(cacheKey)!;
+        // Refresh LRU order
+        videoAnalysisCache.delete(cacheKey);
+        videoAnalysisCache.set(cacheKey, cached);
+        const cachedScan = getCachedInterestScan(cacheKey);
+        if (cachedScan) {
+          mediaScanMap.set(m.id, cachedScan);
+        }
         allCandidateSegments.push(...cached.map((s) => ({ ...s, mediaId: m.id })));
       } else {
         const segLen = isLongFootage ? 3.0 : 1.6;
-        const segs = await analyzeVideoAdvanced(
+        const shouldRunDenseScan = m.duration > INTEREST_SCAN_MIN_DURATION_SEC;
+        const willReduceSparse =
+          shouldRunDenseScan && canRunVideoInterestScan(interestScanOptions?.decoderFactory);
+        const sparseProgressScale = shouldRunDenseScan ? 0.55 : 1.0;
+
+        let segs = await analyzeVideoAdvanced(
           m.url, 
           segLen, 
           m.duration, 
@@ -1041,7 +1339,8 @@ export async function runSmartBeatMontage({
           isLongFootage,
           activeSignal,
           (fraction) => {
-            const currentP = baseProgress + Math.round(fraction * (65 / totalCount));
+            const currentP =
+              baseProgress + Math.round(fraction * sparseProgressScale * (65 / totalCount));
             onProgress?.({
               clipIndex: mIdx + 1,
               totalClips: totalCount,
@@ -1049,9 +1348,39 @@ export async function runSmartBeatMontage({
               messageAr: `تحليل المقطع ${mIdx + 1} من ${totalCount} (${Math.round(currentP)}%)...`,
               messageEn: `Analyzing clip ${mIdx + 1} of ${totalCount} (${Math.round(currentP)}%)...`,
             });
-          }
+          },
+          willReduceSparse
         );
-        setCacheEntry(cacheKey, segs);
+
+        let scanResult: VideoInterestScanResult | null = null;
+        if (shouldRunDenseScan) {
+          scanResult = await scanVideoInterest(m.file || m.url, m.duration, {
+            bucketSec: 0.4,
+            ...interestScanOptions,
+            signal: activeSignal,
+            onProgress: (scanFraction) => {
+              const combinedFrac =
+                sparseProgressScale + (1 - sparseProgressScale) * scanFraction;
+              const currentP = baseProgress + Math.round(combinedFrac * (65 / totalCount));
+              onProgress?.({
+                clipIndex: mIdx + 1,
+                totalClips: totalCount,
+                percent: Math.min(80, currentP),
+                messageAr: `تحليل المقطع ${mIdx + 1} من ${totalCount} (${Math.round(currentP)}%)...`,
+                messageEn: `Analyzing clip ${mIdx + 1} of ${totalCount} (${Math.round(currentP)}%)...`,
+              });
+            },
+          });
+
+          if (activeSignal.aborted) throw new Error("Smart cut aborted");
+
+          if (scanResult) {
+            segs = applyInterestScanToSegments(segs, scanResult);
+            mediaScanMap.set(m.id, scanResult);
+          }
+        }
+
+        setCacheEntry(cacheKey, segs, scanResult);
         allCandidateSegments.push(...segs.map((s) => ({ ...s, mediaId: m.id })));
       }
     } else {
@@ -1121,6 +1450,7 @@ export async function runSmartBeatMontage({
     if (mDur <= step * 1.5 || baseCands.length >= Math.ceil(mDur / step)) {
       return baseCands;
     }
+    const extraSegments: Segment[] = [];
     const expanded: Segment[] = [...baseCands];
     for (let t = step / 2; t < mDur - step / 2; t += step) {
       const hasNearby = expanded.some((c) => Math.abs((c.in + c.out) / 2 - t) < step * 0.45);
@@ -1132,11 +1462,22 @@ export async function runSmartBeatMontage({
           Math.abs((c.in + c.out) / 2 - t) < Math.abs((best.in + best.out) / 2 - t) ? c : best
         , baseCands[0]);
       const winHalf = Math.min(step / 2, t, mDur - t);
-      expanded.push({
+      const subSeg: Segment = {
         ...parent,
         in: Number(Math.max(0, t - winHalf).toFixed(3)),
         out: Number(Math.min(mDur, t + winHalf).toFixed(3)),
-      });
+      };
+      expanded.push(subSeg);
+      extraSegments.push(subSeg);
+    }
+
+    const mScan = mediaScanMap.get(m.id);
+    if (mScan && extraSegments.length > 0) {
+      const refinedExtras = applyInterestScanToSegments(extraSegments, mScan);
+      for (const s of refinedExtras) {
+        s.score = computeSegmentScore(s, hasFacesDetected, weights);
+      }
+      return [...baseCands, ...refinedExtras];
     }
     return expanded;
   };
@@ -1264,6 +1605,7 @@ export async function runSmartBeatMontage({
         : Math.min(S, Math.max(currentSlotIdx + 1, boundaries[vIdx + 1]));
       const mDur = Math.max(0.1, m.duration || (m.type === "image" ? 5 : 3));
       const mCands = getExpandedCandidatesForMedia(m);
+      const mScan = mediaScanMap.get(m.id);
       const videoUsedRanges: Array<{ in: number; out: number }> = [];
       let passNumber = 0;
 
@@ -1431,6 +1773,7 @@ export async function runSmartBeatMontage({
 
         for (let sIdx = 0; sIdx < K; sIdx++) {
           const reqDur = spatialReqDurs[sIdx];
+          const slotForBin = passSlots[slotIndexForSpatialBin[sIdx]];
           const remainingRequiredAfterS = spatialReqDurs
             .slice(sIdx + 1)
             .reduce((acc, d) => acc + d, 0);
@@ -1448,6 +1791,28 @@ export async function runSmartBeatMontage({
             sliceIn = maxSliceOut - reqDur;
           }
           sliceIn = Math.max(cursor, sliceIn);
+
+          // Apply motion-peak alignment and scene-aware shot snapping when dense scan is available
+          if (mScan) {
+            if (alignToMotion !== false && mScan.motion.length > 0) {
+              const beatStrong = Boolean(
+                slotForBin.isDownbeat || slotForBin.isStrong || slotForBin.section === "drop"
+              );
+              sliceIn = alignToMotionPeak(
+                sliceIn,
+                reqDur,
+                mScan.motion,
+                mScan.bucketSec || 0.4,
+                beatStrong,
+                mDur
+              );
+            }
+            sliceIn = snapSliceToShot(sliceIn, reqDur, mScan.cuts, mDur);
+            if (sliceIn + reqDur > maxSliceOut) {
+              sliceIn = maxSliceOut - reqDur;
+            }
+            sliceIn = Math.max(cursor, Math.min(Math.max(0, mDur - reqDur), sliceIn));
+          }
 
           const sliceOut = Math.min(mDur, sliceIn + reqDur);
           cursor = sliceOut;
@@ -1552,6 +1917,30 @@ export async function runSmartBeatMontage({
         if (sliceIn + targetDur > mDur) {
           sliceIn = Math.max(0, mDur - targetDur);
         }
+
+        // Apply motion-peak alignment and scene-aware shot snapping when dense scan is available
+        const mScan = mediaScanMap.get(m.id);
+        if (mScan) {
+          if (alignToMotion !== false && mScan.motion.length > 0) {
+            const beatStrong = Boolean(
+              slot.isDownbeat || slot.isStrong || slot.section === "drop"
+            );
+            sliceIn = alignToMotionPeak(
+              sliceIn,
+              targetDur,
+              mScan.motion,
+              mScan.bucketSec || 0.4,
+              beatStrong,
+              mDur
+            );
+          }
+          sliceIn = snapSliceToShot(sliceIn, targetDur, mScan.cuts, mDur);
+          if (sliceIn + targetDur > mDur) {
+            sliceIn = Math.max(0, mDur - targetDur);
+          }
+          sliceIn = Math.max(0, sliceIn);
+        }
+
         const sliceOut = Math.min(mDur, sliceIn + targetDur);
         const actualDur = Math.max(0.1, sliceOut - sliceIn);
 
@@ -1716,11 +2105,18 @@ export async function runAutoMontage(
   options?: {
     fastMode?: boolean;
     targetDuration?: number;
+    alignToMotion?: boolean;
     signal?: AbortSignal;
     onProgress?: MontageProgressCallback;
   }
 ): Promise<MontageResult> {
-  const { fastMode = true, targetDuration: overrideDuration, signal, onProgress } = options || {};
+  const {
+    fastMode = true,
+    targetDuration: overrideDuration,
+    alignToMotion = true,
+    signal,
+    onProgress,
+  } = options || {};
 
   try {
     const beatSync = template.ai.musicSync;
@@ -1750,6 +2146,7 @@ export async function runAutoMontage(
             maxShotDuration,
             transition: tplTransition,
             weights: tplWeights,
+            alignToMotion,
             signal,
             onProgress,
           })
@@ -1761,6 +2158,7 @@ export async function runAutoMontage(
             maxShotDuration,
             transition: tplTransition,
             weights: tplWeights,
+            alignToMotion,
             signal,
             onProgress,
           });

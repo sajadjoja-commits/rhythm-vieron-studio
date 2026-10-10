@@ -87,7 +87,7 @@ export async function validateExportedAudio(
   try {
     const arrayBuffer = await blob.arrayBuffer();
     // decodeAudioData decodes audio tracks directly out of MP4 (AAC) or WebM (Opus) containers
-    audioBuffer = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
+    audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
   } catch (decodeErr: any) {
     console.warn("[AudioValidator] Native audio decode notice:", decodeErr);
     // Container might have no audio track or unsupported container audio atom

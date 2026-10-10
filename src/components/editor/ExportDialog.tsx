@@ -16,6 +16,18 @@ import { validateExportedVideo } from "@/lib/videoValidator";
 import { isWebCodecsSupported, exportWithWebCodecs } from "@/lib/webcodecsEncoder";
 import { computeVfxState } from "@/lib/vfxEngine";
 import { computeWordState, computeCharacterReveal } from "@/lib/textTemplatesLibrary";
+import {
+  buildPreloadPlan,
+  runWithConcurrency,
+  cleanupPreloadedElements,
+  collectRequiredAudioUrls,
+  calculateBufferRMS,
+  computeNormalizedGain,
+  bufferToWav,
+  computeSeekTolerance,
+  getContainSize,
+  getFilterCSSString as computeFilterCSSString,
+} from "@/lib/export";
 
 const VireonMedia = registerPlugin<any>('VireonMedia');
 
@@ -86,15 +98,32 @@ async function recordCanvasWithMediaRecorder(
         }
       };
 
+      const cleanupStreamAndAudio = () => {
+        try {
+          stream.getTracks().forEach((track) => {
+            try {
+              track.stop();
+            } catch {}
+          });
+        } catch {}
+        if (audioCtx) {
+          try {
+            audioCtx.close();
+          } catch {}
+          audioCtx = null;
+        }
+      };
+
       recorder.onerror = (err) => {
-        if (audioCtx) { try { audioCtx.close(); } catch {} }
+        cleanupStreamAndAudio();
         reject(err);
       };
 
       recorder.onstop = () => {
-        if (audioCtx) { try { audioCtx.close(); } catch {} }
+        cleanupStreamAndAudio();
         const finalType = recorder.mimeType || mimeType || "video/mp4";
         const resultBlob = new Blob(chunks, { type: finalType });
+        chunks.length = 0;
         resolve(resultBlob);
       };
 
@@ -107,7 +136,8 @@ async function recordCanvasWithMediaRecorder(
       const stepRenderLoop = async () => {
         if (isAborted()) {
           try { recorder.stop(); } catch {}
-          if (audioCtx) { try { audioCtx.close(); } catch {} }
+          cleanupStreamAndAudio();
+          chunks.length = 0;
           reject(new Error("Export cancelled"));
           return;
         }
@@ -284,6 +314,15 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
         setAutoCoverUrl(firstMedia.url);
       } else if (firstMedia.type === "video") {
         const vid = document.createElement("video");
+        const cleanupCoverVid = () => {
+          try {
+            vid.onloadeddata = null;
+            vid.onerror = null;
+            vid.pause();
+            vid.removeAttribute("src");
+            vid.load();
+          } catch {}
+        };
         vid.crossOrigin = "anonymous";
         vid.muted = true;
         vid.src = firstMedia.url;
@@ -300,10 +339,16 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
             }
           } catch {
             setAutoCoverUrl(firstMedia.thumbnail || firstMedia.url);
+          } finally {
+            cleanupCoverVid();
           }
         };
         vid.onerror = () => {
           setAutoCoverUrl(firstMedia.thumbnail || firstMedia.url);
+          cleanupCoverVid();
+        };
+        return () => {
+          cleanupCoverVid();
         };
       }
     }
@@ -474,82 +519,8 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
     return isRTL() ? "تم التصدير بنجاح!" : "Export completed successfully!";
   };
 
-  // Helper: compute aspect contain dimensions
-  const getContainSize = (mediaW: number, mediaH: number, canvasW: number, canvasH: number) => {
-    const mediaRatio = mediaW / mediaH;
-    const canvasRatio = canvasW / canvasH;
-    let drawW = canvasW;
-    let drawH = canvasH;
-    if (mediaRatio > canvasRatio) {
-      drawH = canvasW / mediaRatio;
-    } else {
-      drawW = canvasH * mediaRatio;
-    }
-    return { drawW, drawH };
-  };
-
   // Helper: compute active filters CSS string
-  const getFilterCSSString = (time: number) => {
-    const active = filters.filter((f) => time >= f.start && time <= f.end);
-    if (!active.length) return "";
-    const parts: string[] = [];
-    for (const f of active) {
-      const i = f.intensity;
-      switch (f.type) {
-        case "brightness": parts.push(`brightness(${0.5 + i * 1.5})`); break;
-        case "contrast": parts.push(`contrast(${0.5 + i * 1.5})`); break;
-        case "saturate": parts.push(`saturate(${i * 3})`); break;
-        case "grayscale": parts.push(`grayscale(${i})`); break;
-        case "sepia": parts.push(`sepia(${i})`); break;
-        case "blur": parts.push(`blur(${i * 8}px)`); break;
-        case "hue-rotate": parts.push(`hue-rotate(${i * 360}deg)`); break;
-        case "invert": parts.push(`invert(${i})`); break;
-        case "vintage": parts.push(`sepia(${i * 0.6}) contrast(${0.8 + i * 0.4}) brightness(${0.9 + i * 0.2})`); break;
-        case "warm": parts.push(`sepia(${i * 0.3}) saturate(${1 + i * 0.5}) brightness(${1 + i * 0.1})`); break;
-        case "cool": parts.push(`hue-rotate(${i * 30}deg) saturate(${1 + i * 0.3})`); break;
-        case "dramatic": parts.push(`contrast(${1 + i * 0.8}) brightness(${1 - i * 0.2}) saturate(${1 + i * 0.5})`); break;
-        case "noir": parts.push(`grayscale(${i * 0.9 + 0.1}) contrast(${1 + i * 0.6}) brightness(${1 - i * 0.15})`); break;
-        case "fade-edge": parts.push(`blur(${i * 0.5}px) brightness(${1 + i * 0.15}) saturate(${1 - i * 0.2})`); break;
-        case "duotone": parts.push(`grayscale(${i * 0.8}) sepia(${i * 0.5}) hue-rotate(${i * 180}deg) contrast(${1 + i * 0.3})`); break;
-        case "dream": parts.push(`blur(${i * 0.4}px) brightness(${1 + i * 0.15}) saturate(${1 + i * 0.3}) contrast(${1 - i * 0.1})`); break;
-        case "neon": parts.push(`saturate(${1 + i * 0.8}) contrast(${1 + i * 0.4}) hue-rotate(${i * 60}deg) brightness(${1 + i * 0.1})`); break;
-        case "sepia-blue": parts.push(`sepia(${i * 0.5}) hue-rotate(${i * 180}deg) saturate(${1 + i * 0.3})`); break;
-        case "cyberpunk-teal-orange": parts.push(`contrast(${1 + i * 0.25}) saturate(${1 + i * 0.35}) hue-rotate(${-12 * i}deg) sepia(${i * 0.22})`); break;
-        case "emerald-forest": parts.push(`hue-rotate(${25 * i}deg) saturate(${1 + i * 0.4}) contrast(${1 + i * 0.15}) brightness(${1 - i * 0.04})`); break;
-        case "golden-hour": parts.push(`sepia(${i * 0.42}) saturate(${1 + i * 0.45}) contrast(${1 + i * 0.1}) brightness(${1 + i * 0.08})`); break;
-        case "vaporwave-pastel": parts.push(`hue-rotate(${300 * i}deg) saturate(${1 + i * 0.35}) contrast(${1 + i * 0.08}) brightness(${1 + i * 0.06})`); break;
-        case "polaroid-matte": parts.push(`contrast(${1 - i * 0.1}) brightness(${1 + i * 0.12}) sepia(${i * 0.2}) saturate(${1 - i * 0.15})`); break;
-        case "monochrome-red": parts.push(`grayscale(${i * 0.75}) sepia(${i * 0.35}) hue-rotate(${320 * i}deg) contrast(${1 + i * 0.4}) brightness(${1 - i * 0.05})`); break;
-        case "cinematic-2383": parts.push(`contrast(${1 + i * 0.3}) saturate(${1 + i * 0.18}) sepia(${i * 0.18}) brightness(${1 - i * 0.04})`); break;
-        case "fuji-velvia": parts.push(`saturate(${1 + i * 0.6}) contrast(${1 + i * 0.18}) hue-rotate(${-6 * i}deg) brightness(${1 + i * 0.03})`); break;
-        case "bleach-bypass": parts.push(`grayscale(${i * 0.55}) contrast(${1 + i * 0.45}) brightness(${1 - i * 0.06}) saturate(${1 - i * 0.35})`); break;
-        case "sunset-miami": parts.push(`sepia(${i * 0.3}) saturate(${1 + i * 0.55}) hue-rotate(${315 * i}deg) contrast(${1 + i * 0.12}) brightness(${1 + i * 0.04})`); break;
-        case "matrix-cyber-green": parts.push(`sepia(${i * 0.45}) hue-rotate(${75 * i}deg) saturate(${1 + i * 0.5}) contrast(${1 + i * 0.25}) brightness(${1 - i * 0.05})`); break;
-        case "soft-peach-skin": parts.push(`brightness(${1 + i * 0.08}) contrast(${1 - i * 0.05}) saturate(${1 + i * 0.22}) sepia(${i * 0.15}) hue-rotate(${-8 * i}deg)`); break;
-      }
-      if (f.brightness !== undefined && f.brightness !== 1) parts.push(`brightness(${f.brightness})`);
-      if (f.contrast !== undefined && f.contrast !== 1) parts.push(`contrast(${f.contrast})`);
-      if (f.saturation !== undefined && f.saturation !== 1) parts.push(`saturate(${f.saturation})`);
-      if (f.blur !== undefined && f.blur > 0) parts.push(`blur(${f.blur}px)`);
-      if (f.hueRotate !== undefined && f.hueRotate !== 0) parts.push(`hue-rotate(${f.hueRotate}deg)`);
-      if (f.sharpness !== undefined && f.sharpness !== 0) {
-        const cVal = 1 + f.sharpness * 0.15;
-        const bVal = 1 + f.sharpness * 0.05;
-        const sVal = 1 + f.sharpness * 0.05;
-        parts.push(`contrast(${cVal}) brightness(${bVal}) saturate(${sVal})`);
-      }
-      if (f.hslHue !== undefined && f.hslHue !== 0) {
-        parts.push(`hue-rotate(${f.hslHue}deg)`);
-      }
-      if (f.hslSaturation !== undefined && f.hslSaturation !== 0) {
-        parts.push(`saturate(${1 + f.hslSaturation / 100})`);
-      }
-      if (f.hslLightness !== undefined && f.hslLightness !== 0) {
-        parts.push(`brightness(${1 + f.hslLightness / 200})`);
-      }
-    }
-    return parts.join(" ");
-  };
+  const getFilterCSSString = (time: number) => computeFilterCSSString(filters, time);
 
   const startExport = async (bypassSafeguard: boolean = false) => {
     if (clips.length === 0) {
@@ -659,21 +630,18 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
     toast.info(t("toast.exportStarted"));
 
     try {
-      // 1. First-time loading of FFmpeg core (Offline-First)
-    if (!ffmpegRef.current) {
-      toast.info(isRTL() ? "جاري تحضير موارد التصدير..." : "Preparing export resources...");
-      setProgress(0.02);
-      try {
-        const { FFmpeg } = await import("@ffmpeg/ffmpeg");
-        const { toBlobURL } = await import("@ffmpeg/util");
-        const ffmpeg = new FFmpeg();
-        ffmpeg.on("log", ({ message }) => {
-          console.log("FFmpeg Log:", message);
-        });
-
-        // Try loading bundled local core files (100% offline, zero network dependencies)
-        let loaded = false;
+      // 1. Lazy FFmpeg loader (only invoked in Tier 2 if WebCodecs is unavailable or fails)
+      const ensureFfmpeg = async () => {
+        if (ffmpegRef.current) return ffmpegRef.current;
+        toast.info(isRTL() ? "جاري تحضير موارد التصدير..." : "Preparing export resources...");
         try {
+          const { FFmpeg } = await import("@ffmpeg/ffmpeg");
+          const { toBlobURL } = await import("@ffmpeg/util");
+          const ffmpeg = new FFmpeg();
+          ffmpeg.on("log", ({ message }) => {
+            console.log("FFmpeg Log:", message);
+          });
+
           const origin = typeof window !== "undefined" ? window.location.origin : "";
           const coreUrl = `${origin}/ffmpeg/ffmpeg-core.js`;
           const wasmUrl = `${origin}/ffmpeg/ffmpeg-core.wasm`;
@@ -682,579 +650,478 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
             wasmURL: await toBlobURL(wasmUrl, "application/wasm"),
           });
           ffmpegRef.current = ffmpeg;
-          loaded = true;
           console.log("FFmpeg core loaded successfully from local bundle.");
-        } catch (localErr) {
-          console.warn("Local FFmpeg core load notice:", localErr);
+          return ffmpeg;
+        } catch (err) {
+          console.warn("Lazy FFmpeg load notice, falling back to MediaRecorder if needed:", err);
+          return null;
         }
+      };
 
-        if (!loaded) {
-          console.warn("FFmpeg WASM unavailable; falling back directly to Native Canvas Exporter.");
-        }
-      } catch (err) {
-        console.warn("FFmpeg setup warning, using Canvas MediaRecorder fallback:", err);
-      }
-    }
-
-    // Ensure custom web fonts are loaded
-    try {
-      if ("fonts" in document) {
-        await document.fonts.ready;
-      }
-    } catch {}
-
-    // 2. Calculate resolution based on selected options and true video aspect ratio
-    const ratioObj = effectiveRatioObj;
-    const chosenQuality = QUALITY_OPTIONS[quality] || QUALITY_OPTIONS[2];
-
-    let canvasW: number;
-    let canvasH: number;
-
-    if (ratioObj.w >= ratioObj.h) {
-      // Landscape / Square: height is quality value, width scales proportionally
-      canvasH = chosenQuality.value;
-      canvasW = Math.round(canvasH * (ratioObj.w / ratioObj.h));
-    } else {
-      // Portrait (e.g. 9:16, 4:5): width is quality value, height scales proportionally (e.g. 1080x1920)
-      canvasW = chosenQuality.value;
-      canvasH = Math.round(canvasW * (ratioObj.h / ratioObj.w));
-    }
-    
-    // Ensure width and height are even numbers
-    const exportWidth = canvasW % 2 === 0 ? canvasW : canvasW + 1;
-    const exportHeight = canvasH % 2 === 0 ? canvasH : canvasH + 1;
-
-    const liveRect = previewRef.current?.getBoundingClientRect();
-    const previewW = (liveRect && liveRect.width > 50) ? liveRect.width : (previewRef.current?.clientWidth || 360);
-    const previewH = (liveRect && liveRect.height > 50) ? liveRect.height : (previewRef.current?.clientHeight || Math.round(previewW * (exportHeight / exportWidth)));
-    const scaleFactor = exportHeight / (previewH || 640);
-
-    // 3. Create offscreen canvas
-    const canvas = document.createElement("canvas");
-    canvas.width = exportWidth;
-    canvas.height = exportHeight;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) {
-      toast.error("Failed to create rendering context.");
-      setExporting(false);
-      return;
-    }
-
-    // Create a hidden container appended to the DOM to bypass mobile WebView media throttling and muting
-    const hiddenContainer = document.createElement("div");
-    hiddenContainer.id = "vireon-export-hidden-container";
-    hiddenContainer.style.position = "absolute";
-    hiddenContainer.style.width = "0px";
-    hiddenContainer.style.height = "0px";
-    hiddenContainer.style.overflow = "hidden";
-    hiddenContainer.style.opacity = "0";
-    hiddenContainer.style.pointerEvents = "none";
-    document.body.appendChild(hiddenContainer);
-
-    // 4. Preload all clips and overlays (images AND video overlays) into offline elements
-    const preloadedMap: Record<string, HTMLImageElement | HTMLVideoElement> = {};
-    const itemsToPreload = new Set<{ idOrUrl: string; type: "image" | "video"; url: string }>();
-
-    clips.forEach(c => {
-      const m = media.find(item => item.id === c.mediaId);
-      const shouldUseProcessed = c.useProcessed !== false;
-      const effectiveUrl = (shouldUseProcessed && (c.processedUrl || m?.processedUrl))
-        ? (c.processedUrl || m?.processedUrl || "")
-        : (c.originalUrl || m?.originalUrl || m?.url || c.mediaId);
-      const effectiveType = (m?.type as any) || "video";
-
-      itemsToPreload.add({ idOrUrl: c.id, type: effectiveType, url: effectiveUrl });
-      itemsToPreload.add({ idOrUrl: c.mediaId, type: effectiveType, url: effectiveUrl });
-    });
-
-    overlays.forEach(o => {
-      const m = media.find(item => item.id === o.url);
-      const url = m ? m.url : o.url;
-      const type = o.type === "video" ? "video" : (m ? (m.type as any) : "image");
-      itemsToPreload.add({ idOrUrl: o.url, type, url });
-    });
-
-    const totalItems = itemsToPreload.size;
-    let loadedItems = 0;
-
-    const preloadAllAssets = async () => {
-      const promises = Array.from(itemsToPreload).map(async ({ idOrUrl, type, url }) => {
-        const isExternal = url.startsWith("http://") || url.startsWith("https://");
-
-        if (type === "image") {
-          return new Promise<void>((resolve) => {
-            const img = new Image();
-            if (isExternal) {
-              img.crossOrigin = "anonymous";
-            }
-            img.src = url;
-            img.onload = () => {
-              preloadedMap[idOrUrl] = img;
-              preloadedMap[url] = img;
-              hiddenContainer.appendChild(img);
-              loadedItems++;
-              setProgress(0.05 + 0.10 * (loadedItems / Math.max(1, totalItems)));
-              resolve();
-            };
-            img.onerror = () => {
-              console.warn("Failed to preload image:", url);
-              loadedItems++;
-              setProgress(0.05 + 0.10 * (loadedItems / Math.max(1, totalItems)));
-              resolve();
-            };
-          });
-        } else {
-          return new Promise<void>((resolve) => {
-            const vid = document.createElement("video");
-            if (isExternal) {
-              vid.crossOrigin = "anonymous";
-            }
-            vid.muted = true;
-            vid.playsInline = true;
-            vid.src = url;
-            vid.preload = "auto";
-            
-            vid.onloadeddata = () => {
-              preloadedMap[idOrUrl] = vid;
-              preloadedMap[url] = vid;
-              hiddenContainer.appendChild(vid);
-              loadedItems++;
-              setProgress(0.05 + 0.10 * (loadedItems / Math.max(1, totalItems)));
-              resolve();
-            };
-            vid.onerror = () => {
-              console.warn("Failed to preload video:", url);
-              loadedItems++;
-              setProgress(0.05 + 0.10 * (loadedItems / Math.max(1, totalItems)));
-              resolve();
-            };
-            vid.load();
-          });
-        }
-      });
-
-      await Promise.all(promises);
-    };
-
-    // Run the preloading phase
-    await preloadAllAssets();
-    if (abortControllerRef.current) {
-      try { hiddenContainer.parentNode?.removeChild(hiddenContainer); } catch {}
-      setExporting(false);
-      setProgress(0);
-      return;
-    }
-
-    // 5. Setup OfflineAudioContext and render background music / voiceover / video audio
-    const hasAudioSources = audioTracks.length > 0 || (!videoMuted && clips.some(c => {
-      const m = media.find(item => item.id === c.mediaId);
-      return m && m.type === "video";
-    }));
-
-    const fetchAndDecodeAudio = async (url: string, targetCtx: BaseAudioContext) => {
+      // Ensure custom web fonts are loaded
       try {
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`HTTP status ${res.status}`);
-        const arrayBuffer = await res.arrayBuffer();
-        const decoded = await targetCtx.decodeAudioData(arrayBuffer);
-        return decoded;
-      } catch (err) {
-        console.warn(`Failed to fetch/decode audio from ${url}:`, err);
-        return null;
+        if ("fonts" in document) {
+          await document.fonts.ready;
+        }
+      } catch {}
+
+      // 2. Calculate resolution based on selected options and true video aspect ratio
+      const ratioObj = effectiveRatioObj;
+      const chosenQuality = QUALITY_OPTIONS[quality] || QUALITY_OPTIONS[2];
+
+      let canvasW: number;
+      let canvasH: number;
+
+      if (ratioObj.w >= ratioObj.h) {
+        // Landscape / Square: height is quality value, width scales proportionally
+        canvasH = chosenQuality.value;
+        canvasW = Math.round(canvasH * (ratioObj.w / ratioObj.h));
+      } else {
+        // Portrait (e.g. 9:16, 4:5): width is quality value, height scales proportionally (e.g. 1080x1920)
+        canvasW = chosenQuality.value;
+        canvasH = Math.round(canvasW * (ratioObj.h / ratioObj.w));
       }
-    };
 
-    const bufferToWav = (buffer: AudioBuffer): ArrayBuffer => {
-      const numOfChan = buffer.numberOfChannels;
-      const length = buffer.length * numOfChan * 2 + 44;
-      const bufferArr = new ArrayBuffer(length);
-      const view = new DataView(bufferArr);
-      const channels = [];
-      let i;
-      let sample;
-      let offset = 0;
-      let pos = 0;
+      // Ensure width and height are even numbers
+      const exportWidth = canvasW % 2 === 0 ? canvasW : canvasW + 1;
+      const exportHeight = canvasH % 2 === 0 ? canvasH : canvasH + 1;
 
-      const setUint16 = (data: number) => {
-        view.setUint16(pos, data, true);
-        pos += 2;
+      const liveRect = previewRef.current?.getBoundingClientRect();
+      const previewW = (liveRect && liveRect.width > 50) ? liveRect.width : (previewRef.current?.clientWidth || 360);
+      const previewH = (liveRect && liveRect.height > 50) ? liveRect.height : (previewRef.current?.clientHeight || Math.round(previewW * (exportHeight / exportWidth)));
+      const scaleFactor = exportHeight / (previewH || 640);
+
+      // 3. Create offscreen canvas (keep GPU hardware acceleration enabled with { alpha: false }; background is always filled and webcodecsEncoder does not do CPU readback)
+      const canvas = document.createElement("canvas");
+      canvas.width = exportWidth;
+      canvas.height = exportHeight;
+      const ctx = canvas.getContext("2d", { alpha: false }) || canvas.getContext("2d");
+      if (!ctx) {
+        toast.error("Failed to create rendering context.");
+        setExporting(false);
+        return;
+      }
+
+      // Create a hidden container appended to the DOM to bypass mobile WebView media throttling and muting
+      const hiddenContainer = document.createElement("div");
+      hiddenContainer.id = "vireon-export-hidden-container";
+      hiddenContainer.style.position = "absolute";
+      hiddenContainer.style.width = "0px";
+      hiddenContainer.style.height = "0px";
+      hiddenContainer.style.overflow = "hidden";
+      hiddenContainer.style.opacity = "0";
+      hiddenContainer.style.pointerEvents = "none";
+      document.body.appendChild(hiddenContainer);
+
+      const preloadedMap: Record<string, HTMLImageElement | HTMLVideoElement> = {};
+      const trackedVideos = new Set<HTMLVideoElement>();
+      const seekAbortController = new AbortController();
+
+      // Register cleanupRef immediately after creating hiddenContainer so finally/cancel always frees media decoders
+      cleanupRef.current = () => {
+        try {
+          seekAbortController.abort();
+        } catch {}
+        cleanupPreloadedElements(hiddenContainer, preloadedMap, trackedVideos);
+        trackedVideos.clear();
+        cleanupRef.current = null;
       };
 
-      const setUint32 = (data: number) => {
-        view.setUint32(pos, data, true);
-        pos += 4;
+      // 4. Preload unique clips and overlays (one element per (url, type)) with bounded concurrency
+      const preloadPlan = buildPreloadPlan(clips, media, overlays);
+      const videoPlanItems = preloadPlan.filter((item) => item.type === "video");
+      const imagePlanItems = preloadPlan.filter((item) => item.type === "image");
+      const totalItems = preloadPlan.length;
+      let loadedItems = 0;
+
+      const updatePreloadProgress = () => {
+        loadedItems++;
+        setProgress(0.05 + 0.10 * (loadedItems / Math.max(1, totalItems)));
       };
 
-      // write Header
-      setUint32(0x46464952); // "RIFF"
-      setUint32(length - 8); // file length - 8
-      setUint32(0x45564157); // "WAVE"
-
-      setUint32(0x20746d66); // "fmt " chunk
-      setUint32(16); // chunk size = 16
-      setUint16(1); // PCM = 1
-      setUint16(numOfChan);
-      setUint32(buffer.sampleRate);
-      setUint32(buffer.sampleRate * 2 * numOfChan); // byte rate
-      setUint16(numOfChan * 2); // block align
-      setUint16(16); // bits per sample = 16
-
-      setUint32(0x61746164); // "data" chunk
-      setUint32(length - pos - 4); // chunk length
-
-      // write interleaved data
-      for (i = 0; i < buffer.numberOfChannels; i++) {
-        channels.push(buffer.getChannelData(i));
-      }
-
-      while (pos < length) {
-        for (i = 0; i < numOfChan; i++) {
-          sample = Math.max(-1, Math.min(1, channels[i][offset])); // clamp
-          sample = sample < 0 ? sample * 0x8000 : sample * 0x7fff; // scale to 16-bit signed int
-          view.setInt16(pos, sample, true);
-          pos += 2;
-        }
-        offset++;
-      }
-
-      return bufferArr;
-    };
-
-    const audioBufferCache: Record<string, AudioBuffer> = {};
-    let renderedAudioBuffer: AudioBuffer | null = null;
-
-    // Helper: Calculate RMS (dBFS) and Peak of an AudioBuffer in a specified time window
-    const calculateBufferRMS = (
-      buffer: AudioBuffer,
-      startSec: number = 0,
-      durationSec?: number
-    ): { rmsDb: number; peak: number } => {
-      const numChannels = buffer.numberOfChannels;
-      if (numChannels === 0 || buffer.length === 0) {
-        return { rmsDb: -60, peak: 0 };
-      }
-
-      const sr = buffer.sampleRate;
-      const startSample = Math.max(0, Math.min(buffer.length - 1, Math.floor(startSec * sr)));
-      const totalSamples = durationSec !== undefined
-        ? Math.min(buffer.length - startSample, Math.max(1, Math.floor(durationSec * sr)))
-        : (buffer.length - startSample);
-
-      if (totalSamples <= 0) {
-        return { rmsDb: -60, peak: 0 };
-      }
-
-      const targetSamplesToInspect = Math.min(totalSamples, 80000);
-      const step = Math.max(1, Math.floor(totalSamples / targetSamplesToInspect));
-
-      let sumSquares = 0;
-      let count = 0;
-      let peak = 0;
-
-      for (let c = 0; c < numChannels; c++) {
-        const data = buffer.getChannelData(c);
-        const end = Math.min(data.length, startSample + totalSamples);
-        for (let i = startSample; i < end; i += step) {
-          const absVal = Math.abs(data[i]);
-          if (absVal > peak) peak = absVal;
-          sumSquares += absVal * absVal;
-          count++;
-        }
-      }
-
-      if (count === 0) return { rmsDb: -60, peak: 0 };
-      const rms = Math.sqrt(sumSquares / count);
-      if (rms < 0.00001) return { rmsDb: -60, peak };
-      const rmsDb = 20 * Math.log10(rms);
-      return { rmsDb, peak };
-    };
-
-    // Helper: Gentle loudness gain compensation towards target RMS level (-18 to -20 dBFS)
-    const computeNormalizedGain = (
-      measuredRmsDb: number,
-      targetRmsDb: number = -19,
-      maxBoostDb: number = 4.0,
-      maxCutDb: number = -8.0
-    ): number => {
-      if (measuredRmsDb <= -45) return 1.0; // Keep silence/noise-floor untouched
-      const deltaDb = targetRmsDb - measuredRmsDb;
-      const clampedDeltaDb = Math.max(maxCutDb, Math.min(maxBoostDb, deltaDb));
-      return Math.pow(10, clampedDeltaDb / 20);
-    };
-
-    if (hasAudioSources) {
-      setProgress(0.15);
-      const sampleRate = 44100;
-      const offlineCtx = new OfflineAudioContext(2, Math.ceil(totalDuration * sampleRate), sampleRate);
-
-      // Master DynamicsCompressorNode configured as a soft limiter to eliminate distortion/clipping
-      const masterLimiter = offlineCtx.createDynamicsCompressor();
-      masterLimiter.threshold.setValueAtTime(-3, 0); // -3 dB soft threshold
-      masterLimiter.knee.setValueAtTime(3, 0); // 3 dB smooth transition knee
-      masterLimiter.ratio.setValueAtTime(20, 0); // 20:1 high compression ratio (soft limiter)
-      masterLimiter.attack.setValueAtTime(0.003, 0); // 0.003s (3ms) fast attack to catch transient peaks
-      masterLimiter.release.setValueAtTime(0.25, 0); // 0.25s release
-      masterLimiter.connect(offlineCtx.destination);
-
-      // Phase A: Pre-decode and analyze all video clip audio buffers to identify active speech/sound intervals
-      const activeVoiceIntervals: Array<{ start: number; end: number; gain: number }> = [];
-
-      // Pre-fetch all audio buffers in parallel
-      const trackUrls = audioTracks.map(t => t.url);
-      const videoMediaUrls = clips
-        .map(c => media.find(m => m.id === c.mediaId))
-        .filter((m): m is NonNullable<typeof m> => !!m && m.type === "video")
-        .map(m => m.url);
-      const clipAudioUrls = clips.map(c => c.processedAudioUrl).filter(Boolean) as string[];
-      const overlayAudioUrls = overlays
-        .filter(o => o.type === "video" && !o.muted && (o.volume === undefined || o.volume > 0))
-        .map(o => o.url);
-      const allUrls = Array.from(new Set([...trackUrls, ...videoMediaUrls, ...clipAudioUrls, ...overlayAudioUrls]));
-
-      for (const url of allUrls) {
-        if (!audioBufferCache[url]) {
-          const buf = await fetchAndDecodeAudio(url, offlineCtx);
-          if (buf) audioBufferCache[url] = buf;
-        }
-      }
-
-      // Analyze video clips audio loudness & calculate timeline occupancy
-      if (!videoMuted) {
-        let runningClipStart = 0;
-        for (const clip of clips) {
-          const sp = clip.speed && clip.speed > 0 ? clip.speed : 1;
-          const len = Math.max(0, clip.out - clip.in) / sp;
-          const clipStart = runningClipStart;
-          const clipEnd = clipStart + len;
-          runningClipStart += len;
-
-          const mItem = media.find(m => m.id === clip.mediaId);
-          if (mItem && mItem.type === "video" && !clip.muteOriginalAudio) {
-            const audioUrlToUse = clip.processedAudioUrl || mItem.url;
-            const buffer = audioBufferCache[audioUrlToUse];
-            if (buffer) {
-              const startOffset = Math.min(clip.in, buffer.duration);
-              const srcDuration = Math.max(0, Math.min(clip.out, buffer.duration) - startOffset);
-              const { rmsDb } = calculateBufferRMS(buffer, startOffset, srcDuration);
-              const clipVol = (clip.volume !== undefined ? clip.volume : 1) * videoVolume;
-
-              // If clip audio is audible (RMS > -42 dBFS and volume > 0.05), mark active interval
-              if (rmsDb > -42 && clipVol > 0.05) {
-                activeVoiceIntervals.push({
-                  start: clipStart,
-                  end: clipEnd,
-                  gain: clipVol
-                });
-              }
-            }
+      const preloadImageItem = (item: (typeof preloadPlan)[number]) =>
+        new Promise<void>((resolve) => {
+          if (abortControllerRef.current) {
+            resolve();
+            return;
           }
-        }
-      }
-
-      // Phase B: Render background music & voiceover tracks with gentle RMS normalization and smooth ducking
-      let audioTrackCount = 0;
-      for (const track of audioTracks) {
-        if (abortControllerRef.current) return;
-        const buffer = audioBufferCache[track.url];
-        if (buffer) {
-          try {
-            const startOffset = Math.min(track.offset || 0, buffer.duration);
-            const playDuration = Math.max(0, Math.min(track.duration, buffer.duration - startOffset));
-            const trackEnd = track.start + playDuration;
-
-            // 1. Calculate track RMS and gentle normalization factor
-            const { rmsDb: trackRms } = calculateBufferRMS(buffer, startOffset, playDuration);
-            // Target -20 dBFS for background music, avoiding extreme hot masters
-            const autoLevelMultiplier = computeNormalizedGain(trackRms, -20.0, 3.5, -7.5);
-            const nominalGain = track.volume * (track.muted ? 0 : 1) * autoLevelMultiplier;
-
-            const source = offlineCtx.createBufferSource();
-            source.buffer = buffer;
-            const gainNode = offlineCtx.createGain();
-
-            // 2. Check for simultaneous playback with active video speech/audio for smooth ducking
-            const overlappingSpeech = activeVoiceIntervals.filter(
-              interval => interval.end > track.start && interval.start < trackEnd
-            );
-
-            if (overlappingSpeech.length > 0 && nominalGain > 0.01) {
-              // Build smooth automation curve points
-              // When speech is active: gentle ducking to 0.42x (~ -7.5 dB) of nominal volume
-              const duckedGain = nominalGain * 0.42;
-              const points: Array<{ time: number; value: number }> = [];
-
-              // Initial state
-              const isInitiallyInSpeech = overlappingSpeech.some(
-                s => track.start >= s.start && track.start < s.end
-              );
-              points.push({
-                time: Math.max(0, track.start),
-                value: isInitiallyInSpeech ? duckedGain : nominalGain
-              });
-
-              for (const speech of overlappingSpeech) {
-                const sStart = Math.max(track.start, speech.start);
-                const sEnd = Math.min(trackEnd, speech.end);
-
-                if (sEnd > sStart) {
-                  // Smooth ramp down before speech (0.25s ramp)
-                  const rampDownStart = Math.max(track.start, sStart - 0.25);
-                  if (rampDownStart > track.start && !isInitiallyInSpeech) {
-                    points.push({ time: rampDownStart, value: nominalGain });
-                  }
-                  points.push({ time: sStart, value: duckedGain });
-                  points.push({ time: sEnd, value: duckedGain });
-
-                  // Smooth ramp up after speech (0.35s ramp)
-                  const rampUpEnd = Math.min(trackEnd, sEnd + 0.35);
-                  if (rampUpEnd > sEnd) {
-                    points.push({ time: rampUpEnd, value: nominalGain });
-                  }
-                }
-              }
-
-              // Final end point
-              points.push({ time: trackEnd, value: points[points.length - 1]?.value ?? nominalGain });
-
-              // Sort points by time and remove duplicates/retrograde times
-              points.sort((a, b) => a.time - b.time);
-              const sanitizedPoints: Array<{ time: number; value: number }> = [];
-              for (const p of points) {
-                if (sanitizedPoints.length === 0) {
-                  sanitizedPoints.push(p);
-                } else {
-                  const last = sanitizedPoints[sanitizedPoints.length - 1];
-                  if (p.time > last.time + 0.005) {
-                    sanitizedPoints.push(p);
-                  }
-                }
-              }
-
-              // Apply automation
-              if (sanitizedPoints.length > 0) {
-                gainNode.gain.setValueAtTime(sanitizedPoints[0].value, sanitizedPoints[0].time);
-                for (let i = 1; i < sanitizedPoints.length; i++) {
-                  gainNode.gain.linearRampToValueAtTime(sanitizedPoints[i].value, sanitizedPoints[i].time);
-                }
-              } else {
-                gainNode.gain.setValueAtTime(nominalGain, track.start);
-              }
-            } else {
-              gainNode.gain.setValueAtTime(nominalGain, track.start);
-            }
-
-            source.connect(gainNode);
-            const fxOut = applyOfflineFxChain(offlineCtx, gainNode, track.fx || "none");
-            fxOut.connect(masterLimiter);
-
-            source.start(track.start, startOffset, playDuration);
-          } catch (err) {
-            console.warn("OfflineAudioContext scheduling failed for track:", track.url, err);
+          const isExternal = item.url.startsWith("http://") || item.url.startsWith("https://");
+          const img = new Image();
+          if (isExternal) {
+            img.crossOrigin = "anonymous";
           }
-        }
-        audioTrackCount++;
-        setProgress(0.15 + 0.05 * (audioTrackCount / Math.max(1, audioTracks.length)));
+          img.onload = () => {
+            for (const alias of item.aliases) {
+              preloadedMap[alias] = img;
+            }
+            preloadedMap[item.url] = img;
+            hiddenContainer.appendChild(img);
+            updatePreloadProgress();
+            resolve();
+          };
+          img.onerror = () => {
+            console.warn("Failed to preload image:", item.url);
+            updatePreloadProgress();
+            resolve();
+          };
+          img.src = item.url;
+        });
+
+      const preloadVideoItem = (item: (typeof preloadPlan)[number]) =>
+        new Promise<void>((resolve) => {
+          if (abortControllerRef.current) {
+            resolve();
+            return;
+          }
+          const isExternal = item.url.startsWith("http://") || item.url.startsWith("https://");
+          const vid = document.createElement("video");
+          trackedVideos.add(vid);
+          if (isExternal) {
+            vid.crossOrigin = "anonymous";
+          }
+          vid.muted = true;
+          vid.playsInline = true;
+          vid.preload = "auto";
+          hiddenContainer.appendChild(vid);
+
+          vid.onloadeddata = () => {
+            for (const alias of item.aliases) {
+              preloadedMap[alias] = vid;
+            }
+            preloadedMap[item.url] = vid;
+            updatePreloadProgress();
+            resolve();
+          };
+          vid.onerror = () => {
+            console.warn("Failed to preload video:", item.url);
+            updatePreloadProgress();
+            resolve();
+          };
+          vid.src = item.url;
+          vid.load();
+        });
+
+      await Promise.all([
+        runWithConcurrency(videoPlanItems, 2, preloadVideoItem, () => abortControllerRef.current),
+        runWithConcurrency(imagePlanItems, 6, preloadImageItem, () => abortControllerRef.current),
+      ]);
+
+      if (abortControllerRef.current) {
+        cleanupRef.current?.();
+        setExporting(false);
+        setProgress(0);
+        return;
       }
 
-      // Phase C: Render video clips audio with clip-level RMS normalization and click-free boundary micro-fades
-      if (!videoMuted) {
-        let runningClipStart = 0;
-        let clipIndexCount = 0;
-        for (const clip of clips) {
-          if (abortControllerRef.current) return;
-          const sp = clip.speed && clip.speed > 0 ? clip.speed : 1;
-          const len = Math.max(0, clip.out - clip.in) / sp;
-          const clipStart = runningClipStart;
-          const clipEnd = clipStart + len;
-          runningClipStart += len;
+      // Pre-index media items by id for O(1) lookup during audio & frame rendering
+      const mediaById = new Map(media.map((m) => [m.id, m]));
 
-          const mItem = media.find(m => m.id === clip.mediaId);
-          if (mItem && mItem.type === "video" && !clip.muteOriginalAudio) {
-            const audioUrlToUse = clip.processedAudioUrl || mItem.url;
-            const buffer = audioBufferCache[audioUrlToUse];
-            if (buffer) {
-              try {
+      // 5. Setup OfflineAudioContext and render only audible background music / voiceover / video audio
+      const requiredAudioUrls = collectRequiredAudioUrls({
+        clips,
+        media,
+        audioTracks,
+        overlays,
+        videoMuted,
+        videoVolume,
+      });
+      let hasAudioSources = requiredAudioUrls.length > 0;
+
+      const fetchAndDecodeAudio = async (url: string, targetCtx: BaseAudioContext) => {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`HTTP status ${res.status}`);
+          const arrayBuffer = await res.arrayBuffer();
+          const decoded = await targetCtx.decodeAudioData(arrayBuffer);
+          return decoded;
+        } catch (err) {
+          console.warn(`Failed to fetch/decode audio from ${url}:`, err);
+          return null;
+        }
+      };
+
+      const audioBufferCache: Record<string, AudioBuffer> = {};
+      let renderedAudioBuffer: AudioBuffer | null = null;
+
+      if (hasAudioSources) {
+        setProgress(0.15);
+        const sampleRate = 44100;
+        const offlineCtx = new OfflineAudioContext(2, Math.max(1, Math.ceil(totalDuration * sampleRate)), sampleRate);
+
+        // Master DynamicsCompressorNode configured as a soft limiter to eliminate distortion/clipping
+        const masterLimiter = offlineCtx.createDynamicsCompressor();
+        masterLimiter.threshold.setValueAtTime(-3, 0);
+        masterLimiter.knee.setValueAtTime(3, 0);
+        masterLimiter.ratio.setValueAtTime(20, 0);
+        masterLimiter.attack.setValueAtTime(0.003, 0);
+        masterLimiter.release.setValueAtTime(0.25, 0);
+        masterLimiter.connect(offlineCtx.destination);
+
+        // Phase A: Pre-decode required audio buffers with bounded concurrency (max 3)
+        await runWithConcurrency(
+          requiredAudioUrls,
+          3,
+          async (url) => {
+            if (abortControllerRef.current || audioBufferCache[url]) return;
+            const buf = await fetchAndDecodeAudio(url, offlineCtx);
+            if (buf) audioBufferCache[url] = buf;
+          },
+          () => abortControllerRef.current
+        );
+
+        if (abortControllerRef.current) {
+          for (const k of Object.keys(audioBufferCache)) delete audioBufferCache[k];
+          cleanupRef.current?.();
+          setExporting(false);
+          setProgress(0);
+          return;
+        }
+
+        const activeVoiceIntervals: Array<{ start: number; end: number; gain: number }> = [];
+        let scheduledAudioSourcesCount = 0;
+
+        // Analyze video clips audio loudness & calculate timeline occupancy
+        if (!videoMuted && videoVolume > 0) {
+          let runningClipStart = 0;
+          for (const clip of clips) {
+            const sp = clip.speed && clip.speed > 0 ? clip.speed : 1;
+            const len = Math.max(0, clip.out - clip.in) / sp;
+            const clipStart = runningClipStart;
+            const clipEnd = clipStart + len;
+            runningClipStart += len;
+
+            const mItem = mediaById.get(clip.mediaId);
+            if (mItem && mItem.type === "video" && !clip.muteOriginalAudio) {
+              const audioUrlToUse = clip.processedAudioUrl || mItem.url;
+              const buffer = audioBufferCache[audioUrlToUse];
+              if (buffer) {
                 const startOffset = Math.min(clip.in, buffer.duration);
                 const srcDuration = Math.max(0, Math.min(clip.out, buffer.duration) - startOffset);
+                const { rmsDb } = calculateBufferRMS(buffer, startOffset, srcDuration);
+                const clipVol = (clip.volume !== undefined ? clip.volume : 1) * videoVolume;
 
-                // Calculate clip slice RMS & gentle normalization towards -19 dBFS
-                const { rmsDb: clipRms } = calculateBufferRMS(buffer, startOffset, srcDuration);
-                const clipAutoGain = computeNormalizedGain(clipRms, -19.0, 4.5, -6.0);
+                if (rmsDb > -42 && clipVol > 0.05) {
+                  activeVoiceIntervals.push({
+                    start: clipStart,
+                    end: clipEnd,
+                    gain: clipVol,
+                  });
+                }
+              }
+            }
+          }
+        }
+
+        // Phase B: Render background music & voiceover tracks with gentle RMS normalization and smooth ducking
+        let audioTrackCount = 0;
+        for (const track of audioTracks) {
+          if (abortControllerRef.current) return;
+          const buffer = !track.muted && track.volume > 0 ? audioBufferCache[track.url] : undefined;
+          if (buffer) {
+            try {
+              const startOffset = Math.min(track.offset || 0, buffer.duration);
+              const playDuration = Math.max(0, Math.min(track.duration, buffer.duration - startOffset));
+              const trackEnd = track.start + playDuration;
+
+              if (playDuration > 0) {
+                const { rmsDb: trackRms } = calculateBufferRMS(buffer, startOffset, playDuration);
+                const autoLevelMultiplier = computeNormalizedGain(trackRms, -20.0, 3.5, -7.5);
+                const nominalGain = track.volume * (track.muted ? 0 : 1) * autoLevelMultiplier;
 
                 const source = offlineCtx.createBufferSource();
                 source.buffer = buffer;
-                source.playbackRate.value = sp;
-
                 const gainNode = offlineCtx.createGain();
-                const baseVol = (clip.volume !== undefined ? clip.volume : 1) * videoVolume * clipAutoGain;
 
-                // Micro fade-in (15ms) and fade-out (15ms) to ensure zero boundary clicks between clip cuts
-                const fadeDuration = Math.min(0.015, len * 0.2);
-                gainNode.gain.setValueAtTime(0.001, clipStart);
-                gainNode.gain.linearRampToValueAtTime(baseVol, clipStart + fadeDuration);
-                gainNode.gain.setValueAtTime(baseVol, Math.max(clipStart + fadeDuration, clipEnd - fadeDuration));
-                gainNode.gain.linearRampToValueAtTime(0.001, clipEnd);
+                const overlappingSpeech = activeVoiceIntervals.filter(
+                  (interval) => interval.end > track.start && interval.start < trackEnd
+                );
 
-                // User-defined volume keyframes (scaled by auto-gain multiplier)
-                if (clip.keyframes && clip.keyframes.length > 0) {
-                  const volKeyframes = clip.keyframes.filter(kf => kf.property === "volume");
-                  volKeyframes.forEach(kf => {
-                    const kfTimelineTime = clipStart + kf.time;
-                    if (kfTimelineTime >= clipStart && kfTimelineTime <= clipEnd) {
-                      const targetVol = kf.value * videoVolume * clipAutoGain;
-                      gainNode.gain.linearRampToValueAtTime(targetVol, kfTimelineTime);
-                    }
+                if (overlappingSpeech.length > 0 && nominalGain > 0.01) {
+                  const duckedGain = nominalGain * 0.42;
+                  const points: Array<{ time: number; value: number }> = [];
+
+                  const isInitiallyInSpeech = overlappingSpeech.some(
+                    (s) => track.start >= s.start && track.start < s.end
+                  );
+                  points.push({
+                    time: Math.max(0, track.start),
+                    value: isInitiallyInSpeech ? duckedGain : nominalGain,
                   });
+
+                  for (const speech of overlappingSpeech) {
+                    const sStart = Math.max(track.start, speech.start);
+                    const sEnd = Math.min(trackEnd, speech.end);
+
+                    if (sEnd > sStart) {
+                      const rampDownStart = Math.max(track.start, sStart - 0.25);
+                      if (rampDownStart > track.start && !isInitiallyInSpeech) {
+                        points.push({ time: rampDownStart, value: nominalGain });
+                      }
+                      points.push({ time: sStart, value: duckedGain });
+                      points.push({ time: sEnd, value: duckedGain });
+
+                      const rampUpEnd = Math.min(trackEnd, sEnd + 0.35);
+                      if (rampUpEnd > sEnd) {
+                        points.push({ time: rampUpEnd, value: nominalGain });
+                      }
+                    }
+                  }
+
+                  points.push({ time: trackEnd, value: points[points.length - 1]?.value ?? nominalGain });
+
+                  points.sort((a, b) => a.time - b.time);
+                  const sanitizedPoints: Array<{ time: number; value: number }> = [];
+                  for (const p of points) {
+                    if (sanitizedPoints.length === 0) {
+                      sanitizedPoints.push(p);
+                    } else {
+                      const last = sanitizedPoints[sanitizedPoints.length - 1];
+                      if (p.time > last.time + 0.005) {
+                        sanitizedPoints.push(p);
+                      }
+                    }
+                  }
+
+                  if (sanitizedPoints.length > 0) {
+                    gainNode.gain.setValueAtTime(sanitizedPoints[0].value, sanitizedPoints[0].time);
+                    for (let i = 1; i < sanitizedPoints.length; i++) {
+                      gainNode.gain.linearRampToValueAtTime(sanitizedPoints[i].value, sanitizedPoints[i].time);
+                    }
+                  } else {
+                    gainNode.gain.setValueAtTime(nominalGain, track.start);
+                  }
+                } else {
+                  gainNode.gain.setValueAtTime(nominalGain, track.start);
                 }
 
                 source.connect(gainNode);
-                const fxOut = applyOfflineFxChain(offlineCtx, gainNode, videoAudioFx || "none");
+                const fxOut = applyOfflineFxChain(offlineCtx, gainNode, track.fx || "none");
                 fxOut.connect(masterLimiter);
 
-                source.start(clipStart, startOffset, srcDuration);
-              } catch (err) {
-                console.warn("OfflineAudioContext video audio scheduling failed:", mItem.url, err);
+                source.start(track.start, startOffset, playDuration);
+                scheduledAudioSourcesCount++;
+              }
+            } catch (err) {
+              console.warn("OfflineAudioContext scheduling failed for track:", track.url, err);
+            }
+          }
+          audioTrackCount++;
+          setProgress(0.15 + 0.05 * (audioTrackCount / Math.max(1, audioTracks.length)));
+        }
+
+        // Phase C: Render video clips audio with clip-level RMS normalization and click-free boundary micro-fades
+        if (!videoMuted && videoVolume > 0) {
+          let runningClipStart = 0;
+          let clipIndexCount = 0;
+          for (const clip of clips) {
+            if (abortControllerRef.current) return;
+            const sp = clip.speed && clip.speed > 0 ? clip.speed : 1;
+            const len = Math.max(0, clip.out - clip.in) / sp;
+            const clipStart = runningClipStart;
+            const clipEnd = clipStart + len;
+            runningClipStart += len;
+
+            const mItem = mediaById.get(clip.mediaId);
+            if (mItem && mItem.type === "video" && !clip.muteOriginalAudio) {
+              const audioUrlToUse = clip.processedAudioUrl || mItem.url;
+              const buffer = audioBufferCache[audioUrlToUse];
+              if (buffer) {
+                try {
+                  const startOffset = Math.min(clip.in, buffer.duration);
+                  const srcDuration = Math.max(0, Math.min(clip.out, buffer.duration) - startOffset);
+
+                  if (srcDuration > 0) {
+                    const { rmsDb: clipRms } = calculateBufferRMS(buffer, startOffset, srcDuration);
+                    const clipAutoGain = computeNormalizedGain(clipRms, -19.0, 4.5, -6.0);
+
+                    const source = offlineCtx.createBufferSource();
+                    source.buffer = buffer;
+                    source.playbackRate.value = sp;
+
+                    const gainNode = offlineCtx.createGain();
+                    const baseVol = (clip.volume !== undefined ? clip.volume : 1) * videoVolume * clipAutoGain;
+
+                    const fadeDuration = Math.min(0.015, len * 0.2);
+                    gainNode.gain.setValueAtTime(0.001, clipStart);
+                    gainNode.gain.linearRampToValueAtTime(baseVol, clipStart + fadeDuration);
+                    gainNode.gain.setValueAtTime(baseVol, Math.max(clipStart + fadeDuration, clipEnd - fadeDuration));
+                    gainNode.gain.linearRampToValueAtTime(0.001, clipEnd);
+
+                    if (clip.keyframes && clip.keyframes.length > 0) {
+                      const volKeyframes = clip.keyframes.filter((kf) => kf.property === "volume");
+                      volKeyframes.forEach((kf) => {
+                        const kfTimelineTime = clipStart + kf.time;
+                        if (kfTimelineTime >= clipStart && kfTimelineTime <= clipEnd) {
+                          const targetVol = kf.value * videoVolume * clipAutoGain;
+                          gainNode.gain.linearRampToValueAtTime(targetVol, kfTimelineTime);
+                        }
+                      });
+                    }
+
+                    source.connect(gainNode);
+                    const fxOut = applyOfflineFxChain(offlineCtx, gainNode, videoAudioFx || "none");
+                    fxOut.connect(masterLimiter);
+
+                    source.start(clipStart, startOffset, srcDuration);
+                    scheduledAudioSourcesCount++;
+                  }
+                } catch (err) {
+                  console.warn("OfflineAudioContext video audio scheduling failed:", mItem.url, err);
+                }
+              }
+            }
+            clipIndexCount++;
+            setProgress(0.20 + 0.05 * (clipIndexCount / Math.max(1, clips.length)));
+          }
+        }
+
+        // Phase D: Render audible video overlay tracks
+        for (const ov of overlays) {
+          if (ov.type === "video" && !ov.muted && (ov.volume === undefined || ov.volume > 0) && videoVolume > 0) {
+            const ovMedia = mediaById.get(ov.url);
+            const ovAudioUrl = ovMedia ? ovMedia.url : ov.url;
+            const buffer = audioBufferCache[ovAudioUrl] || audioBufferCache[ov.url];
+            if (buffer) {
+              try {
+                const ovVol = (ov.volume !== undefined ? ov.volume : 1) * videoVolume;
+                const source = offlineCtx.createBufferSource();
+                source.buffer = buffer;
+                const gainNode = offlineCtx.createGain();
+                gainNode.gain.setValueAtTime(ovVol, Math.max(0, ov.start));
+                source.connect(gainNode);
+                gainNode.connect(masterLimiter);
+                const ovDuration = Math.min(buffer.duration, Math.max(0.1, ov.end - ov.start));
+                source.start(Math.max(0, ov.start), 0, ovDuration);
+                scheduledAudioSourcesCount++;
+              } catch (ovErr) {
+                console.warn("Video overlay audio scheduling notice:", ovErr);
               }
             }
           }
-          clipIndexCount++;
-          setProgress(0.20 + 0.05 * (clipIndexCount / Math.max(1, clips.length)));
         }
-      }
 
-      // Phase D: Render audible video overlay tracks
-      for (const ov of overlays) {
-        if (ov.type === "video" && !ov.muted && (ov.volume === undefined || ov.volume > 0)) {
-          const buffer = audioBufferCache[ov.url];
-          if (buffer) {
-            try {
-              const ovVol = (ov.volume !== undefined ? ov.volume : 1) * videoVolume;
-              const source = offlineCtx.createBufferSource();
-              source.buffer = buffer;
-              const gainNode = offlineCtx.createGain();
-              gainNode.gain.setValueAtTime(ovVol, Math.max(0, ov.start));
-              source.connect(gainNode);
-              gainNode.connect(masterLimiter);
-              const ovDuration = Math.min(buffer.duration, Math.max(0.1, ov.end - ov.start));
-              source.start(Math.max(0, ov.start), 0, ovDuration);
-            } catch (ovErr) {
-              console.warn("Video overlay audio scheduling notice:", ovErr);
+        // Release raw source AudioBuffers immediately before rendering master mix
+        for (const key of Object.keys(audioBufferCache)) {
+          delete audioBufferCache[key];
+        }
+
+        if (scheduledAudioSourcesCount > 0) {
+          try {
+            const mixedBuffer = await offlineCtx.startRendering();
+            const { rmsDb: mixedRmsDb, peak: mixedPeak } = calculateBufferRMS(mixedBuffer);
+            if (mixedRmsDb > -68 || mixedPeak >= 0.0002) {
+              renderedAudioBuffer = mixedBuffer;
+            } else {
+              hasAudioSources = false;
             }
+          } catch (err) {
+            console.error("Offline audio rendering failed:", err);
+            hasAudioSources = false;
           }
+        } else {
+          hasAudioSources = false;
         }
       }
-
-      try {
-        renderedAudioBuffer = await offlineCtx.startRendering();
-        if (ffmpegRef.current && renderedAudioBuffer) {
-          const wavBytes = bufferToWav(renderedAudioBuffer);
-          await ffmpegRef.current.writeFile("audio.wav", new Uint8Array(wavBytes));
-          writtenFilesRef.current.add("audio.wav");
-        }
-      } catch (err) {
-        console.error("Offline audio rendering failed:", err);
-      }
-    }
 
     setProgress(0.25);
 
@@ -1262,17 +1129,31 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
     const fpsVal = FPS_OPTIONS[fps] || 30;
     const frameDuration = 1 / fpsVal;
     const totalFrames = Math.ceil(totalDuration * fpsVal);
+    const seekToleranceSec = computeSeekTolerance(fpsVal);
+    const scaleFactorX = exportWidth / previewW;
+    const scaleFactorY = exportHeight / previewH;
 
-    // High performance frame renderer function shared by FFmpeg and MediaRecorder fallback
+    interface CachedCaptionLayout {
+      font: string;
+      fontSize: number;
+      letterSpacing: number;
+      textLines: string[];
+      lineHeightPx: number;
+      rectW: number;
+      rectH: number;
+      radiusVal: number;
+      badgeIconPrefix: string;
+    }
+    const captionLayoutCache = new Map<string, CachedCaptionLayout>();
+
+    // High performance frame renderer function shared by WebCodecs, FFmpeg, and MediaRecorder fallback
     const drawFrameAtTime = async (elapsed: number) => {
       // Pre-compute unified VFX state for this timestamp with exact dimension scaling
-      const scaleFactorX = exportWidth / previewW;
-      const scaleFactorY = exportHeight / previewH;
       const vfxState = computeVfxState(vfx, elapsed, scaleFactorX, scaleFactorY);
 
       // Resolve current clip and timing details
       const resClip = resolveTimelineTime(elapsed);
-      const activeMedia = resClip ? media.find(m => m.id === resClip.clip.mediaId) : null;
+      const activeMedia = resClip ? (mediaById.get(resClip.clip.mediaId) ?? null) : null;
 
       // Seek active video if needed
       if (resClip && activeMedia && activeMedia.type === "video") {
@@ -1280,7 +1161,12 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
         if (preloadedVid) {
           preloadedVid.muted = true;
           preloadedVid.playbackRate = resClip.clip.speed && resClip.clip.speed > 0 ? resClip.clip.speed : 1;
-          await robustSeekVideo(preloadedVid, resClip.mediaTime, { timeoutMs: 1500, toleranceSec: 0.04 });
+          await robustSeekVideo(preloadedVid, resClip.mediaTime, {
+            timeoutMs: 1500,
+            toleranceSec: seekToleranceSec,
+            fps: fpsVal,
+            signal: seekAbortController.signal,
+          });
         }
       }
 
@@ -1335,8 +1221,8 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
         ctx.scale((flipH ? -1 : 1) * scale, (flipV ? -1 : 1) * scale);
 
         // Pan scale translation
-        const px = panX * (exportWidth / previewW);
-        const py = panY * (exportHeight / previewH);
+        const px = panX * scaleFactorX;
+        const py = panY * scaleFactorY;
         ctx.translate(px, py);
 
         // Apply clip-level VFX geometric transformations (shake, bounce, swing, heartbeat, zoom-pulse, rotate-3d, etc.)
@@ -1378,7 +1264,7 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
         if (hasMask(clip)) {
           ctx.save();
           ctx.translate(-exportWidth / 2, -exportHeight / 2);
-          const clipFeatherPx = (clip.mask?.maskFeather ?? 0) * (exportWidth / previewW);
+          const clipFeatherPx = (clip.mask?.maskFeather ?? 0) * scaleFactorX;
           applyMaskToContext(
             ctx,
             clip,
@@ -1408,7 +1294,7 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
             ctx.save();
             ctx.filter = `blur(${invTRatio * 24}px)`;
             if (activeMedia.type === "video") {
-              const preloadedVid = preloadedMap[clip.mediaId] as HTMLVideoElement;
+              const preloadedVid = (preloadedMap[clip.id] || preloadedMap[clip.mediaId]) as HTMLVideoElement;
               if (preloadedVid && preloadedVid.videoWidth > 0) {
                 const vw = preloadedVid.videoWidth;
                 const vh = preloadedVid.videoHeight;
@@ -1416,7 +1302,7 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
                 ctx.drawImage(preloadedVid, -drawW / 2, -drawH / 2, drawW, drawH);
               }
             } else if (activeMedia.type === "image") {
-              const preloadedImg = preloadedMap[clip.mediaId] as HTMLImageElement;
+              const preloadedImg = (preloadedMap[clip.id] || preloadedMap[clip.mediaId]) as HTMLImageElement;
               if (preloadedImg && (preloadedImg.complete || preloadedImg.naturalWidth > 0)) {
                 const iw = preloadedImg.naturalWidth || 1080;
                 const ih = preloadedImg.naturalHeight || 1920;
@@ -1606,18 +1492,24 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
       vfxState.drawOverlays(ctx, exportWidth, exportHeight);
 
       // Draw Active Sticker/Image/Video Overlays with Preview-Matching Scale & Bounding
-      const activeOvs = overlays.filter(o => elapsed >= o.start && elapsed <= o.end);
-      for (const o of activeOvs) {
+      for (let oi = 0; oi < overlays.length; oi++) {
+        const o = overlays[oi];
+        if (elapsed < o.start || elapsed > o.end) continue;
         let el = preloadedMap[o.url] || preloadedMap[o.id];
         if (!el) {
-          const m = media.find(item => item.id === o.url);
+          const m = mediaById.get(o.url);
           if (m) el = preloadedMap[m.url] || preloadedMap[m.id];
         }
 
         if (el) {
           if (el instanceof HTMLVideoElement) {
             el.muted = true;
-            await robustSeekVideo(el, Math.max(0, elapsed - o.start), { timeoutMs: 1500, toleranceSec: 0.04 });
+            await robustSeekVideo(el, Math.max(0, elapsed - o.start), {
+              timeoutMs: 1500,
+              toleranceSec: seekToleranceSec,
+              fps: fpsVal,
+              signal: seekAbortController.signal,
+            });
           }
 
           const isImgComplete = el instanceof HTMLImageElement && (el.complete || el.naturalWidth > 0);
@@ -1644,9 +1536,9 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
 
             // In preview, overlays are bounded by max-w-[200px] / max-h-[200px] in preview container space
             const maxDim = 200;
-            const scaleFactor = Math.min(1, maxDim / Math.max(rawW, rawH));
-            const previewBaseW = rawW * scaleFactor;
-            const previewBaseH = rawH * scaleFactor;
+            const ovScaleFactor = Math.min(1, maxDim / Math.max(rawW, rawH));
+            const previewBaseW = rawW * ovScaleFactor;
+            const previewBaseH = rawH * ovScaleFactor;
 
             const oScale = o.scale ?? 1;
             const drawW = (previewBaseW / previewW) * exportWidth * oScale;
@@ -1654,11 +1546,11 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
 
             if (o.shadowBlur && o.shadowBlur > 0) {
               ctx.shadowColor = o.shadowColor || "rgba(0,0,0,0.5)";
-              ctx.shadowBlur = o.shadowBlur * (exportWidth / previewW);
+              ctx.shadowBlur = o.shadowBlur * scaleFactorX;
             }
 
             if (o.cornerRadius && o.cornerRadius > 0 && !hasMask(o)) {
-              const scaledRadius = o.cornerRadius * (exportWidth / previewW);
+              const scaledRadius = o.cornerRadius * scaleFactorX;
               ctx.beginPath();
               ctx.roundRect(-drawW / 2, -drawH / 2, drawW, drawH, scaledRadius);
               ctx.clip();
@@ -1689,11 +1581,11 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
             }
 
             if (o.borderWidth && o.borderWidth > 0 && !hasMask(o)) {
-              const scaledBorder = o.borderWidth * (exportWidth / previewW);
+              const scaledBorder = o.borderWidth * scaleFactorX;
               ctx.lineWidth = scaledBorder;
               ctx.strokeStyle = o.borderColor || "#ffffff";
               if (o.cornerRadius && o.cornerRadius > 0) {
-                const scaledRadius = o.cornerRadius * (exportWidth / previewW);
+                const scaledRadius = o.cornerRadius * scaleFactorX;
                 ctx.beginPath();
                 ctx.roundRect(-drawW / 2, -drawH / 2, drawW, drawH, scaledRadius);
                 ctx.stroke();
@@ -1707,8 +1599,9 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
       }
 
       // Draw Active Captions (Subtitles with Keyframes & Multi-line Support)
-      const activeCaps = captions.filter(c => elapsed >= c.start && elapsed <= c.end);
-      for (const activeCap of activeCaps) {
+      for (let ci = 0; ci < captions.length; ci++) {
+        const activeCap = captions[ci];
+        if (elapsed < activeCap.start || elapsed > activeCap.end) continue;
         ctx.save();
         const capLocalTime = elapsed - activeCap.start;
 
@@ -1745,60 +1638,86 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
         ctx.scale((flipH ? -1 : 1) * scale, (flipV ? -1 : 1) * scale);
         ctx.globalAlpha = opacity;
 
-        const previewFontSize = Math.min(size, 28);
-        const fontSize = previewFontSize * scaleFactor;
-        ctx.font = `bold ${fontSize}px ${font}, sans-serif`;
-        ctx.textBaseline = "middle";
-        ctx.textAlign = "center";
-        if ("letterSpacing" in ctx && letterSpacing) {
-          try {
-            (ctx as any).letterSpacing = `${letterSpacing * scaleFactor}px`;
-          } catch {}
-        }
-
-        const rawText = activeCap.text || "";
-        let textLines: string[] = [];
-        if (activeCap.isMultiLine) {
-          const maxTextWidth = exportWidth * 0.75;
-          const paragraphs = rawText.split("\n");
-          for (const para of paragraphs) {
-            const words = para.split(" ");
-            let currentLine = "";
-            for (const word of words) {
-              const testLine = currentLine ? `${currentLine} ${word}` : word;
-              if (ctx.measureText(testLine).width > maxTextWidth && currentLine) {
-                textLines.push(currentLine);
-                currentLine = word;
-              } else {
-                currentLine = testLine;
-              }
-            }
-            if (currentLine) textLines.push(currentLine);
+        let layout = captionLayoutCache.get(activeCap.id);
+        if (!layout) {
+          const previewFontSize = Math.min(size, 28);
+          const fontSize = previewFontSize * scaleFactor;
+          ctx.font = `bold ${fontSize}px ${font}, sans-serif`;
+          ctx.textBaseline = "middle";
+          ctx.textAlign = "center";
+          if ("letterSpacing" in ctx && letterSpacing) {
+            try {
+              (ctx as any).letterSpacing = `${letterSpacing * scaleFactor}px`;
+            } catch {}
           }
-          if (textLines.length === 0) textLines = [""];
-        } else {
-          textLines = rawText.split("\n");
+
+          const rawText = activeCap.text || "";
+          let textLines: string[] = [];
+          if (activeCap.isMultiLine) {
+            const maxTextWidth = exportWidth * 0.75;
+            const paragraphs = rawText.split("\n");
+            for (const para of paragraphs) {
+              const words = para.split(" ");
+              let currentLine = "";
+              for (const word of words) {
+                const testLine = currentLine ? `${currentLine} ${word}` : word;
+                if (ctx.measureText(testLine).width > maxTextWidth && currentLine) {
+                  textLines.push(currentLine);
+                  currentLine = word;
+                } else {
+                  currentLine = testLine;
+                }
+              }
+              if (currentLine) textLines.push(currentLine);
+            }
+            if (textLines.length === 0) textLines = [""];
+          } else {
+            textLines = rawText.split("\n");
+          }
+
+          const paddingX = (bgPadding !== undefined ? bgPadding * 2 : 12) * scaleFactor;
+          const paddingY = (bgPadding !== undefined ? bgPadding : 4) * scaleFactor;
+          const lineHeightPx = fontSize * lineHeightRatio;
+
+          let maxLineWidth = 0;
+          textLines.forEach((line) => {
+            const w = ctx.measureText(line).width;
+            if (w > maxLineWidth) maxLineWidth = w;
+          });
+
+          const badgeIconPrefix = badgeIcon ? `${badgeIcon} ` : "";
+          if (badgeIconPrefix && textLines.length > 0) {
+            const badgeWidth = ctx.measureText(badgeIconPrefix).width;
+            maxLineWidth += badgeWidth;
+          }
+
+          const rectW = Math.max(16, maxLineWidth + paddingX * 2);
+          const rectH = Math.max(16, textLines.length * lineHeightPx + paddingY * 2);
+          const radiusVal = bgRadius * scaleFactor;
+
+          layout = {
+            font,
+            fontSize,
+            letterSpacing,
+            textLines,
+            lineHeightPx,
+            rectW,
+            rectH,
+            radiusVal,
+            badgeIconPrefix,
+          };
+          captionLayoutCache.set(activeCap.id, layout);
         }
 
-        const paddingX = (bgPadding !== undefined ? bgPadding * 2 : 12) * scaleFactor;
-        const paddingY = (bgPadding !== undefined ? bgPadding : 4) * scaleFactor;
-        const lineHeightPx = fontSize * lineHeightRatio;
-
-        let maxLineWidth = 0;
-        textLines.forEach(line => {
-          const w = ctx.measureText(line).width;
-          if (w > maxLineWidth) maxLineWidth = w;
-        });
-
-        const badgeIconPrefix = badgeIcon ? `${badgeIcon} ` : "";
-        if (badgeIconPrefix && textLines.length > 0) {
-          const badgeWidth = ctx.measureText(badgeIconPrefix).width;
-          maxLineWidth += badgeWidth;
-        }
-
-        const rectW = Math.max(16, maxLineWidth + paddingX * 2);
-        const rectH = Math.max(16, textLines.length * lineHeightPx + paddingY * 2);
-        const radiusVal = bgRadius * scaleFactor;
+        const {
+          fontSize,
+          textLines,
+          lineHeightPx,
+          rectW,
+          rectH,
+          radiusVal,
+          badgeIconPrefix,
+        } = layout;
 
         const drawCaptionContent = (targetCtx: CanvasRenderingContext2D, offsetX: number, offsetY: number) => {
           targetCtx.font = `bold ${fontSize}px ${font}, sans-serif`;
@@ -1984,147 +1903,163 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
       }
     }
 
-    // Tier 2: FFmpeg WASM Batch Engine (Secondary)
-    if (!finalBlob && ffmpegRef.current) {
-      try {
-        console.log("[EXPORT ENGINE]: Initializing FFmpeg WASM Batch Engine...");
-        toast.info(
-          isRTL()
-            ? "جاري معالجة إطارات الفيديو..."
-            : "Processing video frames..."
-        );
-
-        for (let i = 0; i < totalFrames; i++) {
-          if (abortControllerRef.current) {
-            cleanupRef.current?.();
-            setExporting(false);
-            setProgress(0);
-            setEstimatedTimeLeft(null);
-            return;
-          }
-
-          const elapsed = i * frameDuration;
-          const currentProgress = 0.25 + 0.55 * (i / totalFrames);
-          setProgress(currentProgress);
-
-          const now = Date.now();
-          const elapsedMs = now - exportStartTime;
-          if (i > 3 && elapsedMs > 500) {
-            const msPerFrame = elapsedMs / (i + 1);
-            const remainingFrames = totalFrames - (i + 1);
-            const totalSecsLeft = (remainingFrames * msPerFrame) / 1000 / 0.85;
-            setEstimatedTimeLeft(formatTimeRemaining(totalSecsLeft));
-          }
-
-          await drawFrameAtTime(elapsed);
-
-          const frameName = `frame_${String(i + 1).padStart(4, "0")}.jpg`;
-          const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/jpeg", 0.92));
-          if (blob) {
-            const arrayBuffer = await blob.arrayBuffer();
-            await ffmpegRef.current.writeFile(frameName, new Uint8Array(arrayBuffer));
-            writtenFilesRef.current.add(frameName);
-          }
-        }
-
-        setProgress(0.85);
-        const crf = quality === 0 ? "18" : quality === 1 ? "18" : quality === 2 ? "21" : "23";
-        const hasAudioFile = hasAudioSources;
-        const isTwoPassActive = twoPass && chosenQuality.value >= 1440;
-
-        if (isTwoPassActive) {
-          toast.info(isRTL() ? "المرحلة 1/2: تحليل معدل البت والحركة..." : "Pass 1/2: Motion & bitrate analysis...");
-          const pass1Args = [
-            "-framerate", String(fpsVal),
-            "-f", "image2",
-            "-i", "frame_%04d.jpg",
-            "-c:v", "libx264",
-            "-profile:v", "high",
-            "-level", "4.0",
-            "-pix_fmt", "yuv420p",
-            "-b:v", `${Math.round(chosenQuality.bitrate)}`,
-            "-pass", "1",
-            "-an",
-            "-f", "null",
-            "/dev/null"
-          ];
-          await ffmpegRef.current.exec(pass1Args);
-          writtenFilesRef.current.add("ffmpeg2pass-0.log");
-          writtenFilesRef.current.add("ffmpeg2pass-0.log.mbtree");
-
-          toast.info(isRTL() ? "المرحلة 2/2: التشفير النهائي فائق الجودة..." : "Pass 2/2: High quality final encoding...");
-          const pass2Args = [
-            "-framerate", String(fpsVal),
-            "-f", "image2",
-            "-i", "frame_%04d.jpg"
-          ];
-          if (hasAudioFile) {
-            pass2Args.push("-i", "audio.wav");
-          }
-          pass2Args.push(
-            "-c:v", "libx264",
-            "-profile:v", "high",
-            "-level", "4.0",
-            "-pix_fmt", "yuv420p",
-            "-b:v", `${Math.round(chosenQuality.bitrate)}`,
-            "-pass", "2"
-          );
-          if (hasAudioFile) {
-            pass2Args.push("-c:a", "aac", "-b:a", "192k", "-shortest");
-          }
-          pass2Args.push("output.mp4");
-
-          ffmpegRef.current.on("progress", ({ progress: ffProg }: { progress: number }) => {
-            setProgress(0.85 + 0.12 * ffProg);
-          });
-
-          await ffmpegRef.current.exec(pass2Args);
-          writtenFilesRef.current.add("output.mp4");
-        } else {
-          const ffmpegArgs = [
-            "-framerate", String(fpsVal),
-            "-f", "image2",
-            "-i", "frame_%04d.jpg"
-          ];
-
-          if (hasAudioFile) {
-            ffmpegArgs.push("-i", "audio.wav");
-          }
-
-          ffmpegArgs.push(
-            "-c:v", "libx264",
-            "-profile:v", "high",
-            "-level", "4.0",
-            "-pix_fmt", "yuv420p",
-            "-crf", crf
+    // Tier 2: FFmpeg WASM Batch Engine (Secondary - lazily initialized only when Tier 1 did not produce finalBlob)
+    if (!finalBlob && !abortControllerRef.current) {
+      const ffmpeg = await ensureFfmpeg();
+      if (ffmpeg && !abortControllerRef.current) {
+        try {
+          console.log("[EXPORT ENGINE]: Initializing FFmpeg WASM Batch Engine...");
+          toast.info(
+            isRTL()
+              ? "جاري معالجة إطارات الفيديو..."
+              : "Processing video frames..."
           );
 
-          if (hasAudioFile) {
-            ffmpegArgs.push("-c:a", "aac", "-b:a", "192k", "-shortest");
+          if (hasAudioSources && renderedAudioBuffer) {
+            const wavBytes = bufferToWav(renderedAudioBuffer);
+            await ffmpeg.writeFile("audio.wav", new Uint8Array(wavBytes));
+            writtenFilesRef.current.add("audio.wav");
           }
 
-          ffmpegArgs.push("output.mp4");
+          for (let i = 0; i < totalFrames; i++) {
+            if (abortControllerRef.current) {
+              cleanupRef.current?.();
+              setExporting(false);
+              setProgress(0);
+              setEstimatedTimeLeft(null);
+              return;
+            }
 
-          ffmpegRef.current.on("progress", ({ progress: ffProg }: { progress: number }) => {
-            setProgress(0.85 + 0.12 * ffProg);
-          });
+            const elapsed = i * frameDuration;
+            const currentProgress = 0.25 + 0.55 * (i / totalFrames);
+            setProgress(currentProgress);
 
-          await ffmpegRef.current.exec(ffmpegArgs);
-          writtenFilesRef.current.add("output.mp4");
+            const now = Date.now();
+            const elapsedMs = now - exportStartTime;
+            if (i > 3 && elapsedMs > 500) {
+              const msPerFrame = elapsedMs / (i + 1);
+              const remainingFrames = totalFrames - (i + 1);
+              const totalSecsLeft = (remainingFrames * msPerFrame) / 1000 / 0.85;
+              setEstimatedTimeLeft(formatTimeRemaining(totalSecsLeft));
+            }
+
+            await drawFrameAtTime(elapsed);
+
+            const frameName = `frame_${String(i + 1).padStart(4, "0")}.jpg`;
+            const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/jpeg", 0.92));
+            if (blob) {
+              const arrayBuffer = await blob.arrayBuffer();
+              await ffmpeg.writeFile(frameName, new Uint8Array(arrayBuffer));
+              writtenFilesRef.current.add(frameName);
+            }
+          }
+
+          setProgress(0.85);
+          const crf = quality === 0 ? "18" : quality === 1 ? "18" : quality === 2 ? "21" : "23";
+          const hasAudioFile = hasAudioSources && writtenFilesRef.current.has("audio.wav");
+          const isTwoPassActive = twoPass && chosenQuality.value >= 1440;
+
+          if (isTwoPassActive) {
+            toast.info(isRTL() ? "المرحلة 1/2: تحليل معدل البت والحركة..." : "Pass 1/2: Motion & bitrate analysis...");
+            const pass1Args = [
+              "-framerate", String(fpsVal),
+              "-f", "image2",
+              "-i", "frame_%04d.jpg",
+              "-c:v", "libx264",
+              "-profile:v", "high",
+              "-level", "4.0",
+              "-pix_fmt", "yuv420p",
+              "-b:v", `${Math.round(chosenQuality.bitrate)}`,
+              "-pass", "1",
+              "-an",
+              "-f", "null",
+              "/dev/null"
+            ];
+            await ffmpeg.exec(pass1Args);
+            writtenFilesRef.current.add("ffmpeg2pass-0.log");
+            writtenFilesRef.current.add("ffmpeg2pass-0.log.mbtree");
+
+            toast.info(isRTL() ? "المرحلة 2/2: التشفير النهائي فائق الجودة..." : "Pass 2/2: High quality final encoding...");
+            const pass2Args = [
+              "-framerate", String(fpsVal),
+              "-f", "image2",
+              "-i", "frame_%04d.jpg"
+            ];
+            if (hasAudioFile) {
+              pass2Args.push("-i", "audio.wav");
+            }
+            pass2Args.push(
+              "-c:v", "libx264",
+              "-profile:v", "high",
+              "-level", "4.0",
+              "-pix_fmt", "yuv420p",
+              "-b:v", `${Math.round(chosenQuality.bitrate)}`,
+              "-pass", "2"
+            );
+            if (hasAudioFile) {
+              pass2Args.push("-c:a", "aac", "-b:a", "192k", "-shortest");
+            }
+            pass2Args.push("output.mp4");
+
+            ffmpeg.on("progress", ({ progress: ffProg }: { progress: number }) => {
+              setProgress(0.85 + 0.12 * ffProg);
+            });
+
+            await ffmpeg.exec(pass2Args);
+            writtenFilesRef.current.add("output.mp4");
+          } else {
+            const ffmpegArgs = [
+              "-framerate", String(fpsVal),
+              "-f", "image2",
+              "-i", "frame_%04d.jpg"
+            ];
+
+            if (hasAudioFile) {
+              ffmpegArgs.push("-i", "audio.wav");
+            }
+
+            ffmpegArgs.push(
+              "-c:v", "libx264",
+              "-profile:v", "high",
+              "-level", "4.0",
+              "-pix_fmt", "yuv420p",
+              "-crf", crf
+            );
+
+            if (hasAudioFile) {
+              ffmpegArgs.push("-c:a", "aac", "-b:a", "192k", "-shortest");
+            }
+
+            ffmpegArgs.push("output.mp4");
+
+            ffmpeg.on("progress", ({ progress: ffProg }: { progress: number }) => {
+              setProgress(0.85 + 0.12 * ffProg);
+            });
+
+            await ffmpeg.exec(ffmpegArgs);
+            writtenFilesRef.current.add("output.mp4");
+          }
+
+          if (!abortControllerRef.current) {
+            const finalVideoData = await ffmpeg.readFile("output.mp4");
+            finalBlob = new Blob([finalVideoData], { type: "video/mp4" });
+          }
+
+          // Immediately delete intermediate frame_XXXX.jpg, audio.wav, and output.mp4 from WASM memory
+          if (writtenFilesRef.current.size > 0) {
+            const filesToDelete = Array.from(writtenFilesRef.current);
+            writtenFilesRef.current.clear();
+            await Promise.all(filesToDelete.map((f) => ffmpeg.deleteFile(f).catch(() => {})));
+          }
+        } catch (ffErr) {
+          console.warn("[EXPORT ENGINE]: FFmpeg WASM export notice:", ffErr);
+          finalBlob = null;
         }
-
-        if (!abortControllerRef.current) {
-          const finalVideoData = await ffmpegRef.current.readFile("output.mp4");
-          finalBlob = new Blob([finalVideoData], { type: "video/mp4" });
-        }
-      } catch (ffErr) {
-        console.warn("[EXPORT ENGINE]: FFmpeg WASM export notice:", ffErr);
-        finalBlob = null;
       }
     }
 
     // Tier 3: Frame-Paced Canvas MediaRecorder Engine (Compatible Tertiary)
-    if (!finalBlob) {
+    if (!finalBlob && !abortControllerRef.current) {
       console.log("[EXPORT ENGINE]: Initializing Frame-Paced MediaRecorder Engine...");
       toast.info(
         isRTL()
@@ -2143,6 +2078,10 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
         drawFrameAtTime
       );
     }
+
+    // Free preloaded video/image elements and raw PCM audio buffer immediately after encoding completes
+    renderedAudioBuffer = null;
+    cleanupRef.current?.();
 
     if (!finalBlob) {
       throw new Error(
