@@ -989,6 +989,23 @@ describe("Comprehensive Smart Cut & Rhythm Engine Test Suite", () => {
     expect(dropSectionsInFlat.length).toBe(0);
     expect(compRes.sections.every((s) => s.type === "verse")).toBe(true);
 
+    // 1b. Track with ~8% energy variation (p75 - p30 ≈ 0.08 < 0.15) should also yield verse only
+    const mildVariationBuffer = createSyntheticAudioBuffer(durationSec, sampleRate, (data, sr) => {
+      for (let i = 0; i < data.length; i++) {
+        const t = i / sr;
+        // Smooth ~8% amplitude modulation (0.78 to 0.845)
+        const amp = t < 12 ? 0.78 : 0.845;
+        data[i] = Math.sin((2 * Math.PI * 220 * i) / sr) * amp;
+      }
+      for (let t = 0.25; t < durationSec - 0.1; t += 0.5) {
+        addDrumClick(data, sr, t, 0.2, 0.2);
+      }
+    });
+
+    const mildRes = await analyzeAudioBuffer(mildVariationBuffer);
+    expect(mildRes.sections.length).toBeGreaterThan(0);
+    expect(mildRes.sections.every((s) => s.type === "verse")).toBe(true);
+
     // 2. Dynamic track: 0..7s calm (amp 0.08), 7..16s verse (amp 0.35), 16..24s drop (amp 0.90)
     const dynamicBuffer = createSyntheticAudioBuffer(durationSec, sampleRate, (data, sr) => {
       for (let i = 0; i < data.length; i++) {

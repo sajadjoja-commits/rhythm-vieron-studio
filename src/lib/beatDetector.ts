@@ -563,7 +563,7 @@ export async function analyzeAudioBuffer(
   const p75 = sortedCurve.length > 0
     ? sortedCurve[Math.min(sortedCurve.length - 1, Math.floor(sortedCurve.length * 0.75))]
     : 0.72;
-  const hasDynamicVariation = p75 - p30 >= 0.02;
+  const hasDynamicVariation = p75 - p30 >= 0.15;
 
   const sections: MusicSection[] = [];
   const secWindowSize = Math.max(1, Math.floor(1.5 / 0.1)); // 1.5s minimum section length

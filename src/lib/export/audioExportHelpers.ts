@@ -68,23 +68,45 @@ export function collectRequiredAudioUrls(input: AudioUrlCollectionInput): string
     }
   }
 
-  // 3. Audible video overlays
-  if (videoVolume > 0) {
-    for (const ov of overlays) {
-      if (!ov || ov.type !== "video" || ov.muted) continue;
-      const ovVol = ov.volume !== undefined ? ov.volume : 1;
-      if (ovVol <= 0) continue;
-      if (ov.end !== undefined && ov.start !== undefined && ov.end <= ov.start) continue;
+  // 3. Audible video overlays (muted by default unless explicitly unmuted with muted: false)
+  for (const ov of overlays) {
+    if (!ov || ov.type !== "video" || (ov.muted ?? true)) continue;
+    const ovVol = ov.volume !== undefined ? ov.volume : 1;
+    if (ovVol <= 0) continue;
+    if (ov.end !== undefined && ov.start !== undefined && ov.end <= ov.start) continue;
 
-      const mItem = mediaById.get(ov.url);
-      const resolvedUrl = mItem ? mItem.url : ov.url;
-      if (resolvedUrl) {
-        urls.add(resolvedUrl);
-      }
+    const mItem = mediaById.get(ov.url);
+    const resolvedUrl = mItem ? mItem.url : ov.url;
+    if (resolvedUrl) {
+      urls.add(resolvedUrl);
     }
   }
 
   return Array.from(urls);
+}
+
+export const LARGE_AUDIO_SOURCE_BYTES = 50 * 1024 * 1024; // 50 MB
+
+/**
+ * Determines audio decode concurrency: 1 if any source media/track > 50MB, otherwise 2.
+ */
+export function computeAudioDecodeConcurrency(
+  media?: Array<{ size?: number; file?: { size?: number } | null }> | null,
+  audioTracks?: Array<{ size?: number; file?: { size?: number } | null }> | null
+): 1 | 2 {
+  if (Array.isArray(media)) {
+    for (const m of media) {
+      const sz = m?.size ?? m?.file?.size ?? 0;
+      if (sz > LARGE_AUDIO_SOURCE_BYTES) return 1;
+    }
+  }
+  if (Array.isArray(audioTracks)) {
+    for (const t of audioTracks) {
+      const sz = (t as any)?.size ?? t?.file?.size ?? 0;
+      if (sz > LARGE_AUDIO_SOURCE_BYTES) return 1;
+    }
+  }
+  return 2;
 }
 
 /**

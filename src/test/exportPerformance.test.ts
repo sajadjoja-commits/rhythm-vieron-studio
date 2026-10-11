@@ -5,6 +5,7 @@ import {
   cleanupPreloadedElements,
   collectRequiredAudioUrls,
   hasAudibleExportSources,
+  computeAudioDecodeConcurrency,
   calculateBufferRMS,
   computeNormalizedGain,
   computeSeekTolerance,
@@ -12,6 +13,8 @@ import {
   getFilterCSSString,
 } from "@/lib/export";
 import { robustSeekVideo } from "@/lib/videoSeeking";
+import { exportWithWebCodecs, cleanupStaleExports } from "@/lib/webcodecsEncoder";
+import { validateExportedVideo } from "@/lib/videoValidator";
 
 describe("Export Performance & Memory Helpers", () => {
   describe("buildPreloadPlan", () => {
@@ -137,6 +140,7 @@ describe("Export Performance & Memory Helpers", () => {
       ];
 
       const overlays = [
+        { url: "blob:ov-default-muted", type: "video" as const, volume: 1, start: 0, end: 4 },
         { url: "blob:ov-muted", type: "video" as const, muted: true, volume: 1, start: 0, end: 4 },
         { url: "blob:ov-zero", type: "video" as const, muted: false, volume: 0, start: 0, end: 4 },
         { url: "blob:ov-active", type: "video" as const, muted: false, volume: 0.5, start: 0, end: 4 },
@@ -254,6 +258,180 @@ describe("Export Performance & Memory Helpers", () => {
       const ok = await robustSeekVideo(fakeVideo, 1.0, { fps: 60 });
       expect(ok).toBe(true);
       expect(fakeVideo.addEventListener).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("computeAudioDecodeConcurrency & overlay audio independence", () => {
+    it("returns 1 when any media or audioTrack exceeds 50MB and 2 otherwise", () => {
+      expect(
+        computeAudioDecodeConcurrency(
+          [{ size: 10 * 1024 * 1024 }],
+          [{ file: { size: 5 * 1024 * 1024 } }]
+        )
+      ).toBe(2);
+
+      expect(
+        computeAudioDecodeConcurrency(
+          [{ size: 55 * 1024 * 1024 }],
+          [{ file: { size: 5 * 1024 * 1024 } }]
+        )
+      ).toBe(1);
+
+      expect(
+        computeAudioDecodeConcurrency(
+          [{ size: 10 * 1024 * 1024 }],
+          [{ file: { size: 60 * 1024 * 1024 } }]
+        )
+      ).toBe(1);
+    });
+
+    it("collects unmuted video overlay audio even when videoVolume is 0", () => {
+      const urls = collectRequiredAudioUrls({
+        clips: [],
+        media: [],
+        audioTracks: [],
+        overlays: [
+          { url: "blob:ov-unmuted", type: "video", muted: false, volume: 0.8, start: 0, end: 3 },
+        ],
+        videoMuted: true,
+        videoVolume: 0,
+      });
+      expect(urls).toEqual(["blob:ov-unmuted"]);
+    });
+  });
+
+  describe("OPFS temporary file cleanup (cleanupStaleExports & exportWithWebCodecs)", () => {
+    it("leaves at most 1 vireon_export_*.mp4 file in OPFS after 3 consecutive exports", async () => {
+      const opfsFiles = new Map<string, Uint8Array>();
+
+      const mockOpfsDir = {
+        entries: async function* () {
+          for (const [k, v] of opfsFiles.entries()) {
+            yield [k, v];
+          }
+        },
+        getFileHandle: vi.fn(async (name: string, opts?: { create?: boolean }) => {
+          if (!opfsFiles.has(name) && opts?.create) {
+            opfsFiles.set(name, new Uint8Array(128));
+          }
+          return {
+            name,
+            createWritable: async () => ({
+              write: async () => {},
+              close: async () => {},
+              abort: async () => {},
+            }),
+            getFile: async () => {
+              const bytes = opfsFiles.get(name) || new Uint8Array(128);
+              const f = new Blob([bytes], { type: "video/mp4" }) as File;
+              return f;
+            },
+          };
+        }),
+        removeEntry: vi.fn(async (name: string) => {
+          opfsFiles.delete(name);
+        }),
+      };
+
+      const origStorage = navigator.storage;
+      const origVideoEncoder = (globalThis as any).VideoEncoder;
+      const origVideoFrame = (globalThis as any).VideoFrame;
+      const origEncodedVideoChunk = (globalThis as any).EncodedVideoChunk;
+
+      Object.defineProperty(navigator, "storage", {
+        value: { getDirectory: async () => mockOpfsDir },
+        configurable: true,
+      });
+
+      class MockEncodedVideoChunk {
+        public byteLength = 8;
+        public type: "key" | "delta";
+        public timestamp = 0;
+        public duration = 100_000;
+        constructor(opts?: { keyFrame?: boolean }) {
+          this.type = opts?.keyFrame ? "key" : "delta";
+        }
+        copyTo(dest: Uint8Array) {
+          dest.fill(0);
+        }
+      }
+
+      class MockVideoEncoder {
+        public state = "configured";
+        public encodeQueueSize = 0;
+        private outputCb: any;
+        constructor(init: { output: any; error: any }) {
+          this.outputCb = init.output;
+        }
+        static async isConfigSupported() {
+          return { supported: true };
+        }
+        configure() {}
+        encode(_frame: any, opts?: { keyFrame?: boolean }) {
+          this.outputCb(new MockEncodedVideoChunk(opts), {
+            decoderConfig: {
+              codec: "avc1.42001f",
+              codedWidth: 320,
+              codedHeight: 180,
+              description: new Uint8Array([
+                1, 66, 0, 31, 255, 225, 0, 4, 103, 66, 0, 31, 1, 0, 4, 104, 206, 60, 128,
+              ]),
+            },
+          });
+        }
+        async flush() {}
+        close() {
+          this.state = "closed";
+        }
+      }
+
+      class MockVideoFrame {
+        constructor() {}
+        close() {}
+      }
+
+      (globalThis as any).EncodedVideoChunk = MockEncodedVideoChunk;
+      (globalThis as any).VideoEncoder = MockVideoEncoder;
+      (globalThis as any).VideoFrame = MockVideoFrame;
+
+      try {
+        const dummyCanvas = document.createElement("canvas");
+        dummyCanvas.width = 320;
+        dummyCanvas.height = 180;
+
+        for (let run = 0; run < 3; run++) {
+          const blob = await exportWithWebCodecs({
+            canvas: dummyCanvas,
+            exportWidth: 320,
+            exportHeight: 180,
+            fps: 10,
+            bitrate: 1_000_000,
+            totalDuration: 0.1,
+            renderedAudioBuffer: null,
+            onProgress: () => {},
+            isAborted: () => false,
+            renderFrameAtTime: async () => {},
+          });
+          expect(blob.opfsTempFileName).toMatch(/^vireon_export_.*\.mp4$/);
+        }
+
+        const remainingExportFiles = Array.from(opfsFiles.keys()).filter((k) =>
+          k.startsWith("vireon_export_")
+        );
+        expect(remainingExportFiles.length).toBeLessThanOrEqual(1);
+
+        // Calling cleanupStaleExports() with no keepName removes the last one as well
+        await cleanupStaleExports();
+        expect(opfsFiles.size).toBe(0);
+      } finally {
+        Object.defineProperty(navigator, "storage", {
+          value: origStorage,
+          configurable: true,
+        });
+        (globalThis as any).EncodedVideoChunk = origEncodedVideoChunk;
+        (globalThis as any).VideoEncoder = origVideoEncoder;
+        (globalThis as any).VideoFrame = origVideoFrame;
+      }
     });
   });
 });

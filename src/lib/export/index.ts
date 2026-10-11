@@ -10,6 +10,8 @@ export {
   collectAudioUrls,
   collectRequiredAudioUrls,
   hasAudibleExportSources,
+  computeAudioDecodeConcurrency,
+  LARGE_AUDIO_SOURCE_BYTES,
   calculateBufferRMS,
   computeNormalizedGain,
   bufferToWav,

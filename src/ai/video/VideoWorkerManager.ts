@@ -65,6 +65,8 @@ export class VideoWorkerManager {
   private readonly maxRestartsInWindow = 3;
   private readonly restartWindowMs = 60_000;
   private permanentlyLocalFallback = false;
+  private lastTimeoutTimestamp = 0;
+  private readonly fallbackResetCooldownMs = 120_000;
 
   public static getInstance(): VideoWorkerManager {
     if (!VideoWorkerManager.instance) {
@@ -103,6 +105,7 @@ export class VideoWorkerManager {
     this.workerAvailable = false;
 
     const now = Date.now();
+    this.lastTimeoutTimestamp = now;
     this.restartTimestamps = this.restartTimestamps.filter(
       (ts) => now - ts < this.restartWindowMs
     );
@@ -116,6 +119,18 @@ export class VideoWorkerManager {
     } else {
       this.permanentlyLocalFallback = true;
       this.workerAvailable = false;
+    }
+  }
+
+  public maybeResetFallbackForNewTask(): void {
+    if (
+      this.permanentlyLocalFallback &&
+      this.lastTimeoutTimestamp > 0 &&
+      Date.now() - this.lastTimeoutTimestamp > this.fallbackResetCooldownMs
+    ) {
+      this.permanentlyLocalFallback = false;
+      this.restartTimestamps = [];
+      this.initWorker();
     }
   }
 
@@ -175,11 +190,15 @@ export class VideoWorkerManager {
     }
   }
 
+  /**
+   * Returns a dedicated copy ArrayBuffer for worker transfer so the caller's
+   * view (e.g. imageData.data or maskData) stays intact if the worker times out
+   * and local fallback executes.
+   */
   private toTransferableBuffer(view: ArrayBufferView): ArrayBuffer {
-    if (view.byteOffset === 0 && view.byteLength === view.buffer.byteLength) {
-      return view.buffer as ArrayBuffer;
-    }
-    return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) as ArrayBuffer;
+    const copy = new Uint8Array(view.byteLength);
+    copy.set(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
+    return copy.buffer;
   }
 
   private composeSegmentationLocally(
@@ -316,6 +335,9 @@ export class VideoWorkerManager {
     prevLuminance?: Float32Array | null,
     sampleOriginal?: Uint8ClampedArray | null
   ): Promise<WorkerEnhancementResult> {
+    if (!prevLuminance) {
+      this.maybeResetFallbackForNewTask();
+    }
     if (!this.workerAvailable || !this.worker) {
       // Local fallback
       const origCopy = sampleOriginal ? new Uint8ClampedArray(sampleOriginal) : null;
@@ -409,6 +431,9 @@ export class VideoWorkerManager {
     prevAlpha?: Float32Array | null,
     sampleOriginal?: Uint8ClampedArray | null
   ): Promise<WorkerSegmentationResult> {
+    if (!prevAlpha || options?.frameIndex === 0) {
+      this.maybeResetFallbackForNewTask();
+    }
     if (!this.workerAvailable || !this.worker) {
       return this.composeSegmentationLocally(
         width,
@@ -511,6 +536,7 @@ export class VideoWorkerManager {
     videoInput: string | Blob | File,
     options?: VideoAIOptions
   ): Promise<VideoAIResult> {
+    this.maybeResetFallbackForNewTask();
     const inputMediaUrl = typeof videoInput === "string" ? videoInput : "uploaded_video";
     return this.jobManager.startJob({
       taskType,

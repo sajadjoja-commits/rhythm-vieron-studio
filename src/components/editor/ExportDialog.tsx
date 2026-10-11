@@ -13,7 +13,7 @@ import { mediaService, resolveExportPath } from "@/services/media";
 import PublishTemplateDialog from "@/components/editor/PublishTemplateDialog";
 import { robustSeekVideo } from "@/lib/videoSeeking";
 import { validateExportedVideo } from "@/lib/videoValidator";
-import { isWebCodecsSupported, exportWithWebCodecs } from "@/lib/webcodecsEncoder";
+import { isWebCodecsSupported, exportWithWebCodecs, cleanupStaleExports } from "@/lib/webcodecsEncoder";
 import { computeVfxState } from "@/lib/vfxEngine";
 import { computeWordState, computeCharacterReveal } from "@/lib/textTemplatesLibrary";
 import {
@@ -21,6 +21,7 @@ import {
   runWithConcurrency,
   cleanupPreloadedElements,
   collectRequiredAudioUrls,
+  computeAudioDecodeConcurrency,
   calculateBufferRMS,
   computeNormalizedGain,
   bufferToWav,
@@ -435,7 +436,9 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
         URL.revokeObjectURL(exportedVideoUrlRef.current);
         exportedVideoUrlRef.current = null;
       }
+      exportedBlobRef.current = null;
       setExportedVideoUrl(null);
+      void cleanupStaleExports();
     }
     return () => {
       if (exportedVideoUrlRef.current) {
@@ -503,7 +506,9 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
         URL.revokeObjectURL(exportedVideoUrlRef.current);
         exportedVideoUrlRef.current = null;
       }
+      exportedBlobRef.current = null;
       setExportedVideoUrl(null);
+      void cleanupStaleExports();
       onClose();
     }
   };
@@ -857,10 +862,11 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
         masterLimiter.release.setValueAtTime(0.25, 0);
         masterLimiter.connect(offlineCtx.destination);
 
-        // Phase A: Pre-decode required audio buffers with bounded concurrency (max 3)
+        // Phase A: Pre-decode required audio buffers with bounded concurrency (1 if any source > 50MB, else 2)
+        const audioDecodeConcurrency = computeAudioDecodeConcurrency(media, audioTracks);
         await runWithConcurrency(
           requiredAudioUrls,
-          3,
+          audioDecodeConcurrency,
           async (url) => {
             if (abortControllerRef.current || audioBufferCache[url]) return;
             const buf = await fetchAndDecodeAudio(url, offlineCtx);
@@ -1075,15 +1081,15 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
           }
         }
 
-        // Phase D: Render audible video overlay tracks
+        // Phase D: Render audible video overlay tracks (overlays default to muted unless ov.muted === false)
         for (const ov of overlays) {
-          if (ov.type === "video" && !ov.muted && (ov.volume === undefined || ov.volume > 0) && videoVolume > 0) {
+          if (ov.type === "video" && !(ov.muted ?? true) && (ov.volume === undefined || ov.volume > 0)) {
             const ovMedia = mediaById.get(ov.url);
             const ovAudioUrl = ovMedia ? ovMedia.url : ov.url;
             const buffer = audioBufferCache[ovAudioUrl] || audioBufferCache[ov.url];
             if (buffer) {
               try {
-                const ovVol = (ov.volume !== undefined ? ov.volume : 1) * videoVolume;
+                const ovVol = ov.volume !== undefined ? ov.volume : 1;
                 const source = offlineCtx.createBufferSource();
                 source.buffer = buffer;
                 const gainNode = offlineCtx.createGain();
@@ -1891,6 +1897,7 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
           totalDuration,
           renderedAudioBuffer,
           twoPass: twoPass && chosenQuality.value >= 1440,
+          keepOpfsFileName: (exportedBlobRef.current as any)?.opfsTempFileName,
           onProgress: (p) => setProgress(p),
           isAborted: () => abortControllerRef.current,
           renderFrameAtTime: drawFrameAtTime,
@@ -2095,9 +2102,11 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
     setProgress(0.97);
     toast.info(isRTL() ? "جاري إنهاء وتجهيز الملف..." : "Preparing final video file...");
 
+    const skipAudioDecode = totalDuration > 120 || finalBlob.size > 80 * 1024 * 1024;
     const validation = await validateExportedVideo(finalBlob, {
       expectedMinDurationSec: totalDuration,
       expectedHasAudio: hasAudioSources,
+      skipAudioDecode,
     });
     if (!validation.valid) {
       throw new Error(
@@ -2134,6 +2143,7 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
       }
 
       exportedBlobRef.current = finalBlob;
+      void cleanupStaleExports((finalBlob as any)?.opfsTempFileName);
       const finalVideoUrl = URL.createObjectURL(finalBlob);
 
       setExportedVideoUrl(finalVideoUrl);
@@ -2173,6 +2183,8 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
           } catch (err: any) {
             console.error("Error writing native file:", err);
             toast.error((isRTL() ? "فشل حفظ الملف على النظام المحلي: " : "Failed to save local native file: ") + (err?.message || String(err)));
+          } finally {
+            void cleanupStaleExports((exportedBlobRef.current as any)?.opfsTempFileName);
           }
         })();
       } else {
@@ -2227,6 +2239,8 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
             ? "فشل التنزيل التلقائي. يرجى الضغط مطولاً على الفيديو بالأسفل لحفظه."
             : "Auto download failed. Please long-press the video below to save it."
         );
+      } finally {
+        void cleanupStaleExports((exportedBlobRef.current as any)?.opfsTempFileName);
       }
     }
   };
@@ -2314,6 +2328,8 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
       }
       console.warn("[ExportDialog] Share sheet error:", err);
       toast.error((isRTL() ? "تعذر فتح المشاركة: " : "Share sheet error: ") + (err?.message || String(err)));
+    } finally {
+      void cleanupStaleExports((exportedBlobRef.current as any)?.opfsTempFileName);
     }
   };
 

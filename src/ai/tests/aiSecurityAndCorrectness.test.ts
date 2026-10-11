@@ -14,7 +14,9 @@ import { AIHistoryManager } from "../runtime/AIHistoryManager";
 import { AIResourceManager } from "../runtime/AIResourceManager";
 import { AICapabilityRegistry } from "../runtime/AICapabilityRegistry";
 import { AIRuntime } from "../runtime/AIRuntime";
+import { AIManager } from "../AIManager";
 import { AIJobQueue } from "../runtime/AIJobQueue";
+import { supabase } from "@/integrations/supabase/client";
 import { AIProgressManager } from "../runtime/AIProgressManager";
 import {
   activeJobs as audioWorkerActiveJobs,
@@ -147,7 +149,7 @@ describe("AI Library Security & Correctness Verification Suite", () => {
   // --------------------------------------------------------------------------
   // 3. Remote Providers: Unconfigured Behavior & No Fake Fallbacks
   // --------------------------------------------------------------------------
-  it("should mark all remote providers unavailable and return PROVIDER_NOT_CONFIGURED when keys are missing", async () => {
+  it("should require client keys only for Groq/Flux/Gemini while keeping Edge/Replicate available online and returning PROVIDER_NOT_CONFIGURED on 404/FunctionsRelayError", async () => {
     const km = new KeyManager();
     const fetchSpy = vi.spyOn(globalThis, "fetch");
 
@@ -157,11 +159,14 @@ describe("AI Library Security & Correctness Verification Suite", () => {
     const replicate = new ReplicateProvider(km);
     const edge = new SupabaseEdgeProvider(km);
 
+    // Groq, Flux, and Gemini require client API keys
     expect(groq.isAvailable("speech-to-text")).toBe(false);
     expect(flux.isAvailable("image-generation")).toBe(false);
     expect(gemini.isAvailable("translation")).toBe(false);
-    expect(replicate.isAvailable("image-generation")).toBe(false);
-    expect(edge.isAvailable("speech-to-text")).toBe(false);
+
+    // SupabaseEdge and Replicate invoke server-side Edge Functions and remain available with network
+    expect(replicate.isAvailable("image-generation")).toBe(true);
+    expect(edge.isAvailable("speech-to-text")).toBe(true);
 
     const groqRes = await groq.execute("speech-to-text", { audioBase64: "UklGRg==" });
     expect(groqRes.success).toBe(false);
@@ -175,15 +180,40 @@ describe("AI Library Security & Correctness Verification Suite", () => {
     expect(geminiRes.success).toBe(false);
     expect(geminiRes.error?.code).toBe("PROVIDER_NOT_CONFIGURED");
 
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    // When server Edge Function is missing (FunctionsHttpError 404 or FunctionsRelayError), return PROVIDER_NOT_CONFIGURED with Arabic message
+    const functionsProto = Object.getPrototypeOf(supabase.functions);
+    const invokeSpy = vi
+      .spyOn(functionsProto, "invoke")
+      .mockResolvedValueOnce({
+        data: null,
+        error: { name: "FunctionsHttpError", message: "Function not found (404)", context: { status: 404 } } as any,
+      })
+      .mockResolvedValueOnce({
+        data: null,
+        error: { name: "FunctionsRelayError", message: "Relay Error invoking function" } as any,
+      });
+
     const replicateRes = await replicate.execute("image-generation", { prompt: "a mountain" });
     expect(replicateRes.success).toBe(false);
     expect(replicateRes.error?.code).toBe("PROVIDER_NOT_CONFIGURED");
+    expect(replicateRes.error?.message).toBe("وظيفة السيرفر غير مفعّلة");
 
     const edgeRes = await edge.execute("speech-to-text", { audioBase64: "UklGRg==" });
     expect(edgeRes.success).toBe(false);
     expect(edgeRes.error?.code).toBe("PROVIDER_NOT_CONFIGURED");
+    expect(edgeRes.error?.message).toBe("وظيفة السيرفر غير مفعّلة");
 
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(invokeSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("should ensure every registered local and remote provider defines type ('local' | 'remote')", () => {
+    const providers = AIManager.getInstance().listProviders();
+    expect(providers.length).toBeGreaterThanOrEqual(8);
+    for (const p of providers) {
+      expect(p.type === "local" || p.type === "remote").toBe(true);
+    }
   });
 
   it("should fail explicitly in FluxProvider and GeminiProvider on API error without Pollinations or echo fallbacks", async () => {
@@ -275,10 +305,49 @@ describe("AI Library Security & Correctness Verification Suite", () => {
     expect(cache.get("k4")).toBe("val4");
   });
 
+  it("should enforce maxMemoryBytes LRU eviction, reject items > 50% of maxMemoryBytes, and skip JSON.stringify when text > 250KB", () => {
+    const cache = new AICache({ maxMemoryItems: 100, maxMemoryBytes: 1000, useLocalStorage: false });
+
+    // Item > 500 bytes (half of maxMemoryBytes=1000) must not be stored in memory
+    cache.set("huge", "translation", { text: "H".repeat(600) });
+    expect(cache.get("huge")).toBeNull();
+
+    // 3 items of 400 bytes each -> 3rd item evicts LRU item b1 to stay <= 1000 bytes
+    cache.set("b1", "translation", { text: "A".repeat(400) });
+    cache.set("b2", "translation", { text: "B".repeat(400) });
+    expect(cache.get("b1")).toEqual({ text: "A".repeat(400) }); // b1 is now MRU, b2 is LRU
+    cache.set("b3", "translation", { text: "C".repeat(400) });
+    expect(cache.get("b2")).toBeNull();
+    expect(cache.get("b1")).toEqual({ text: "A".repeat(400) });
+    expect(cache.get("b3")).toEqual({ text: "C".repeat(400) });
+
+    // Large payload (> 250KB text) must skip JSON.stringify for localStorage completely
+    const largeCache = new AICache({ maxMemoryBytes: 10 * 1024 * 1024, useLocalStorage: true });
+    const stringifySpy = vi.spyOn(JSON, "stringify");
+    largeCache.set("over250k", "enhance-media", { outputImageBase64OrUrl: "X".repeat(260 * 1024) });
+    expect(stringifySpy).not.toHaveBeenCalled();
+
+    // Hashing a 900KB string must complete in < 20ms and remain collision-free
+    const str900kA = "data:image/png;base64," + "A".repeat(450 * 1024) + "X".repeat(200) + "B".repeat(450 * 1024);
+    const str900kB = "data:image/png;base64," + "A".repeat(450 * 1024) + "Y".repeat(200) + "B".repeat(450 * 1024);
+    const t0 = performance.now();
+    const h900A = largeCache.generateHash("enhance-media", { image: str900kA });
+    const elapsed900kMs = performance.now() - t0;
+    const h900B = largeCache.generateHash("enhance-media", { image: str900kB });
+    expect(elapsed900kMs).toBeLessThan(20);
+    expect(h900A).toMatch(/^hash_[0-9a-f]{16}$/);
+    expect(h900A).not.toBe(h900B);
+  });
+
   // --------------------------------------------------------------------------
   // 5. Task Routing & AIHistoryManager Resilience
   // --------------------------------------------------------------------------
-  it("should return PROVIDER_NOT_CONFIGURED from SpeechToTextTask and TranslationTask when providers lack keys", async () => {
+  it("should return PROVIDER_NOT_CONFIGURED from SpeechToTextTask and TranslationTask when providers lack keys or edge function is unconfigured", async () => {
+    const functionsProto = Object.getPrototypeOf(supabase.functions);
+    vi.spyOn(functionsProto, "invoke").mockResolvedValue({
+      data: null,
+      error: { name: "FunctionsHttpError", message: "404 Not Found", context: { status: 404 } } as any,
+    });
     const km = new KeyManager();
     const providers = [
       new GroqProvider(km),
@@ -324,6 +393,42 @@ describe("AI Library Security & Correctness Verification Suite", () => {
     expect(all[24].resultData).toBeDefined();
     expect(all[25].resultData).toBeUndefined();
     expect(all[34].resultData).toBeUndefined();
+
+    // Verify persist() strips resultData > 256KB and enforces 1MB total localStorage limit by dropping oldest
+    const hmPersist = new AIHistoryManager(50);
+    hmPersist.clear();
+    // 5 items with 220KB resultData each (<= 256KB each, but 5 * 220KB > 1MB total)
+    for (let i = 1; i <= 5; i++) {
+      hmPersist.recordJob(
+        "enhance-media",
+        "local-image-processor",
+        50,
+        `hash_p_${i}`,
+        true,
+        `job_p_${i}`,
+        "ok",
+        { text: "P".repeat(220 * 1024) }
+      );
+    }
+    // 1 item with > 256KB resultData (300KB) -> persisted entry has resultData: undefined
+    hmPersist.recordJob(
+      "enhance-media",
+      "local-image-processor",
+      50,
+      "hash_p_huge",
+      true,
+      "job_p_huge",
+      "ok",
+      { text: "H".repeat(300 * 1024) }
+    );
+
+    const rawPersisted = localStorage.getItem("ai_runtime_history") || "[]";
+    expect(rawPersisted.length).toBeLessThanOrEqual(1024 * 1024);
+    const parsedPersisted = JSON.parse(rawPersisted);
+    expect(parsedPersisted[0].inputHash).toBe("hash_p_huge");
+    expect(parsedPersisted[0].resultData).toBeUndefined();
+    // Oldest 220KB items were dropped to stay <= 1MB
+    expect(parsedPersisted.length).toBeLessThan(6);
   });
 
   // --------------------------------------------------------------------------
@@ -611,6 +716,20 @@ describe("AI Library Security & Correctness Verification Suite", () => {
       expect(createdWorkers).toBe(4);
       expect(manager.workerAvailable).toBe(false);
       expect(manager.permanentlyLocalFallback).toBe(true);
+
+      // Starting a new task before 2 minutes have passed keeps permanentlyLocalFallback = true
+      manager.lastTimeoutTimestamp = Date.now() - 60_000; // 1 minute ago
+      manager.maybeResetFallbackForNewTask();
+      expect(manager.permanentlyLocalFallback).toBe(true);
+      expect(manager.workerAvailable).toBe(false);
+      expect(createdWorkers).toBe(4);
+
+      // Starting a new task after > 2 minutes resets permanentlyLocalFallback and re-initializes worker
+      manager.lastTimeoutTimestamp = Date.now() - 121_000; // 2 minutes + 1s ago
+      manager.maybeResetFallbackForNewTask();
+      expect(manager.permanentlyLocalFallback).toBe(false);
+      expect(manager.workerAvailable).toBe(true);
+      expect(createdWorkers).toBe(5);
     } finally {
       (globalThis as any).Worker = OrigWorker;
     }

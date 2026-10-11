@@ -17,6 +17,33 @@ import { aiDebugLogger } from "../../utils/AIDebugLogger";
 export const REPLICATE_MODEL_FLUX_2_PRO = "black-forest-labs/flux-2-pro";
 export const REPLICATE_MODEL_REAL_ESRGAN = "nightmareai/real-esrgan";
 
+function isServerFunctionNotConfigured(err: any): boolean {
+  if (!err) return false;
+  const name = String(err.name || err.constructor?.name || "");
+  const msg = String(err.message || err || "");
+  const status =
+    err.status ??
+    err.statusCode ??
+    err.context?.status ??
+    err.context?.statusCode;
+  if (name === "FunctionsRelayError" || /FunctionsRelayError/i.test(msg)) {
+    return true;
+  }
+  if (status === 404) {
+    return true;
+  }
+  if (
+    (name === "FunctionsHttpError" || /FunctionsHttpError/i.test(msg)) &&
+    (status === 404 || /\b404\b|not[\s_-]*found/i.test(msg))
+  ) {
+    return true;
+  }
+  if (/\b404\b.*(?:function|edge|not\s*found)|function.*not\s*found/i.test(msg)) {
+    return true;
+  }
+  return false;
+}
+
 export class ReplicateProvider extends RemoteProvider {
   public id = "replicate";
   public name = "Replicate Provider";
@@ -34,19 +61,10 @@ export class ReplicateProvider extends RemoteProvider {
     this.progressManager = AIProgressManager.getInstance();
   }
 
-  private getApiKey(): string | undefined {
-    const key =
-      this.keyManager.getKey("replicate") ||
-      (typeof process !== "undefined" && process.env
-        ? process.env.REPLICATE_API_TOKEN || process.env.REPLICATE_API_KEY
-        : undefined);
-    return key && key.trim().length > 0 ? key.trim() : undefined;
-  }
-
-  public isAvailable(taskType: AITaskType): boolean {
+  public isAvailable(taskType?: AITaskType): boolean {
     if (!this.checkNetwork()) return false;
-    if (!this.supportsTask(taskType)) return false;
-    return Boolean(this.getApiKey());
+    if (taskType && !this.supportsTask(taskType)) return false;
+    return true;
   }
 
   public async execute<TPayload = any, TResult = any>(
@@ -56,19 +74,6 @@ export class ReplicateProvider extends RemoteProvider {
   ): Promise<AIResponse<TResult>> {
     const startTime = Date.now();
     const jobId = options?.signal ? undefined : `job_replicate_${startTime}_${Math.random().toString(36).substring(2, 6)}`;
-
-    const apiKey = this.getApiKey();
-    if (!apiKey) {
-      return {
-        success: false,
-        providerUsed: this.id,
-        error: createAIError(
-          "PROVIDER_NOT_CONFIGURED",
-          "Replicate API key is not configured in KeyManager",
-          this.id
-        ),
-      };
-    }
 
     if (!this.checkNetwork()) {
       return {
@@ -113,6 +118,13 @@ export class ReplicateProvider extends RemoteProvider {
         executionTimeMs: Date.now() - startTime,
       };
     } catch (err: any) {
+      if (err?.code === "PROVIDER_NOT_CONFIGURED" || isServerFunctionNotConfigured(err)) {
+        return {
+          success: false,
+          providerUsed: this.id,
+          error: createAIError("PROVIDER_NOT_CONFIGURED", "وظيفة السيرفر غير مفعّلة", this.id, err),
+        };
+      }
       console.error(`[ReplicateProvider] Execution failed for task '${taskType}':`, err);
       const modelUsed =
         taskType === "image-upscale" || taskType === "enhance-media"
@@ -409,8 +421,19 @@ export class ReplicateProvider extends RemoteProvider {
     });
 
     if (createResponse.error) {
+      if (isServerFunctionNotConfigured(createResponse.error)) {
+        const notConfErr: any = new Error("وظيفة السيرفر غير مفعّلة");
+        notConfErr.code = "PROVIDER_NOT_CONFIGURED";
+        throw notConfErr;
+      }
       const errMsg = createResponse.error.message || "Failed to invoke Edge Function 'replicate-run'";
       throw new Error(`Edge Function Error: ${errMsg}`);
+    }
+
+    if (createResponse.data?.statusCode === 404) {
+      const notConfErr: any = new Error("وظيفة السيرفر غير مفعّلة");
+      notConfErr.code = "PROVIDER_NOT_CONFIGURED";
+      throw notConfErr;
     }
 
     if (createResponse.data?.error) {

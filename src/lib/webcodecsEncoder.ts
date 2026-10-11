@@ -49,9 +49,57 @@ export interface WebCodecsExportOptions {
   totalDuration: number;
   renderedAudioBuffer: AudioBuffer | null;
   twoPass?: boolean;
+  keepOpfsFileName?: string | null;
   onProgress: (progress: number) => void;
   isAborted: () => boolean;
   renderFrameAtTime: (elapsed: number) => Promise<void>;
+}
+
+export type WebCodecsExportBlob = Blob & {
+  opfsTempFileName?: string;
+};
+
+/**
+ * Deletes temporary OPFS `vireon_export_*` files except `keepName` (if provided).
+ */
+export async function cleanupStaleExports(keepName?: string | null): Promise<void> {
+  if (
+    typeof navigator === "undefined" ||
+    !navigator.storage ||
+    typeof navigator.storage.getDirectory !== "function"
+  ) {
+    return;
+  }
+
+  try {
+    const opfsDir: any = await navigator.storage.getDirectory();
+    if (!opfsDir) return;
+
+    const namesToCheck: string[] = [];
+    if (typeof opfsDir.entries === "function") {
+      for await (const entry of opfsDir.entries()) {
+        const name = Array.isArray(entry) ? entry[0] : entry?.name;
+        if (typeof name === "string") namesToCheck.push(name);
+      }
+    } else if (typeof opfsDir.keys === "function") {
+      for await (const name of opfsDir.keys()) {
+        if (typeof name === "string") namesToCheck.push(name);
+      }
+    } else if (typeof opfsDir[Symbol.asyncIterator] === "function") {
+      for await (const entry of opfsDir) {
+        const name = Array.isArray(entry) ? entry[0] : entry?.name;
+        if (typeof name === "string") namesToCheck.push(name);
+      }
+    }
+
+    for (const name of namesToCheck) {
+      if (name.startsWith("vireon_export_") && (!keepName || name !== keepName)) {
+        try {
+          await opfsDir.removeEntry(name);
+        } catch {}
+      }
+    }
+  } catch {}
 }
 
 export async function isWebCodecsSupported(
@@ -105,7 +153,7 @@ export async function isWebCodecsSupported(
   return false;
 }
 
-export async function exportWithWebCodecs(options: WebCodecsExportOptions): Promise<Blob> {
+export async function exportWithWebCodecs(options: WebCodecsExportOptions): Promise<WebCodecsExportBlob> {
   const {
     canvas,
     exportWidth,
@@ -115,10 +163,14 @@ export async function exportWithWebCodecs(options: WebCodecsExportOptions): Prom
     totalDuration,
     renderedAudioBuffer,
     twoPass = false,
+    keepOpfsFileName,
     onProgress,
     isAborted,
     renderFrameAtTime,
   } = options;
+
+  // Clean up stale OPFS temporary files before starting a new export
+  await cleanupStaleExports(keepOpfsFileName);
 
   // 1. Determine best supported video codec string
   const codecCandidates = ["avc1.640028", "avc1.4D401E", "avc1.42E01E"];
@@ -424,11 +476,22 @@ export async function exportWithWebCodecs(options: WebCodecsExportOptions): Prom
       await opfsWritable.close();
       opfsWritable = null;
       const diskFile = await opfsFileHandle.getFile();
-      return diskFile.slice(0, diskFile.size, "video/mp4");
+      const outBlob = diskFile.slice(0, diskFile.size, "video/mp4") as WebCodecsExportBlob;
+      try {
+        Object.defineProperty(outBlob, "opfsTempFileName", {
+          value: opfsFileName,
+          writable: true,
+          configurable: true,
+          enumerable: false,
+        });
+      } catch {
+        (outBlob as any).opfsTempFileName = opfsFileName;
+      }
+      return outBlob;
     }
 
     const { buffer } = muxer.target as ArrayBufferTarget;
-    return new Blob([buffer], { type: "video/mp4" });
+    return new Blob([buffer], { type: "video/mp4" }) as WebCodecsExportBlob;
   } catch (err) {
     try {
       if (videoEncoder.state !== "closed") videoEncoder.close();

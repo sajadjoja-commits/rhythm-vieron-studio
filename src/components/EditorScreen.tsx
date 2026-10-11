@@ -1821,8 +1821,8 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
       setSelectedAudioTrackId(tAudio.id);
       toast.success(
         getLang() === "ar"
-          ? `[${tAudio.name}] BPM ≈ ${info.bpm} — ${beatsOnTimeline.length} ضربة (عرضت على المسار المحدد فقط)`
-          : `[${tAudio.name}] BPM ≈ ${info.bpm} — ${beatsOnTimeline.length} beats (mapped to selected track)`
+          ? `[${tAudio.name}] BPM ≈ ${Number(info.bpm.toFixed(1))} — ${beatsOnTimeline.length} ضربة (عرضت على المسار المحدد فقط)`
+          : `[${tAudio.name}] BPM ≈ ${Number(info.bpm.toFixed(1))} — ${beatsOnTimeline.length} beats (mapped to selected track)`
       );
     } catch (e) {
       console.error(e);

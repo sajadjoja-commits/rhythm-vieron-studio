@@ -332,20 +332,39 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
 
     return () => {
       active = false;
-      audioPreviewRef.current?.pause();
+      if (audioPreviewRef.current) {
+        try {
+          audioPreviewRef.current.pause();
+          audioPreviewRef.current.removeAttribute("src");
+          audioPreviewRef.current.load();
+        } catch {}
+        audioPreviewRef.current = null;
+      }
     };
   }, []);
 
   const togglePreview = (tr: BuiltinTrack) => {
     playSfx("click");
     if (previewingId === tr.id) {
-      audioPreviewRef.current?.pause();
+      if (audioPreviewRef.current) {
+        try {
+          audioPreviewRef.current.pause();
+          audioPreviewRef.current.removeAttribute("src");
+          audioPreviewRef.current.load();
+        } catch {}
+        audioPreviewRef.current = null;
+      }
       setPreviewingId(null);
       return;
     }
 
     if (audioPreviewRef.current) {
-      audioPreviewRef.current.pause();
+      try {
+        audioPreviewRef.current.pause();
+        audioPreviewRef.current.removeAttribute("src");
+        audioPreviewRef.current.load();
+      } catch {}
+      audioPreviewRef.current = null;
     }
 
     const a = new Audio(tr.url);
@@ -551,8 +570,8 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
         setSelectedAudioTrackId(res.track.id);
         toast.success(
           en
-            ? `[${res.track.name}] BPM ≈ ${res.info.bpm} — ${res.beatsOnTimeline.length} beats mapped to selected track`
-            : `[${res.track.name}] BPM ≈ ${res.info.bpm} — تم كشف ${res.beatsOnTimeline.length} ضربة وإظهارها على المسار المحدد فقط`
+            ? `[${res.track.name}] BPM ≈ ${Number(res.info.bpm.toFixed(1))} — ${res.beatsOnTimeline.length} beats mapped to selected track`
+            : `[${res.track.name}] BPM ≈ ${Number(res.info.bpm.toFixed(1))} — تم كشف ${res.beatsOnTimeline.length} ضربة وإظهارها على المسار المحدد فقط`
         );
       }
     } catch (e) {
@@ -1217,7 +1236,7 @@ const MusicPanel = ({ open, onClose, currentTime }: Props) => {
                               {t.name}
                             </span>
                             <span className="text-[9px] text-muted-foreground">
-                              {Math.round(t.duration)}s {t.bpm ? `• BPM ${t.bpm}` : ""}
+                              {Math.round(t.duration)}s {t.bpm ? `• BPM ${Number(t.bpm.toFixed(1))}` : ""}
                             </span>
                           </div>
                         </div>

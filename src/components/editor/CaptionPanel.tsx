@@ -1068,8 +1068,8 @@ const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
       playSfx("success");
       toast.success(
         en
-          ? `Synced ${syncCount} captions with BPM: ${beatData.bpm}!`
-          : `تمت مزامنة ${syncCount} كابشن مع إيقاع الموسيقى (BPM: ${beatData.bpm})!`
+          ? `Synced ${syncCount} captions with BPM: ${Number(beatData.bpm.toFixed(1))}!`
+          : `تمت مزامنة ${syncCount} كابشن مع إيقاع الموسيقى (BPM: ${Number(beatData.bpm.toFixed(1))})!`
       );
     } catch (e: any) {
       console.error("Auto Sync Error:", e);

@@ -1,8 +1,19 @@
 import { AICacheItem, CacheConfig } from "../types/cache";
 
-const FNV_OFFSET_BASIS_64 = 0xcbf29ce484222325n;
-const FNV_PRIME_64 = 0x100000001b3n;
-const MASK_64 = 0xffffffffffffffffn;
+const FNV_SEED_1 = 0x811c9dc5;
+const FNV_SEED_2 = 0x9e3779b9;
+const FNV_PRIME_32 = 0x01000193;
+
+const FULL_HASH_LIMIT = 2048;
+const EDGE_SAMPLE_LEN = 512;
+const INTERIOR_SAMPLES = 8192;
+const DEFAULT_MAX_MEMORY_BYTES = 64 * 1024 * 1024; // 64 MB
+const LOCAL_STORAGE_MAX_TEXT_BYTES = 250 * 1024; // 250 KB
+
+interface HashState64 {
+  h1: number;
+  h2: number;
+}
 
 const VOLATILE_PAYLOAD_KEYS = new Set([
   "historyId",
@@ -14,204 +25,304 @@ const VOLATILE_PAYLOAD_KEYS = new Set([
 
 export class AICache {
   private memoryCache: Map<string, AICacheItem> = new Map();
+  private itemByteSizes: Map<string, number> = new Map();
+  private currentMemoryBytes: number = 0;
   private maxMemoryItems: number;
+  private maxMemoryBytes: number;
   private useLocalStorage: boolean;
   private defaultTTLMs: number;
   private storagePrefix = "ai_cache_";
 
   constructor(config: CacheConfig = {}) {
     this.maxMemoryItems = config.maxMemoryItems ?? 100;
+    this.maxMemoryBytes = config.maxMemoryBytes ?? DEFAULT_MAX_MEMORY_BYTES;
     this.useLocalStorage = config.useLocalStorage ?? true;
     this.defaultTTLMs = config.defaultTTLMs ?? 24 * 60 * 60 * 1000; // 24 Hours
   }
 
-  private feedString64(hash: bigint, str: string): bigint {
-    let h = hash;
+  private feedUnit(state: HashState64, val: number): void {
+    const v = val | 0;
+    state.h1 = Math.imul(state.h1 ^ v, FNV_PRIME_32) >>> 0;
+    state.h2 = Math.imul(state.h2 ^ ((v + 0x85ebca6b) | 0), FNV_PRIME_32) >>> 0;
+  }
+
+  private feedString64(state: HashState64, str: string): void {
     const len = str.length;
-    // Mix string length first
-    h = ((h ^ BigInt(len)) * FNV_PRIME_64) & MASK_64;
+    this.feedUnit(state, len);
 
-    if (len <= 1048576) {
+    if (len <= FULL_HASH_LIMIT) {
       for (let i = 0; i < len; i++) {
-        h = ((h ^ BigInt(str.charCodeAt(i))) * FNV_PRIME_64) & MASK_64;
+        this.feedUnit(state, str.charCodeAt(i));
       }
     } else {
-      // For strings > 1MB, hash prefix (4096), suffix (4096), and 65536 evenly spaced samples across the interior
-      const edgeLen = 4096;
-      for (let i = 0; i < edgeLen; i++) {
-        h = ((h ^ BigInt(str.charCodeAt(i))) * FNV_PRIME_64) & MASK_64;
+      for (let i = 0; i < EDGE_SAMPLE_LEN; i++) {
+        this.feedUnit(state, str.charCodeAt(i));
       }
-      const samples = 65536;
-      const span = len - edgeLen * 2;
-      for (let s = 0; s < samples; s++) {
-        const idx = edgeLen + Math.floor((s * span) / samples);
-        h = ((h ^ BigInt(str.charCodeAt(idx))) * FNV_PRIME_64) & MASK_64;
+      const span = len - EDGE_SAMPLE_LEN * 2;
+      for (let s = 0; s < INTERIOR_SAMPLES; s++) {
+        const idx = EDGE_SAMPLE_LEN + Math.floor((s * span) / INTERIOR_SAMPLES);
+        this.feedUnit(state, str.charCodeAt(idx));
       }
-      for (let i = len - edgeLen; i < len; i++) {
-        h = ((h ^ BigInt(str.charCodeAt(i))) * FNV_PRIME_64) & MASK_64;
+      for (let i = len - EDGE_SAMPLE_LEN; i < len; i++) {
+        this.feedUnit(state, str.charCodeAt(i));
       }
     }
-    return h;
   }
 
-  private feedBytes64(hash: bigint, bytes: Uint8Array): bigint {
-    let h = hash;
+  private feedBytes64(state: HashState64, bytes: Uint8Array): void {
     const len = bytes.byteLength;
-    h = ((h ^ BigInt(len)) * FNV_PRIME_64) & MASK_64;
+    this.feedUnit(state, len);
 
-    if (len <= 1048576) {
+    if (len <= FULL_HASH_LIMIT) {
       for (let i = 0; i < len; i++) {
-        h = ((h ^ BigInt(bytes[i])) * FNV_PRIME_64) & MASK_64;
+        this.feedUnit(state, bytes[i]);
       }
     } else {
-      const edgeLen = 4096;
-      for (let i = 0; i < edgeLen; i++) {
-        h = ((h ^ BigInt(bytes[i])) * FNV_PRIME_64) & MASK_64;
+      for (let i = 0; i < EDGE_SAMPLE_LEN; i++) {
+        this.feedUnit(state, bytes[i]);
       }
-      const samples = 65536;
-      const span = len - edgeLen * 2;
-      for (let s = 0; s < samples; s++) {
-        const idx = edgeLen + Math.floor((s * span) / samples);
-        h = ((h ^ BigInt(bytes[idx])) * FNV_PRIME_64) & MASK_64;
+      const span = len - EDGE_SAMPLE_LEN * 2;
+      for (let s = 0; s < INTERIOR_SAMPLES; s++) {
+        const idx = EDGE_SAMPLE_LEN + Math.floor((s * span) / INTERIOR_SAMPLES);
+        this.feedUnit(state, bytes[idx]);
       }
-      for (let i = len - edgeLen; i < len; i++) {
-        h = ((h ^ BigInt(bytes[i])) * FNV_PRIME_64) & MASK_64;
+      for (let i = len - EDGE_SAMPLE_LEN; i < len; i++) {
+        this.feedUnit(state, bytes[i]);
       }
     }
-    return h;
   }
 
-  private feedValue64(hash: bigint, value: any, seen: WeakSet<object>): bigint {
-    let h = hash;
-
+  private feedValue64(state: HashState64, value: any, seen: WeakSet<object>): void {
     if (value === null) {
-      return this.feedString64(h, "null;");
+      this.feedString64(state, "null;");
+      return;
     }
     if (value === undefined) {
-      return this.feedString64(h, "undef;");
+      this.feedString64(state, "undef;");
+      return;
     }
 
     const t = typeof value;
     if (t === "boolean" || t === "number" || t === "bigint") {
-      return this.feedString64(h, `${t}:${String(value)};`);
+      this.feedString64(state, `${t}:${String(value)};`);
+      return;
     }
     if (t === "string") {
-      h = this.feedString64(h, "str:");
-      return this.feedString64(h, value);
+      this.feedString64(state, "str:");
+      this.feedString64(state, value);
+      return;
     }
     if (t === "function" || t === "symbol") {
-      return h;
+      return;
     }
 
     if (typeof value === "object") {
       if (seen.has(value)) {
-        return this.feedString64(h, "[Circular];");
+        this.feedString64(state, "[Circular];");
+        return;
       }
 
       if (typeof ArrayBuffer !== "undefined" && value instanceof ArrayBuffer) {
-        h = this.feedString64(h, `ArrayBuffer:${value.byteLength}:`);
-        return this.feedBytes64(h, new Uint8Array(value));
+        this.feedString64(state, `ArrayBuffer:${value.byteLength}:`);
+        this.feedBytes64(state, new Uint8Array(value));
+        return;
       }
 
       if (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView(value)) {
         const view = value as ArrayBufferView;
-        h = this.feedString64(
-          h,
+        this.feedString64(
+          state,
           `View:${view.constructor?.name || "View"}:${view.byteOffset}:${view.byteLength}:`
         );
-        return this.feedBytes64(
-          h,
+        this.feedBytes64(
+          state,
           new Uint8Array(view.buffer, view.byteOffset, view.byteLength)
         );
+        return;
       }
 
       if (typeof File !== "undefined" && value instanceof File) {
-        return this.feedString64(
-          h,
+        this.feedString64(
+          state,
           `File:${value.name}:${value.size}:${value.type}:${value.lastModified};`
         );
+        return;
       }
 
       if (typeof Blob !== "undefined" && value instanceof Blob) {
         const extraName = (value as any).name ? String((value as any).name) : "";
-        return this.feedString64(h, `Blob:${value.size}:${value.type}:${extraName};`);
+        this.feedString64(state, `Blob:${value.size}:${value.type}:${extraName};`);
+        return;
       }
 
       if (value instanceof Date) {
-        return this.feedString64(h, `Date:${value.getTime()};`);
+        this.feedString64(state, `Date:${value.getTime()};`);
+        return;
       }
 
       if (value instanceof RegExp) {
-        return this.feedString64(h, `RegExp:${value.toString()};`);
+        this.feedString64(state, `RegExp:${value.toString()};`);
+        return;
       }
 
       seen.add(value);
 
       if (Array.isArray(value)) {
-        h = this.feedString64(h, `Arr:${value.length}[`);
+        this.feedString64(state, `Arr:${value.length}[`);
         for (let i = 0; i < value.length; i++) {
-          h = this.feedValue64(h, value[i], seen);
-          h = this.feedString64(h, ",");
+          this.feedValue64(state, value[i], seen);
+          this.feedString64(state, ",");
         }
         seen.delete(value);
-        return this.feedString64(h, "]");
+        this.feedString64(state, "]");
+        return;
       }
 
       if (value instanceof Map) {
-        h = this.feedString64(h, `Map:${value.size}{`);
+        this.feedString64(state, `Map:${value.size}{`);
         const entries = Array.from(value.entries()).sort((a, b) =>
           String(a[0]).localeCompare(String(b[0]))
         );
         for (const [k, v] of entries) {
-          h = this.feedValue64(h, k, seen);
-          h = this.feedString64(h, "=>");
-          h = this.feedValue64(h, v, seen);
-          h = this.feedString64(h, ";");
+          this.feedValue64(state, k, seen);
+          this.feedString64(state, "=>");
+          this.feedValue64(state, v, seen);
+          this.feedString64(state, ";");
         }
         seen.delete(value);
-        return this.feedString64(h, "}");
+        this.feedString64(state, "}");
+        return;
       }
 
       if (value instanceof Set) {
-        h = this.feedString64(h, `Set:${value.size}{`);
+        this.feedString64(state, `Set:${value.size}{`);
         for (const item of value.values()) {
-          h = this.feedValue64(h, item, seen);
-          h = this.feedString64(h, ";");
+          this.feedValue64(state, item, seen);
+          this.feedString64(state, ";");
         }
         seen.delete(value);
-        return this.feedString64(h, "}");
+        this.feedString64(state, "}");
+        return;
       }
 
       const keys = Object.keys(value).sort();
-      h = this.feedString64(h, "Obj{");
+      this.feedString64(state, "Obj{");
       for (let i = 0; i < keys.length; i++) {
         const k = keys[i];
         if (VOLATILE_PAYLOAD_KEYS.has(k)) continue;
         const propVal = value[k];
         if (propVal === undefined || typeof propVal === "function") continue;
-        h = this.feedString64(h, `${k}:`);
-        h = this.feedValue64(h, propVal, seen);
-        h = this.feedString64(h, ";");
+        this.feedString64(state, `${k}:`);
+        this.feedValue64(state, propVal, seen);
+        this.feedString64(state, ";");
       }
       seen.delete(value);
-      return this.feedString64(h, "}");
+      this.feedString64(state, "}");
     }
-
-    return h;
   }
 
   /**
-   * Generates a 64-bit deterministic FNV-1a hash for taskType and payload
+   * Computes total string length (in characters/bytes) inside data without JSON.stringify
+   */
+  private measureDataTextBytes(value: any, seen: WeakSet<object> = new WeakSet()): number {
+    if (value === null || value === undefined) return 0;
+    const t = typeof value;
+    if (t === "string") return value.length;
+    if (t !== "object") return 0;
+
+    if (seen.has(value)) return 0;
+    if (typeof ArrayBuffer !== "undefined" && value instanceof ArrayBuffer) {
+      return value.byteLength;
+    }
+    if (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView(value)) {
+      return value.byteLength;
+    }
+
+    seen.add(value);
+    let total = 0;
+    if (Array.isArray(value)) {
+      for (let i = 0; i < value.length; i++) {
+        total += this.measureDataTextBytes(value[i], seen);
+      }
+    } else if (value instanceof Map) {
+      for (const [k, v] of value.entries()) {
+        total += this.measureDataTextBytes(k, seen) + this.measureDataTextBytes(v, seen);
+      }
+    } else if (value instanceof Set) {
+      for (const v of value.values()) {
+        total += this.measureDataTextBytes(v, seen);
+      }
+    } else {
+      const keys = Object.keys(value);
+      for (let i = 0; i < keys.length; i++) {
+        total += this.measureDataTextBytes(value[keys[i]], seen);
+      }
+    }
+    seen.delete(value);
+    return total;
+  }
+
+  private removeFromMemory(key: string): boolean {
+    const existed = this.memoryCache.delete(key);
+    const sz = this.itemByteSizes.get(key);
+    if (sz !== undefined) {
+      this.currentMemoryBytes = Math.max(0, this.currentMemoryBytes - sz);
+      this.itemByteSizes.delete(key);
+    }
+    return existed;
+  }
+
+  private insertIntoMemory(key: string, item: AICacheItem, dataBytes: number): void {
+    this.removeFromMemory(key);
+
+    if (this.maxMemoryItems <= 0 || this.maxMemoryBytes <= 0) {
+      return;
+    }
+
+    // Do not store an item larger than half of maxMemoryBytes
+    if (dataBytes > this.maxMemoryBytes * 0.5) {
+      return;
+    }
+
+    while (
+      this.memoryCache.size > 0 &&
+      (this.memoryCache.size >= this.maxMemoryItems ||
+        this.currentMemoryBytes + dataBytes > this.maxMemoryBytes)
+    ) {
+      const lruKey = this.memoryCache.keys().next().value;
+      if (lruKey !== undefined) {
+        this.removeFromMemory(lruKey);
+      } else {
+        break;
+      }
+    }
+
+    this.memoryCache.set(key, item);
+    this.itemByteSizes.set(key, dataBytes);
+    this.currentMemoryBytes += dataBytes;
+  }
+
+  public getMemoryBytes(): number {
+    return this.currentMemoryBytes;
+  }
+
+  /**
+   * Generates a 64-bit deterministic FNV-1a hash (dual 32-bit Math.imul lanes) for taskType and payload
    */
   public generateHash(taskType: string, payload: any): string {
     let mediaType = "general";
     if (payload && typeof payload === "object" && !Array.isArray(payload)) {
       mediaType = payload.inputMediaType || payload.mediaType || payload.category || "general";
     }
-    let hash = FNV_OFFSET_BASIS_64;
-    hash = this.feedString64(hash, `${taskType}:${mediaType}:`);
-    hash = this.feedValue64(hash, payload, new WeakSet<object>());
-    return `hash_${hash.toString(16).padStart(16, "0")}`;
+    const state: HashState64 = {
+      h1: FNV_SEED_1,
+      h2: FNV_SEED_2,
+    };
+    this.feedString64(state, `${taskType}:${mediaType}:`);
+    this.feedValue64(state, payload, new WeakSet<object>());
+    const hex1 = (state.h1 >>> 0).toString(16).padStart(8, "0");
+    const hex2 = (state.h2 >>> 0).toString(16).padStart(8, "0");
+    return `hash_${hex1}${hex2}`;
   }
 
   public get<T>(key: string): T | null {
@@ -222,11 +333,14 @@ export class AICache {
     if (memItem) {
       if (now - memItem.timestamp <= memItem.ttlMs) {
         // Refresh position to most-recently-used
+        const sz = this.itemByteSizes.get(key) ?? 0;
         this.memoryCache.delete(key);
+        this.itemByteSizes.delete(key);
         this.memoryCache.set(key, memItem);
+        this.itemByteSizes.set(key, sz);
         return memItem.data as T;
       } else {
-        this.memoryCache.delete(key);
+        this.removeFromMemory(key);
         if (this.useLocalStorage && typeof localStorage !== "undefined") {
           try {
             localStorage.removeItem(this.storagePrefix + key);
@@ -244,22 +358,8 @@ export class AICache {
         if (raw) {
           const item: AICacheItem = JSON.parse(raw);
           if (now - item.timestamp <= item.ttlMs) {
-            // Restore to memory cache with LRU capacity check
-            if (!this.memoryCache.has(key)) {
-              while (this.memoryCache.size >= this.maxMemoryItems && this.maxMemoryItems > 0) {
-                const lruKey = this.memoryCache.keys().next().value;
-                if (lruKey !== undefined) {
-                  this.memoryCache.delete(lruKey);
-                } else {
-                  break;
-                }
-              }
-            } else {
-              this.memoryCache.delete(key);
-            }
-            if (this.maxMemoryItems > 0) {
-              this.memoryCache.set(key, item);
-            }
+            const dataBytes = this.measureDataTextBytes(item.data);
+            this.insertIntoMemory(key, item, dataBytes);
             return item.data as T;
           } else {
             localStorage.removeItem(this.storagePrefix + key);
@@ -274,6 +374,14 @@ export class AICache {
   }
 
   public set<T>(key: string, taskType: string, data: T, ttlMs?: number, providerUsed?: string): void {
+    const dataBytes = this.measureDataTextBytes(data);
+
+    // Do not store an item larger than half of maxMemoryBytes
+    if (this.maxMemoryItems <= 0 || this.maxMemoryBytes <= 0 || dataBytes > this.maxMemoryBytes * 0.5) {
+      this.delete(key);
+      return;
+    }
+
     const item: AICacheItem<T> = {
       key,
       data,
@@ -283,30 +391,17 @@ export class AICache {
       providerUsed,
     };
 
-    // If key already exists, remove first so re-insertion marks it most-recently-used
-    if (this.memoryCache.has(key)) {
-      this.memoryCache.delete(key);
-    }
+    this.insertIntoMemory(key, item, dataBytes);
 
-    // Evict least-recently-used entries if at capacity
-    while (this.memoryCache.size >= this.maxMemoryItems && this.maxMemoryItems > 0) {
-      const lruKey = this.memoryCache.keys().next().value;
-      if (lruKey !== undefined) {
-        this.memoryCache.delete(lruKey);
-      } else {
-        break;
-      }
-    }
-
-    if (this.maxMemoryItems > 0) {
-      this.memoryCache.set(key, item);
-    }
-
-    // Persist to LocalStorage if payload size is reasonable (< 250KB)
-    if (this.useLocalStorage && typeof localStorage !== "undefined") {
+    // Persist to LocalStorage only if text length is <= 250KB (checked BEFORE JSON.stringify)
+    if (
+      this.useLocalStorage &&
+      typeof localStorage !== "undefined" &&
+      dataBytes <= LOCAL_STORAGE_MAX_TEXT_BYTES
+    ) {
       try {
         const str = JSON.stringify(item);
-        if (str.length < 250 * 1024) {
+        if (str.length < LOCAL_STORAGE_MAX_TEXT_BYTES) {
           localStorage.setItem(this.storagePrefix + key, str);
         }
       } catch {
@@ -316,7 +411,7 @@ export class AICache {
   }
 
   public delete(key: string): boolean {
-    const existed = this.memoryCache.delete(key);
+    const existed = this.removeFromMemory(key);
     if (this.useLocalStorage && typeof localStorage !== "undefined") {
       try {
         localStorage.removeItem(this.storagePrefix + key);
@@ -329,6 +424,8 @@ export class AICache {
 
   public clear(): void {
     this.memoryCache.clear();
+    this.itemByteSizes.clear();
+    this.currentMemoryBytes = 0;
     if (this.useLocalStorage && typeof localStorage !== "undefined") {
       try {
         const keysToRemove: string[] = [];

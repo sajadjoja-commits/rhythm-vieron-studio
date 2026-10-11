@@ -16,10 +16,29 @@ export class AIHistoryManager {
   private storageKey = "ai_runtime_history";
 
   private maxResultDataItems = 25;
+  private maxResultDataBytes = 16 * 1024 * 1024; // 16 MB in-memory cap for resultData
 
   constructor(maxItems: number = 200) {
     this.maxHistoryItems = maxItems;
     this.loadFromStorage();
+  }
+
+  private estimateTextBytes(val: any, seen: WeakSet<object> = new WeakSet()): number {
+    if (val === null || val === undefined) return 0;
+    const t = typeof val;
+    if (t === "string") return val.length;
+    if (t !== "object") return 0;
+    if (seen.has(val)) return 0;
+    seen.add(val);
+    let sum = 0;
+    if (Array.isArray(val)) {
+      for (let i = 0; i < val.length; i++) sum += this.estimateTextBytes(val[i], seen);
+    } else {
+      const keys = Object.keys(val);
+      for (let i = 0; i < keys.length; i++) sum += this.estimateTextBytes(val[keys[i]], seen);
+    }
+    seen.delete(val);
+    return sum;
   }
 
   private loadFromStorage(): void {
@@ -35,15 +54,36 @@ export class AIHistoryManager {
     }
   }
 
+  private static readonly MAX_PERSIST_RESULT_TEXT_BYTES = 256 * 1024; // 256 KB
+  private static readonly MAX_PERSIST_TOTAL_BYTES = 1024 * 1024; // 1 MB
+
   private persist(): void {
     if (typeof localStorage === "undefined") return;
     try {
-      // Keep lightweight version in localStorage
-      const slice = this.history.slice(0, 50).map((h) => ({
-        ...h,
-        resultData: undefined, // Omit heavy data blobs from localStorage
-      }));
-      localStorage.setItem(this.storageKey, JSON.stringify(slice));
+      const candidates = this.history.slice(0, 50).map((h) => {
+        if (h.resultData !== undefined) {
+          const rdTextBytes = this.estimateTextBytes(h.resultData);
+          if (rdTextBytes > AIHistoryManager.MAX_PERSIST_RESULT_TEXT_BYTES) {
+            return { ...h, resultData: undefined };
+          }
+        }
+        return h;
+      });
+
+      // Keep newest items (at start of array) and drop oldest items if total exceeds 1MB
+      const kept: AIHistoryRecord[] = [];
+      let runningBytes = 2; // "[]"
+      for (let i = 0; i < candidates.length; i++) {
+        const serializedItem = JSON.stringify(candidates[i]);
+        const addedBytes = serializedItem.length + (kept.length > 0 ? 1 : 0);
+        if (runningBytes + addedBytes > AIHistoryManager.MAX_PERSIST_TOTAL_BYTES) {
+          break;
+        }
+        kept.push(candidates[i]);
+        runningBytes += addedBytes;
+      }
+
+      localStorage.setItem(this.storageKey, JSON.stringify(kept));
     } catch {
       // Ignore
     }
@@ -78,9 +118,19 @@ export class AIHistoryManager {
         this.history.length = this.maxHistoryItems;
       }
       // Prevent unbounded memory growth from large media resultData objects
-      for (let i = this.maxResultDataItems; i < this.history.length; i++) {
-        if (this.history[i].resultData !== undefined) {
+      let accumulatedBytes = 0;
+      for (let i = 0; i < this.history.length; i++) {
+        const rd = this.history[i].resultData;
+        if (rd === undefined) continue;
+        if (i >= this.maxResultDataItems) {
           this.history[i] = { ...this.history[i], resultData: undefined };
+          continue;
+        }
+        const itemBytes = this.estimateTextBytes(rd);
+        if (itemBytes > this.maxResultDataBytes * 0.5 || accumulatedBytes + itemBytes > this.maxResultDataBytes) {
+          this.history[i] = { ...this.history[i], resultData: undefined };
+        } else {
+          accumulatedBytes += itemBytes;
         }
       }
       this.persist();
