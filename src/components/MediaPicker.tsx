@@ -71,33 +71,33 @@ export const MediaPicker = ({
       }
     };
 
-    if (Capacitor.isNativePlatform()) {
-      const timeoutId = setTimeout(fallback, 1500);
+    const isNativeRuntime = Capacitor.isNativePlatform() || (window as any).VieronNativeBridgeImpl || (window as any).VieronNative;
+    if (isNativeRuntime) {
+      const timeoutId = setTimeout(fallback, 2000);
       try {
-        let method = "pickImage";
-        if (accept === "video") method = "pickVideo";
-        else if (accept === "both") method = "pickMedia";
+        let type = "any";
+        if (accept === "video") type = "video";
+        else if (accept === "image") type = "image";
 
-        console.log(`[MediaPicker] Invoking native ${method}...`);
-
-        const result = await VireonMedia[method]({ multiple }).catch((e: any) => {
-          console.warn("[MediaPicker] Native call failed:", e);
+        console.log(`[MediaPicker] Invoking VieronNative.media.pickMedia type=${type} multiple=${multiple}...`);
+        const nativeRes = await (window as any).VieronNative?.media?.pickMedia({ type, multiple }).catch((e: any) => {
+          console.warn("[MediaPicker] VieronNative pickMedia call failed:", e);
           return null;
         });
 
         clearTimeout(timeoutId);
         if (isHandled) return;
 
-        if (result && result.success && result.files && result.files.length > 0) {
+        if (nativeRes && nativeRes.success && nativeRes.files && nativeRes.files.length > 0) {
           isHandled = true;
           const pickedFiles: File[] = [];
-          for (const fileInfo of result.files) {
+          for (const fileInfo of nativeRes.files) {
             try {
-              const response = await fetch(Capacitor.convertFileSrc(fileInfo.webPath));
+              const response = await fetch(fileInfo.uri);
               const blob = await response.blob();
               pickedFiles.push(new File([blob], fileInfo.name, { type: fileInfo.mimeType }));
             } catch (e) {
-              console.warn("[MediaPicker] File conversion error:", e);
+              console.warn("[MediaPicker] File fetch error from uri:", e);
             }
           }
 
@@ -105,7 +105,7 @@ export const MediaPicker = ({
             await handleFiles(pickedFiles);
             return;
           }
-        } else if (result && result.success === false && result.message === "CANCELLED") {
+        } else if (nativeRes && (nativeRes.cancelled || (nativeRes.success === false && nativeRes.error?.code === "CANCELLED"))) {
            console.log("[MediaPicker] User cancelled native picker.");
            isHandled = true;
            return;

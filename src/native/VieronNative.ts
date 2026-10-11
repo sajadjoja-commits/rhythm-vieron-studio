@@ -7,6 +7,21 @@ import { Filesystem, Directory } from '@capacitor/filesystem';
 import { VieronNativeResponse, FsReadRequest, FsWriteRequest, FsDeleteRequest, FsExistsRequest, FsMkdirRequest, FsListRequest, FsStatRequest } from './VieronNativeTypes';
 
 class VieronNativeClient {
+  private pickerResolvers: { [key: string]: (res: any) => void } = {};
+
+  constructor() {
+    if (typeof window !== "undefined") {
+      (window as any).VieronNative = (window as any).VieronNative || this;
+      (window as any).VieronNative._resolvePicker = (callbackId: string, result: any) => {
+        console.log(`[VIERON_PICKER] result callbackId=${callbackId}`, result);
+        if (this.pickerResolvers[callbackId]) {
+          this.pickerResolvers[callbackId](result);
+          delete this.pickerResolvers[callbackId];
+        }
+      };
+    }
+  }
+
   private getBridge(): any {
     if (typeof window !== "undefined") {
       return (window as any).VieronNativeBridgeImpl;
@@ -33,6 +48,24 @@ class VieronNativeClient {
     }
     console.log(`[VIERON-NATIVE] method=${method} native=false (bridge not found)`);
     return { success: false, ok: false, error: { code: "BRIDGE_UNAVAILABLE", message: "Native bridge not available" } };
+  }
+
+  public async pickMedia(options?: { type?: string; multiple?: boolean }): Promise<any> {
+    const type = options?.type || "any";
+    const multiple = options?.multiple ?? true;
+    const callbackId = "cb_" + Math.random().toString(36).substring(2, 9);
+    console.log(`[VIERON_PICKER] open type=${type} multiple=${multiple} callbackId=${callbackId}`);
+
+    return new Promise((resolve) => {
+      this.pickerResolvers[callbackId] = resolve;
+      const res = this.callBridge("media_pickMedia", JSON.stringify({ type, multiple, callbackId }));
+      if (res && res.success && res.pending) {
+        console.log("[VIERON_PICKER] waiting for native picker result...");
+      } else {
+        delete this.pickerResolvers[callbackId];
+        resolve(res || { success: false, error: "Bridge unavailable" });
+      }
+    });
   }
 
   // ==================== FILESYSTEM ====================
@@ -196,6 +229,7 @@ class VieronNativeClient {
     createWaveform: async (uri: string, options?: any): Promise<VieronNativeResponse> => this.callBridge("media_createWaveform", uri, JSON.stringify(options || {})),
     export: async (request: any): Promise<VieronNativeResponse> => this.callBridge("media_export", JSON.stringify(request)),
     cancelExport: async (requestId: string): Promise<VieronNativeResponse> => this.callBridge("media_cancelExport", requestId),
+    pickMedia: async (options?: { type?: string; multiple?: boolean }): Promise<any> => this.pickMedia(options),
   };
 
   public ai = {

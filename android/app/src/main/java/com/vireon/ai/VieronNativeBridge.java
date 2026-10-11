@@ -227,6 +227,29 @@ public class VieronNativeBridge {
     @JavascriptInterface
     public String media_cancelExport(String requestId) { return notMigrated(); }
 
+    @JavascriptInterface
+    public String media_pickMedia(String requestJson) {
+        try {
+            JSONObject req = new JSONObject(requestJson);
+            String type = req.optString("type", "any");
+            boolean multiple = req.optBoolean("multiple", true);
+            String callbackId = req.optString("callbackId", "cb_" + System.currentTimeMillis());
+
+            if (MainActivity.getInstance() != null) {
+                MainActivity.getInstance().startMediaPicker(type, multiple, callbackId);
+                JSONObject res = new JSONObject();
+                res.put("success", true);
+                res.put("pending", true);
+                res.put("callbackId", callbackId);
+                return res.toString();
+            } else {
+                return error("ACTIVITY_NOT_FOUND", "MainActivity instance is null");
+            }
+        } catch (Exception e) {
+            return error("PICKER_ERROR", e.getMessage());
+        }
+    }
+
     // ==================== AI / ML KIT (NOT_MIGRATED) ====================
     @JavascriptInterface
     public String ai_removeBackground(String optionsJson) { return notMigrated(); }
