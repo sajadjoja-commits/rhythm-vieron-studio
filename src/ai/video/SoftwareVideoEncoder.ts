@@ -1,4 +1,3 @@
-import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { EncoderSession } from "./VideoEncoderEngine";
 import { VideoAIOptions } from "./types";
 
@@ -7,6 +6,7 @@ export async function createSoftwareVideoSession(params: {
   width: number; height: number; fps: number; format: "mp4" | "webm";
   audioBuffer?: AudioBuffer | null; options?: VideoAIOptions;
 }): Promise<EncoderSession> {
+  const { FFmpeg } = await import("@ffmpeg/ffmpeg");
   const ffmpeg = new FFmpeg();
   let state: EncoderSession["state"] = "CREATED" as EncoderSession["state"];
   let error: Error | null = null;

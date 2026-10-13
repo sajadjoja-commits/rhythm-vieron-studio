@@ -48,13 +48,14 @@ function missingStaticAssets404Plugin(): Plugin {
 }
 
 /**
- * Ensure ORT WASM files are present in public/wasm/ort
+ * Ensure ORT WASM files are present in public/wasm/ort and public/wasm/ort-1.27
  */
 function ensureOrtWasmAssetsPlugin(): Plugin {
   return {
     name: "ensure-ort-wasm-assets",
     buildStart() {
       try {
+        // 1. @xenova/transformers WASM files -> public/wasm/ort
         const targetDir = path.resolve(__dirname, "public/wasm/ort");
         const srcDir = path.resolve(__dirname, "node_modules/@xenova/transformers/dist");
         if (fs.existsSync(srcDir)) {
@@ -66,6 +67,24 @@ function ensureOrtWasmAssetsPlugin(): Plugin {
             const dest = path.join(targetDir, file);
             if (!fs.existsSync(dest)) {
               fs.copyFileSync(path.join(srcDir, file), dest);
+            }
+          }
+        }
+
+        // 2. onnxruntime-web 1.27 assets -> public/wasm/ort-1.27
+        const ort127TargetDir = path.resolve(__dirname, "public/wasm/ort-1.27");
+        const ort127SrcDir = path.resolve(__dirname, "node_modules/onnxruntime-web/dist");
+        if (fs.existsSync(ort127SrcDir)) {
+          if (!fs.existsSync(ort127TargetDir)) {
+            fs.mkdirSync(ort127TargetDir, { recursive: true });
+          }
+          const ortFiles = fs.readdirSync(ort127SrcDir).filter((f) =>
+            f.startsWith("ort-wasm-simd-threaded") && (f.endsWith(".wasm") || f.endsWith(".mjs"))
+          );
+          for (const file of ortFiles) {
+            const dest = path.join(ort127TargetDir, file);
+            if (!fs.existsSync(dest)) {
+              fs.copyFileSync(path.join(ort127SrcDir, file), dest);
             }
           }
         }
@@ -82,16 +101,11 @@ function ensureMediaPipeAssetsPlugin(): Plugin {
     buildStart() {
       const source = path.resolve(__dirname, "node_modules/@mediapipe/tasks-vision/wasm");
       if (!fs.existsSync(source)) return;
-      const targets = [
-        path.resolve(__dirname, "public/wasm/mediapipe"),
-        path.resolve(__dirname, "public/mediapipe/wasm"),
-      ];
-      for (const target of targets) {
-        fs.mkdirSync(target, { recursive: true });
-        for (const file of fs.readdirSync(source)) {
-          if (/\.(js|wasm)$/.test(file)) {
-            fs.copyFileSync(path.join(source, file), path.join(target, file));
-          }
+      const target = path.resolve(__dirname, "public/wasm/mediapipe");
+      fs.mkdirSync(target, { recursive: true });
+      for (const file of fs.readdirSync(source)) {
+        if (/\.(js|wasm)$/.test(file)) {
+          fs.copyFileSync(path.join(source, file), path.join(target, file));
         }
       }
     },
@@ -151,8 +165,8 @@ export default defineConfig(({ mode }) => ({
         skipWaiting: true,
         clientsClaim: true,
         cleanupOutdatedCaches: true,
-        maximumFileSizeToCacheInBytes: 35 * 1024 * 1024,
-        globPatterns: ["**/*.{js,css,html,ico,png,jpg,jpeg,svg,mp3,json,webmanifest,wasm,tflite}"],
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
+        globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
         navigateFallback: "/index.html",
         navigateFallbackDenylist: [
           /^\/api/,
@@ -165,6 +179,43 @@ export default defineConfig(({ mode }) => ({
           /^https:\/\/hf-mirror\.com/
         ],
         runtimeCaching: [
+          {
+            urlPattern: /\.(?:wasm)$/i,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "wasm-cache",
+              expiration: { maxEntries: 40, maxAgeSeconds: 30 * 24 * 60 * 60 },
+              cacheableResponse: { statuses: [0, 200] }
+            }
+          },
+          {
+            urlPattern: /\.(?:tflite|task)$/i,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "tflite-cache",
+              expiration: { maxEntries: 40, maxAgeSeconds: 30 * 24 * 60 * 60 },
+              cacheableResponse: { statuses: [0, 200] }
+            }
+          },
+          {
+            urlPattern: /^\/models\/.*|\/models\/.*/i,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "models-cache",
+              expiration: { maxEntries: 40, maxAgeSeconds: 30 * 24 * 60 * 60 },
+              cacheableResponse: { statuses: [0, 200] }
+            }
+          },
+          {
+            urlPattern: /^\/audio\/.*|\.(?:mp3|wav|ogg)$/i,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "audio-cache",
+              expiration: { maxEntries: 40, maxAgeSeconds: 30 * 24 * 60 * 60 },
+              cacheableResponse: { statuses: [0, 200] },
+              rangeRequests: true
+            }
+          },
           {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
             handler: "CacheFirst",
@@ -189,15 +240,6 @@ export default defineConfig(({ mode }) => ({
             options: {
               cacheName: "images-cache",
               expiration: { maxEntries: 100, maxAgeSeconds: 30 * 24 * 60 * 60 }
-            }
-          },
-          {
-            urlPattern: /\.(?:mp3|wav|ogg)$/i,
-            handler: "CacheFirst",
-            options: {
-              cacheName: "audio-cache",
-              expiration: { maxEntries: 50, maxAgeSeconds: 30 * 24 * 60 * 60 },
-              cacheableResponse: { statuses: [0, 200] }
             }
           }
         ]
@@ -294,5 +336,34 @@ export default defineConfig(({ mode }) => ({
   },
   build: {
     target: "es2022",
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          const normalized = id.replace(/\\/g, "/");
+          if (normalized.includes("/node_modules/")) {
+            if (
+              normalized.includes("/node_modules/react/") ||
+              normalized.includes("/node_modules/react-dom/") ||
+              normalized.includes("/node_modules/react-router/") ||
+              normalized.includes("/node_modules/react-router-dom/")
+            ) {
+              return "react";
+            }
+            if (normalized.includes("/node_modules/@supabase/")) {
+              return "supabase";
+            }
+            if (normalized.includes("/node_modules/@radix-ui/")) {
+              return "radix";
+            }
+            if (
+              normalized.includes("/node_modules/framer-motion/") ||
+              normalized.includes("/node_modules/gsap/")
+            ) {
+              return "animation";
+            }
+          }
+        },
+      },
+    },
   },
 }));

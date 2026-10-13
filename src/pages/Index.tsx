@@ -136,18 +136,21 @@ const Index = () => {
     const saved = (safeStorage.getItem("vireon:theme") as "dark" | "light" | "auto") || "dark";
     applyThemeToDOM(saved);
 
-    const prefetchScreens = () => {
-      import("@/components/HomeScreen").catch(() => {});
-      import("@/components/TemplatesScreen").catch(() => {});
-      import("@/components/CameraScreen").catch(() => {});
-      import("@/components/ProjectsScreen").catch(() => {});
-      import("@/components/SettingsScreen").catch(() => {});
-      import("@/components/EditorScreen").catch(() => {});
-      import("@/components/PhotoEditorScreen").catch(() => {});
-    };
+    // Only prefetch on web platform; native/Capacitor assets are already bundled locally.
+    // Limit prefetching to common destinations (Editor and Projects/Gallery).
+    // Defer heavy templates, camera, and photo editors until explicitly accessed.
+    if (!Capacitor.isNativePlatform()) {
+      const prefetchScreens = () => {
+        import("@/components/EditorScreen").catch(() => {});
+        import("@/components/ProjectsScreen").catch(() => {});
+      };
 
-    if ("requestIdleCallback" in window) window.requestIdleCallback(prefetchScreens);
-    else setTimeout(prefetchScreens, 200);
+      if ("requestIdleCallback" in window) {
+        window.requestIdleCallback(prefetchScreens);
+      } else {
+        setTimeout(prefetchScreens, 200);
+      }
+    }
   }, []);
 
   useEffect(() => {

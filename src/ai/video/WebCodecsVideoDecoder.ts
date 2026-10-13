@@ -4,8 +4,6 @@
  * Delivers exact hardware-decoded VideoFrames directly from GPU memory.
  */
 
-import * as MP4Box from "mp4box";
-
 export interface DecodedVideoMeta {
   width: number;
   height: number;
@@ -64,7 +62,8 @@ export class WebCodecsVideoDecoder {
       arrayBuffer = await (videoInput as Blob).arrayBuffer();
     }
 
-    const mp4box = (MP4Box as any)?.createFile ? (MP4Box as any) : ((MP4Box as any)?.default || MP4Box);
+    const MP4BoxModule = await import("mp4box");
+    const mp4box = (MP4BoxModule as any)?.createFile ? (MP4BoxModule as any) : ((MP4BoxModule as any)?.default || MP4BoxModule);
     this.mp4File = mp4box.createFile();
 
     const readyPromise = new Promise<{ track: any; info: any }>((resolve, reject) => {

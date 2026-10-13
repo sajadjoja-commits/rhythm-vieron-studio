@@ -8,6 +8,7 @@ import { robustSeekVideo } from "@/lib/videoSeeking";
 import { mediaService } from "@/services/media";
 import { projectRecoveryService } from "@/services/recovery/ProjectRecoveryService";
 import { buildSmartTemplateStyle } from "@/lib/smartTemplates";
+import { STORE_PROJECTS, STORE_FILES, idbPut, idbGet, idbAll, idbDel } from "@/lib/idbStore";
 import type { WordAnimationConfig, CharacterAnimationConfig } from "@/types/textTemplate";
 
 export type MediaType = "video" | "image";
@@ -465,33 +466,91 @@ interface MediaContextType {
 
 const MediaContext = createContext<MediaContextType | null>(null);
 
-const getVideoMetadata = async (file: File, nativePath?: string): Promise<{ duration: number; width: number; height: number }> => {
-  try {
-    const meta = await mediaService.getMetadata(nativePath || file);
-    if (meta && meta.duration > 0) {
-      return {
-        duration: meta.duration,
-        width: meta.width || 1920,
-        height: meta.height || 1080,
-      };
+const createLimiter = (maxConcurrent: number) => {
+  let active = 0;
+  const queue: Array<() => void> = [];
+  const drain = () => {
+    while (active < maxConcurrent && queue.length > 0) {
+      active++;
+      const job = queue.shift()!;
+      job();
     }
-  } catch (err) {
-    console.warn("[MediaContext] mediaService.getMetadata failed, falling back to DOM video:", err);
+  };
+  return <T,>(task: () => Promise<T>): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      queue.push(() => {
+        Promise.resolve()
+          .then(task)
+          .then(resolve, reject)
+          .finally(() => {
+            active--;
+            drain();
+          });
+      });
+      drain();
+    });
+};
+
+const runMetadataLimited = createLimiter(3);
+const runThumbnailLimited = createLimiter(2);
+
+const sanitizeCoverUrl = (url?: string | null): string | null => {
+  if (!url || typeof url !== "string" || url.startsWith("blob:")) return null;
+  return url;
+};
+
+const computeCloudSignature = (serialized: string): string => {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < serialized.length; i++) {
+    hash ^= serialized.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `${serialized.length}:${hash >>> 0}`;
+};
+
+const getVideoMetadata = async (file: File, nativePath?: string): Promise<{ duration: number; width: number; height: number }> => {
+  if (nativePath && Capacitor.isNativePlatform()) {
+    try {
+      const meta = await mediaService.getMetadata(nativePath);
+      if (meta && meta.duration > 0) {
+        return {
+          duration: meta.duration,
+          width: meta.width || 1920,
+          height: meta.height || 1080,
+        };
+      }
+    } catch (err) {
+      console.warn("[MediaContext] mediaService.getMetadata failed, falling back to DOM video:", err);
+    }
   }
 
   return new Promise((resolve) => {
     const video = document.createElement("video");
     video.preload = "metadata";
-    video.onloadedmetadata = () => { 
-      resolve({ 
-        duration: video.duration || 0, 
-        width: video.videoWidth || 0, 
-        height: video.videoHeight || 0 
-      }); 
-      URL.revokeObjectURL(video.src); 
+    const objectUrl = URL.createObjectURL(file);
+    const cleanup = () => {
+      video.onloadedmetadata = null;
+      video.onerror = null;
+      try {
+        video.src = "";
+        video.load();
+      } catch {}
+      URL.revokeObjectURL(objectUrl);
     };
-    video.onerror = () => resolve({ duration: 0, width: 0, height: 0 });
-    video.src = URL.createObjectURL(file);
+    video.onloadedmetadata = () => {
+      const result = {
+        duration: video.duration || 0,
+        width: video.videoWidth || 0,
+        height: video.videoHeight || 0,
+      };
+      cleanup();
+      resolve(result);
+    };
+    video.onerror = () => {
+      cleanup();
+      resolve({ duration: 0, width: 0, height: 0 });
+    };
+    video.src = objectUrl;
   });
 };
 
@@ -540,58 +599,8 @@ const extractVideoFrameThumbnail = async (file: File): Promise<string> => {
 
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
-const DB_NAME = "vireon-ai-db";
-const DB_VERSION = 1;
-const STORE_PROJECTS = "projects";
-const STORE_FILES = "files";
-
-const openDB = (): Promise<IDBDatabase> =>
-  new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE_PROJECTS)) db.createObjectStore(STORE_PROJECTS, { keyPath: "id" });
-      if (!db.objectStoreNames.contains(STORE_FILES)) db.createObjectStore(STORE_FILES);
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-
-const idbPut = async (store: string, key: any, val: any) => {
-  const db = await openDB();
-  return new Promise<void>((res, rej) => {
-    const tx = db.transaction(store, "readwrite");
-    const s = tx.objectStore(store);
-    const r = key === undefined ? s.put(val) : s.put(val, key);
-    r.onsuccess = () => res(); r.onerror = () => rej(r.error);
-  });
-};
-const idbGet = async <T,>(store: string, key: any): Promise<T | undefined> => {
-  const db = await openDB();
-  return new Promise((res, rej) => {
-    const tx = db.transaction(store, "readonly");
-    const r = tx.objectStore(store).get(key);
-    r.onsuccess = () => res(r.result as T); r.onerror = () => rej(r.error);
-  });
-};
-const idbAll = async <T,>(store: string): Promise<T[]> => {
-  const db = await openDB();
-  return new Promise((res, rej) => {
-    const tx = db.transaction(store, "readonly");
-    const r = tx.objectStore(store).getAll();
-    r.onsuccess = () => res(r.result as T[]); r.onerror = () => rej(r.error);
-  });
-};
-const idbDel = async (store: string, key: any) => {
-  const db = await openDB();
-  return new Promise<void>((res, rej) => {
-    const tx = db.transaction(store, "readwrite");
-    const r = tx.objectStore(store).delete(key);
-    r.onsuccess = () => res(); r.onerror = () => rej(r.error);
-  });
-};
-
 const ACTIVE_KEY = "vireon:activeProjectId";
+const CLOUD_SYNC_INTERVAL_MS = 20_000;
 const trackColors = ["#a855f7", "#ec4899", "#f59e0b", "#10b981", "#06b6d4", "#3b82f6"];
 
 export const MediaProvider = ({ children }: { children: ReactNode }) => {
@@ -618,6 +627,18 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
   });
 
   const hydratedRef = useRef(false);
+  const storedFileKeysRef = useRef<Set<string>>(new Set());
+
+  const mediaRef = useRef<MediaItem[]>(media);
+  mediaRef.current = media;
+  const clipsRef = useRef<Clip[]>(clips);
+  clipsRef.current = clips;
+  const audioTracksRef = useRef<AudioTrackItem[]>(audioTracks);
+  audioTracksRef.current = audioTracks;
+  const overlaysRef = useRef<OverlayItem[]>(overlays);
+  overlaysRef.current = overlays;
+  const captionStyleRef = useRef<CaptionStyle>(captionStyle);
+  captionStyleRef.current = captionStyle;
 
   type Snapshot = {
     clips: Clip[]; captions: Caption[]; filters: FilterItem[]; vfx: VfxItem[];
@@ -629,7 +650,7 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
   const pendingPrevRef = useRef<Snapshot | null>(null);
   const commitTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const applyingRef = useRef(false);
-  const [, setHistVersion] = useState(0);
+  const [histVersion, setHistVersion] = useState(0);
 
   const flushPending = useCallback(() => {
     if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = undefined; }
@@ -699,12 +720,13 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
           setVideoVolume(proj.videoVolume ?? 1);
           setVideoAudioFx(proj.videoAudioFx || "none");
           setCaptions(proj.captions || []);
-          setCaptionStyle(proj.captionStyle || captionStyle);
-          setCoverImage(proj.coverImage || null);
+          setCaptionStyle(proj.captionStyle || captionStyleRef.current);
+          setCoverImage(sanitizeCoverUrl(proj.coverImage));
           const restoredMedia: MediaItem[] = [];
           for (const m of proj.media || []) {
             const blob = await idbGet<Blob>(STORE_FILES, m.fileKey);
             if (!blob) continue;
+            if (m.fileKey) storedFileKeysRef.current.add(m.fileKey);
             const file = new File([blob], m.name, { type: m.mime });
             restoredMedia.push({ id: m.id, url: URL.createObjectURL(blob), type: m.type, name: m.name, size: m.size, duration: m.duration, file });
           }
@@ -715,6 +737,7 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
           const restoredOverlays: OverlayItem[] = [];
           for (const o of proj.overlays || []) {
             const blob = o.fileKey ? await idbGet<Blob>(STORE_FILES, o.fileKey) : null;
+            if (blob && o.fileKey) storedFileKeysRef.current.add(o.fileKey);
             const url = blob ? URL.createObjectURL(blob) : o.url;
             restoredOverlays.push({ ...o, url, file: blob ? new File([blob], o.name, { type: blob.type }) : undefined });
           }
@@ -722,6 +745,7 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
           const restoredAudio: AudioTrackItem[] = [];
           for (const a of proj.audioTracks || []) {
             const blob = a.fileKey ? await idbGet<Blob>(STORE_FILES, a.fileKey) : null;
+            if (blob && a.fileKey) storedFileKeysRef.current.add(a.fileKey);
             const url = blob ? URL.createObjectURL(blob) : a.url;
             restoredAudio.push({ ...a, url, file: blob ? new File([blob], a.name, { type: blob.type }) : undefined });
           }
@@ -747,28 +771,113 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
     return Math.max(clipsLen, audioLen);
   }, [clips, audioTracks]);
 
+  const lastCloudSyncSigRef = useRef<string | null>(null);
+  const pendingCloudPayloadRef = useRef<{ record: Record<string, any>; sig: string } | null>(null);
+  const cloudSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const buildCloudPayloadRef = useRef<() => { record: Record<string, any>; sig: string }>(() => ({ record: {}, sig: "" }));
+  buildCloudPayloadRef.current = () => {
+    const effectiveCover = sanitizeCoverUrl(coverImage) || sanitizeCoverUrl(media[0]?.thumbnail) || null;
+    const record = {
+      id: projectId,
+      name: projectName,
+      export_preset: exportPreset,
+      clips_json: clips as any,
+      captions_json: captions as any,
+      caption_style_json: captionStyle as any,
+      audio_tracks_json: audioTracks.map((a) => ({
+        id: a.id, name: a.name, start: a.start, offset: a.offset, duration: a.duration,
+        sourceDuration: a.sourceDuration, volume: a.volume, muted: a.muted, fx: a.fx,
+        color: a.color, kind: a.kind, url: a.file ? null : a.url,
+      })),
+      filters_json: filters as any,
+      vfx_json: vfx as any,
+      cover_image: effectiveCover,
+      duration: totalDuration,
+    };
+    const serialized = JSON.stringify(record);
+    const sig = computeCloudSignature(serialized);
+    return { record, sig };
+  };
+
+  const flushCloudSync = useCallback(async (fromLifecycle = false) => {
+    if (cloudSyncTimerRef.current) {
+      clearTimeout(cloudSyncTimerRef.current);
+      cloudSyncTimerRef.current = null;
+    }
+    const candidate = fromLifecycle
+      ? buildCloudPayloadRef.current()
+      : pendingCloudPayloadRef.current;
+    if (!candidate) return;
+    pendingCloudPayloadRef.current = null;
+    if (candidate.sig === lastCloudSyncSigRef.current) return;
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        lastCloudSyncSigRef.current = candidate.sig;
+        const { error } = await supabase.from("projects").upsert({
+          ...candidate.record,
+          updated_at: new Date().toISOString(),
+        });
+        if (error) console.warn("cloud sync failed", error.message);
+      }
+    } catch (e) {
+      console.warn("cloud sync failed", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden" && hydratedRef.current) {
+        void flushCloudSync(true);
+      }
+    };
+    const onPageHide = () => {
+      if (hydratedRef.current) {
+        void flushCloudSync(true);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", onPageHide);
+      if (cloudSyncTimerRef.current) {
+        clearTimeout(cloudSyncTimerRef.current);
+        cloudSyncTimerRef.current = null;
+      }
+    };
+  }, [flushCloudSync]);
+
   useEffect(() => {
     if (!hydratedRef.current) return;
     const t = setTimeout(async () => {
       try {
         for (const m of media) {
           const fileKey = `media:${m.id}`;
-          const exists = await idbGet(STORE_FILES, fileKey);
-          if (!exists) await idbPut(STORE_FILES, fileKey, m.file);
+          if (!storedFileKeysRef.current.has(fileKey)) {
+            await idbPut(STORE_FILES, fileKey, m.file);
+            storedFileKeysRef.current.add(fileKey);
+          }
         }
         for (const a of audioTracks) {
           if (!a.file) continue;
           const fileKey = `audio:${a.id}`;
-          const exists = await idbGet(STORE_FILES, fileKey);
-          if (!exists) await idbPut(STORE_FILES, fileKey, a.file);
+          if (!storedFileKeysRef.current.has(fileKey)) {
+            await idbPut(STORE_FILES, fileKey, a.file);
+            storedFileKeysRef.current.add(fileKey);
+          }
         }
         for (const o of overlays) {
           if (!o.file) continue;
           const fileKey = `overlay:${o.id}`;
-          const exists = await idbGet(STORE_FILES, fileKey);
-          if (!exists) await idbPut(STORE_FILES, fileKey, o.file);
+          if (!storedFileKeysRef.current.has(fileKey)) {
+            await idbPut(STORE_FILES, fileKey, o.file);
+            storedFileKeysRef.current.add(fileKey);
+          }
         }
-        const effectiveCover = coverImage || (media.length > 0 ? media[0].url : null);
+        const effectiveCover = sanitizeCoverUrl(coverImage) || sanitizeCoverUrl(media[0]?.thumbnail) || null;
 
         const payload = {
           id: projectId, name: projectName, updatedAt: Date.now(),
@@ -782,20 +891,20 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
         localStorage.setItem(ACTIVE_KEY, projectId);
         projectRecoveryService.saveSnapshot(projectId, projectName, payload);
 
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
-          supabase.from("projects").upsert({
-            id: projectId, name: projectName, export_preset: exportPreset,
-            clips_json: clips as any, captions_json: captions as any, caption_style_json: captionStyle as any,
-            audio_tracks_json: audioTracks.map((a) => ({ id: a.id, name: a.name, start: a.start, offset: a.offset, duration: a.duration, sourceDuration: a.sourceDuration, volume: a.volume, muted: a.muted, fx: a.fx, color: a.color, kind: a.kind, url: a.file ? null : a.url })),
-            filters_json: filters as any, vfx_json: vfx as any, cover_image: effectiveCover,
-            duration: totalDuration, updated_at: new Date().toISOString(),
-          }).then(({ error }) => { if (error) console.warn("cloud sync failed", error.message); });
+        const nextCloud = buildCloudPayloadRef.current();
+        if (nextCloud.sig !== lastCloudSyncSigRef.current) {
+          pendingCloudPayloadRef.current = nextCloud;
+          if (!cloudSyncTimerRef.current) {
+            cloudSyncTimerRef.current = setTimeout(() => {
+              cloudSyncTimerRef.current = null;
+              void flushCloudSync(false);
+            }, CLOUD_SYNC_INTERVAL_MS);
+          }
         }
       } catch (e) { console.warn("autosave failed", e); }
     }, 600);
     return () => clearTimeout(t);
-  }, [projectId, projectName, exportPreset, videoMuted, videoVolume, videoAudioFx, captions, captionStyle, coverImage, clips, media, audioTracks, filters, vfx, totalDuration, overlays]);
+  }, [projectId, projectName, exportPreset, videoMuted, videoVolume, videoAudioFx, captions, captionStyle, coverImage, clips, media, audioTracks, filters, vfx, totalDuration, overlays, flushCloudSync]);
 
   useEffect(() => {
     const snap: Snapshot = { clips, captions, filters, vfx, overlays, audioTracks, captionStyle };
@@ -861,13 +970,13 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
     toast.success(t("toast.mediaUploaded", { n: items.length }));
     items.forEach((m) => {
       if (m.type === "video") {
-        getVideoMetadata(m.file, m.nativePath).then((meta) => {
+        runMetadataLimited(() => getVideoMetadata(m.file, m.nativePath)).then((meta) => {
           const dur = meta.duration || 5;
           setMedia((prev) => prev.map((x) => (x.id === m.id ? { ...x, duration: dur, width: meta.width, height: meta.height } : x)));
           setClips((prev) => prev.map((c) => c.mediaId === m.id && c.in === 0 && (c.out === 5 || c.out === 0) ? { ...c, out: dur } : c));
         });
         if (m.file) {
-          extractVideoFrameThumbnail(m.file).then((thumb) => {
+          runThumbnailLimited(() => extractVideoFrameThumbnail(m.file)).then((thumb) => {
             if (thumb) {
               setMedia((prev) => prev.map((x) => (x.id === m.id ? { ...x, thumbnail: thumb } : x)));
             }
@@ -901,7 +1010,9 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
   const removeMedia = useCallback((id: string) => {
     setMedia((prev) => { const item = prev.find((m) => m.id === id); if (item) URL.revokeObjectURL(item.url); return prev.filter((m) => m.id !== id); });
     setClips((prev) => prev.filter((c) => c.mediaId !== id));
-    idbDel(STORE_FILES, `media:${id}`).catch(() => {});
+    const fileKey = `media:${id}`;
+    storedFileKeysRef.current.delete(fileKey);
+    idbDel(STORE_FILES, fileKey).catch(() => {});
   }, []);
 
   const clearMedia = useCallback(() => {
@@ -1029,22 +1140,23 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const resolveTimelineTime = useCallback((t: number) => {
+    const currentClips = clipsRef.current;
     let acc = 0;
-    const clipsLen = clips.reduce((sum, c) => sum + clipTimelineLen(c), 0);
+    const clipsLen = currentClips.reduce((sum, c) => sum + clipTimelineLen(c), 0);
     if (t > clipsLen) return null;
 
-    for (let i = 0; i < clips.length; i++) {
-      const c = clips[i];
+    for (let i = 0; i < currentClips.length; i++) {
+      const c = currentClips[i];
       const sp = c.speed && c.speed > 0 ? c.speed : 1;
       const len = clipTimelineLen(c);
-      if (t < acc + len || i === clips.length - 1) {
+      if (t < acc + len || i === currentClips.length - 1) {
         const localT = Math.min(Math.max(0, t - acc), len);
         return { clip: c, clipIndex: i, mediaTime: c.in + localT * sp, clipStart: acc };
       }
       acc += len;
     }
     return null;
-  }, [clips]);
+  }, []);
 
   const splitTrackAt = useCallback((trackType: "video" | "audio" | "caption" | "filter" | "vfx" | "overlay", time: number) => {
     let success = false;
@@ -1160,7 +1272,7 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
   const trimClip = useCallback((clipId: string, edge: "in" | "out", newValue: number) => {
     setClips((prev) => prev.map((c) => {
       if (c.id !== clipId) return c;
-      const mediaItem = media.find((m) => m.id === c.mediaId);
+      const mediaItem = mediaRef.current.find((m) => m.id === c.mediaId);
       const isVideo = mediaItem && mediaItem.type === "video";
       const maxSourceDuration = isVideo && mediaItem.duration > 0 ? mediaItem.duration : Infinity;
 
@@ -1172,7 +1284,7 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
         return { ...c, out: clampedOut };
       }
     }));
-  }, [media]);
+  }, []);
 
   const removeClip = useCallback((clipId: string) => {
     setClips((prev) => prev.filter((c) => c.id !== clipId));
@@ -1225,13 +1337,15 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
     });
     setSelectedAudioTrackId((prev) => (prev === id ? null : prev));
     setAudioBeats([]);
-    idbDel(STORE_FILES, `audio:${id}`).catch(() => {});
+    const fileKey = `audio:${id}`;
+    storedFileKeysRef.current.delete(fileKey);
+    idbDel(STORE_FILES, fileKey).catch(() => {});
   }, []);
 
   const newProject = useCallback(() => {
     console.log("[MediaContext] newProject called. Resetting state...");
-    media.forEach((m) => URL.revokeObjectURL(m.url));
-    audioTracks.forEach((a) => URL.revokeObjectURL(a.url));
+    mediaRef.current.forEach((m) => URL.revokeObjectURL(m.url));
+    audioTracksRef.current.forEach((a) => URL.revokeObjectURL(a.url));
     const id = uid();
     console.log("[MediaContext] New Project ID generated:", id);
     freshStartRef.current = true; hydratedRef.current = true;
@@ -1242,7 +1356,7 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
     localStorage.setItem(ACTIVE_KEY, id);
     resetHistory();
     console.log("[MediaContext] project reset completed.");
-  }, [media, audioTracks, resetHistory]);
+  }, [resetHistory]);
 
   const createNewProjectWithFiles = useCallback(async (files: FileList | File[]) => {
     newProject();
@@ -1252,19 +1366,20 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
   const loadProject = useCallback(async (id: string) => {
     const proj = await idbGet<any>(STORE_PROJECTS, id);
     if (!proj) return false;
-    media.forEach((m) => URL.revokeObjectURL(m.url));
-    audioTracks.forEach((a) => URL.revokeObjectURL(a.url));
-    overlays.forEach((o) => { if (o.file) URL.revokeObjectURL(o.url); });
+    mediaRef.current.forEach((m) => URL.revokeObjectURL(m.url));
+    audioTracksRef.current.forEach((a) => URL.revokeObjectURL(a.url));
+    overlaysRef.current.forEach((o) => { if (o.file) URL.revokeObjectURL(o.url); });
     setProjectId(id); localStorage.setItem(ACTIVE_KEY, id);
     setProjectName(proj.name || t("editor.projectName"));
     setExportPreset(proj.exportPreset || "full");
     setVideoMuted(!!proj.videoMuted); setVideoVolume(proj.videoVolume ?? 1);
-    setCaptions(proj.captions || []); setCaptionStyle(proj.captionStyle || captionStyle);
-    setCoverImage(proj.coverImage || null);
+    setCaptions(proj.captions || []); setCaptionStyle(proj.captionStyle || captionStyleRef.current);
+    setCoverImage(sanitizeCoverUrl(proj.coverImage));
     const restoredMedia: MediaItem[] = [];
     for (const m of proj.media || []) {
       const blob = await idbGet<Blob>(STORE_FILES, m.fileKey);
       if (!blob) continue;
+      if (m.fileKey) storedFileKeysRef.current.add(m.fileKey);
       const file = new File([blob], m.name, { type: m.mime });
       restoredMedia.push({ id: m.id, url: URL.createObjectURL(blob), type: m.type, name: m.name, size: m.size, duration: m.duration, file });
     }
@@ -1274,6 +1389,7 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
     const restoredOverlays: OverlayItem[] = [];
     for (const o of proj.overlays || []) {
       const blob = o.fileKey ? await idbGet<Blob>(STORE_FILES, o.fileKey) : null;
+      if (blob && o.fileKey) storedFileKeysRef.current.add(o.fileKey);
       const url = blob ? URL.createObjectURL(blob) : o.url;
       restoredOverlays.push({ ...o, url, file: blob ? new File([blob], o.name, { type: blob.type }) : undefined });
     }
@@ -1281,43 +1397,33 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
     const restoredAudio: AudioTrackItem[] = [];
     for (const a of proj.audioTracks || []) {
       const blob = a.fileKey ? await idbGet<Blob>(STORE_FILES, a.fileKey) : null;
+      if (blob && a.fileKey) storedFileKeysRef.current.add(a.fileKey);
       const url = blob ? URL.createObjectURL(blob) : a.url;
       restoredAudio.push({ ...a, url, file: blob ? new File([blob], a.name, { type: blob.type }) : undefined });
     }
     setAudioTracks(restoredAudio); resetHistory();
     toast.success(t("toast.projectLoaded"));
     return true;
-  }, [media, audioTracks, overlays, captionStyle, resetHistory]);
+  }, [resetHistory]);
 
   const listProjects = useCallback(async (): Promise<ProjectMeta[]> => {
     const localAll = await idbAll<any>(STORE_PROJECTS);
-    const localProjects = await Promise.all(
-      localAll.map(async (p) => {
-        let cover = p.coverImage || p.cover_image || null;
-        if (!cover && p.media && p.media.length > 0) {
-          const m = p.media[0];
-          if (m.fileKey) {
-            try {
-              const blob = await idbGet<Blob>(STORE_FILES, m.fileKey);
-              if (blob) cover = URL.createObjectURL(blob);
-            } catch (e) { /* ignore */ }
-          }
-        }
-        return {
-          id: p.id, name: p.name, updatedAt: p.updatedAt || 0,
-          duration: (p.clips || []).reduce((acc: number, c: any) => acc + (c.out - c.in), 0),
-          preset: p.exportPreset || "full",
-          coverImage: cover,
-        };
-      })
-    );
+    const localProjects: ProjectMeta[] = localAll.map((p) => {
+      const cover = sanitizeCoverUrl(p.coverImage || p.cover_image);
+      return {
+        id: p.id, name: p.name, updatedAt: p.updatedAt || 0,
+        duration: (p.clips || []).reduce((acc: number, c: any) => acc + (c.out - c.in), 0),
+        preset: p.exportPreset || "full",
+        coverImage: cover,
+      };
+    });
     const { data: { session } } = await supabase.auth.getSession();
     let cloudProjects: ProjectMeta[] = [];
     if (session?.user) {
       const { data, error } = await supabase.from("projects").select("id, name, duration, export_preset, updated_at, cover_image").order("updated_at", { ascending: false });
       if (!error && data) {
         cloudProjects = data.map((p: any) => ({
-          id: p.id, name: p.name, updatedAt: new Date(p.updated_at).getTime(), duration: p.duration || 0, preset: p.export_preset || "full", coverImage: p.cover_image || null
+          id: p.id, name: p.name, updatedAt: new Date(p.updated_at).getTime(), duration: p.duration || 0, preset: p.export_preset || "full", coverImage: sanitizeCoverUrl(p.cover_image)
         }));
       }
     }
@@ -1328,15 +1434,30 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const deleteProject = useCallback(async (id: string) => {
-    await idbDel(STORE_PROJECTS, id);
     const proj = await idbGet<any>(STORE_PROJECTS, id);
-    if (proj?.media) for (const m of proj.media) await idbDel(STORE_FILES, m.fileKey);
+    if (proj) {
+      const fileKeys = new Set<string>();
+      for (const m of proj.media || []) {
+        if (m?.fileKey) fileKeys.add(m.fileKey);
+      }
+      for (const a of proj.audioTracks || []) {
+        if (a?.fileKey) fileKeys.add(a.fileKey);
+      }
+      for (const o of proj.overlays || []) {
+        if (o?.fileKey) fileKeys.add(o.fileKey);
+      }
+      for (const fileKey of fileKeys) {
+        await idbDel(STORE_FILES, fileKey);
+        storedFileKeysRef.current.delete(fileKey);
+      }
+    }
+    await idbDel(STORE_PROJECTS, id);
     const { data: { session } } = await supabase.auth.getSession();
     if (session?.user) { await supabase.from("projects").delete().eq("id", id); }
     toast.success(t("toast.projectDeleted"));
   }, []);
 
-  const getMediaById = useCallback((id: string) => media.find((m) => m.id === id), [media]);
+  const getMediaById = useCallback((id: string) => mediaRef.current.find((m) => m.id === id), []);
 
   const splitClipsAtBeats = useCallback((beats: number[]) => {
     if (!beats.length) return;
@@ -1358,13 +1479,15 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const applySmartTemplate = useCallback((tpl: import("@/lib/smartTemplates").SmartTemplate) => {
-    const dur = clips.reduce((acc, c) => acc + Math.max(0, c.out - c.in), 0);
-    if (clips.length === 0 || dur <= 0) { toast.error(t("toast.addMediaFirst")); return false; }
+    const currentClips = clipsRef.current;
+    const dur = currentClips.reduce((acc, c) => acc + Math.max(0, c.out - c.in), 0);
+    if (currentClips.length === 0 || dur <= 0) { toast.error(t("toast.addMediaFirst")); return false; }
     const style = buildSmartTemplateStyle(tpl, dur);
     setFilters(style.filters);
     setVfx(style.vfx);
     if (tpl.transition !== "none") {
-      setClips((prev) => prev.map((c, i) => (i === 0 ? c : { ...c, transitionIn: { type: tpl.transition, duration: 0.5 } })));
+      const transitionDuration = tpl.transitionDuration ?? 0.5;
+      setClips((prev) => prev.map((c, i) => (i === 0 ? c : { ...c, transitionIn: { type: tpl.transition, duration: transitionDuration } })));
     }
     setCaptionStyle((s) => ({ ...s, ...style.captionStyle }));
     if (tpl.segmentSec > 0) {
@@ -1374,7 +1497,7 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
     }
     toast.success(t("toast.templateApplied", { name: tpl.name }));
     return true;
-  }, [clips, splitClipsAtBeats]);
+  }, [splitClipsAtBeats]);
 
   const addFilter = useCallback((f: Omit<FilterItem, "id">) => { setFilters((prev) => [...prev, { ...f, id: uid() }]); }, []);
   const updateFilter = useCallback((id: string, patch: Partial<FilterItem>) => { setFilters((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f))); }, []);
@@ -1392,32 +1515,57 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
     return id;
   }, []);
   const updateOverlay = useCallback((id: string, patch: Partial<OverlayItem>) => { setOverlays((prev) => prev.map((o) => (o.id === id ? { ...o, ...patch } : o))); }, []);
-  const removeOverlay = useCallback((id: string) => { setOverlays((prev) => { const item = prev.find((o) => o.id === id); if (item) URL.revokeObjectURL(item.url); return prev.filter((o) => o.id !== id); }); }, []);
+  const removeOverlay = useCallback((id: string) => {
+    setOverlays((prev) => {
+      const item = prev.find((o) => o.id === id);
+      if (item) URL.revokeObjectURL(item.url);
+      return prev.filter((o) => o.id !== id);
+    });
+    const fileKey = `overlay:${id}`;
+    storedFileKeysRef.current.delete(fileKey);
+    idbDel(STORE_FILES, fileKey).catch(() => {});
+  }, []);
+
+  const contextValue = useMemo<MediaContextType>(() => ({
+    media, clips, captions, captionStyle, audioTracks, videoMuted, videoVolume, videoAudioFx,
+    exportPreset, projectName, projectId,
+    filters, vfx, overlays,
+    addFiles, updateMediaItem, removeMedia, clearMedia,
+    setClips, splitClipAt, splitTrackAt, trimClip, removeClip, moveClip, setClipSpeed, setTransition,
+    setFilters, setVfx, setOverlays,
+    coverImage, setCoverImage,
+    audioBeats, setAudioBeats,
+    selectedAudioTrackId, setSelectedAudioTrackId,
+    setCaptions, updateCaption, removeCaption, setCaptionStyle,
+    setAudioTracks,
+    addAudioTrack, updateAudioTrack, removeAudioTrack, setVideoMuted, setVideoVolume, setVideoAudioFx,
+    addFilter, updateFilter, removeFilter,
+    addVfx, updateVfx, removeVfx,
+    addOverlay, updateOverlay, removeOverlay,
+    setExportPreset, setProjectName, newProject, createNewProjectWithFiles, loadProject, listProjects, deleteProject,
+    totalDuration, getMediaById, resolveTimelineTime, splitClipsAtBeats,
+    applySmartTemplate, addFreezeFrameAt,
+    undo, redo, canUndo, canRedo,
+  }), [
+    media, clips, captions, captionStyle, audioTracks, videoMuted, videoVolume, videoAudioFx,
+    exportPreset, projectName, projectId,
+    filters, vfx, overlays,
+    addFiles, updateMediaItem, removeMedia, clearMedia,
+    splitClipAt, splitTrackAt, trimClip, removeClip, moveClip, setClipSpeed, setTransition,
+    coverImage, audioBeats, selectedAudioTrackId,
+    updateCaption, removeCaption,
+    addAudioTrack, updateAudioTrack, removeAudioTrack,
+    addFilter, updateFilter, removeFilter,
+    addVfx, updateVfx, removeVfx,
+    addOverlay, updateOverlay, removeOverlay,
+    newProject, createNewProjectWithFiles, loadProject, listProjects, deleteProject,
+    totalDuration, getMediaById, resolveTimelineTime, splitClipsAtBeats,
+    applySmartTemplate, addFreezeFrameAt,
+    undo, redo, canUndo, canRedo, histVersion,
+  ]);
 
   return (
-    <MediaContext.Provider
-      value={{
-        media, clips, captions, captionStyle, audioTracks, videoMuted, videoVolume, videoAudioFx,
-        exportPreset, projectName, projectId,
-        filters, vfx, overlays,
-        addFiles, updateMediaItem, removeMedia, clearMedia,
-        setClips, splitClipAt, splitTrackAt, trimClip, removeClip, moveClip, setClipSpeed, setTransition,
-        setFilters, setVfx, setOverlays,
-        coverImage, setCoverImage,
-        audioBeats, setAudioBeats,
-        selectedAudioTrackId, setSelectedAudioTrackId,
-        setCaptions, updateCaption, removeCaption, setCaptionStyle,
-        setAudioTracks,
-        addAudioTrack, updateAudioTrack, removeAudioTrack, setVideoMuted, setVideoVolume, setVideoAudioFx,
-        addFilter, updateFilter, removeFilter,
-        addVfx, updateVfx, removeVfx,
-        addOverlay, updateOverlay, removeOverlay,
-        setExportPreset, setProjectName, newProject, createNewProjectWithFiles, loadProject, listProjects, deleteProject,
-        totalDuration, getMediaById, resolveTimelineTime, splitClipsAtBeats,
-        applySmartTemplate, addFreezeFrameAt,
-        undo, redo, canUndo, canRedo,
-      }}
-    >
+    <MediaContext.Provider value={contextValue}>
       {children}
     </MediaContext.Provider>
   );

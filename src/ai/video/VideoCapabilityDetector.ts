@@ -29,8 +29,9 @@ export class VideoCapabilityDetector {
     const isIOS = /iPhone|iPad|iPod/i.test(ua);
 
     // 2. Hardware constraints
-    const deviceMemoryGB = isBrowser && "deviceMemory" in navigator
-      ? Number((navigator as any).deviceMemory || 4)
+    const memoryKnown = isBrowser && "deviceMemory" in navigator && typeof (navigator as any).deviceMemory === "number";
+    const deviceMemoryGB = memoryKnown
+      ? Number((navigator as any).deviceMemory)
       : isAndroid ? 3 : 4;
     const hardwareConcurrency = isBrowser && navigator.hardwareConcurrency ? navigator.hardwareConcurrency : 4;
 
@@ -94,6 +95,7 @@ export class VideoCapabilityDetector {
       hasWASM,
       hasSIMD,
       deviceMemoryGB,
+      memoryKnown,
       hardwareConcurrency,
       isAndroid,
       isIOS,

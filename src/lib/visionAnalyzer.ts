@@ -1,5 +1,5 @@
 // Vision & Detection Engine for Vireon AI Studio (Face & Hand Analysis)
-import { FilesetResolver, FaceDetector, HandLandmarker } from "@mediapipe/tasks-vision";
+import type { FaceDetector, HandLandmarker } from "@mediapipe/tasks-vision";
 
 export interface VisionFrameAnalysis {
   faceCount: number;
@@ -37,8 +37,6 @@ const MEDIAPIPE_INIT_TIMEOUT_MS = 10000;
 const WASM_SOURCES = [
   typeof window !== "undefined" ? `${window.location.origin}/wasm/mediapipe` : "/wasm/mediapipe",
   "/wasm/mediapipe",
-  typeof window !== "undefined" ? `${window.location.origin}/mediapipe/wasm` : "/mediapipe/wasm",
-  "/mediapipe/wasm",
   "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm",
 ];
 
@@ -71,6 +69,7 @@ async function isAssetReachable(url: string): Promise<boolean> {
  * Loads the MediaPipe vision fileset trying local static assets first, then CDN fallback
  */
 async function loadVisionFileset(): Promise<any> {
+  const { FilesetResolver } = await import("@mediapipe/tasks-vision");
   let lastErr: any = null;
   for (const wasmPath of WASM_SOURCES) {
     try {
@@ -97,6 +96,7 @@ async function loadVisionFileset(): Promise<any> {
  * Initializes FaceDetector trying local model assets and GPU/CPU delegates
  */
 async function createFaceDetector(vision: any): Promise<FaceDetector> {
+  const { FaceDetector: MPFaceDetector } = await import("@mediapipe/tasks-vision");
   const delegates: ("CPU" | "GPU")[] = ["CPU", "GPU"];
   let lastErr: any = null;
 
@@ -106,7 +106,7 @@ async function createFaceDetector(vision: any): Promise<FaceDetector> {
     }
     for (const delegate of delegates) {
       try {
-        const detector = await FaceDetector.createFromOptions(vision, {
+        const detector = await MPFaceDetector.createFromOptions(vision, {
           baseOptions: {
             modelAssetPath: modelPath,
             delegate,
@@ -129,6 +129,7 @@ async function createFaceDetector(vision: any): Promise<FaceDetector> {
  * Initializes HandLandmarker trying local model assets and GPU/CPU delegates
  */
 async function createHandLandmarker(vision: any): Promise<HandLandmarker> {
+  const { HandLandmarker: MPHandLandmarker } = await import("@mediapipe/tasks-vision");
   const delegates: ("CPU" | "GPU")[] = ["CPU", "GPU"];
   let lastErr: any = null;
 
@@ -138,7 +139,7 @@ async function createHandLandmarker(vision: any): Promise<HandLandmarker> {
     }
     for (const delegate of delegates) {
       try {
-        const landmarker = await HandLandmarker.createFromOptions(vision, {
+        const landmarker = await MPHandLandmarker.createFromOptions(vision, {
           baseOptions: {
             modelAssetPath: modelPath,
             delegate,

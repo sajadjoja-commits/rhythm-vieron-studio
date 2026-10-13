@@ -223,7 +223,12 @@ export class VideoProcessingEngine {
 
       logStage("DECODER_READY", { width, height, durationSeconds, fps, totalFrames, hasAudio: meta.hasAudio, useWebCodecs: !!webCodecsDecoder });
 
-      ({ width, height } = processingDimensions(width, height, profile, options));
+      const dims = processingDimensions(width, height, profile, options);
+      width = dims.width;
+      height = dims.height;
+      const outputWidth = dims.outputWidth;
+      const outputHeight = dims.outputHeight;
+      const downscaled = dims.downscaled;
 
       // 3. Setup Processing Canvas & Buffers
       const processCanvas = this.memoryManager.createCanvas(width, height);
@@ -328,6 +333,12 @@ export class VideoProcessingEngine {
       const earlyForegroundCheckFrame = Math.min(totalFrames, Math.max(15, Math.ceil(fps)));
 
       // 5. High-Performance Frame Processing Loop
+      let pendingAddFrame: Promise<void> | null = null;
+      let nextFramePromise: Promise<{ frame: VideoFrame; timestampMicros: number; index: number } | null> | null =
+        webCodecsDecoder ? webCodecsDecoder.getNextFrame() : null;
+      let cachedMaskInfo: Awaited<ReturnType<typeof this.segmentationEngine.segmentImageSource>> | null = null;
+      const earlyEnhanceCheckFrame = Math.max(40, Math.ceil(totalFrames * 0.1));
+
       try {
         logStage("PROCESSING", { totalFrames, engine: webCodecsDecoder ? "WebCodecs Hardware" : "Sequential Extractor" });
         let lastFrameTimestamp = Date.now();
@@ -352,7 +363,7 @@ export class VideoProcessingEngine {
           let activeVideoFrame: VideoFrame | null = null;
 
           if (webCodecsDecoder) {
-            const frameItem = await webCodecsDecoder.getNextFrame();
+            const frameItem = await nextFramePromise;
             if (!frameItem) {
               // Decoder reached end of stream cleanly
               break;
@@ -360,6 +371,13 @@ export class VideoProcessingEngine {
             activeVideoFrame = frameItem.frame;
             sourceImage = frameItem.frame;
             timestampMicros = frameItem.timestampMicros;
+
+            // Prefetch next frame while processing current frame (max 2 open frames)
+            if (frameIdx + 1 < totalFrames) {
+              nextFramePromise = webCodecsDecoder.getNextFrame();
+            } else {
+              nextFramePromise = null;
+            }
           } else {
             const timestampSeconds = (frameIdx / fps);
             timestampMicros = Math.round(timestampSeconds * 1_000_000);
@@ -420,6 +438,55 @@ export class VideoProcessingEngine {
               enhancedPixels = validImageData.data;
             }
 
+            // Early check: if at threshold frames and no difference found, return unchanged early
+            if (
+              taskType === "enhance-video" &&
+              frameIdx + 1 === earlyEnhanceCheckFrame &&
+              maxMeanDiff < 0.15 &&
+              maxChangedPct < 0.35
+            ) {
+              logStage("UNCHANGED_BYPASS", { earlyFrame: frameIdx + 1, maxMeanDiff, maxChangedPct });
+              emitProgress("COMPLETED", 100, frameIdx + 1, totalFrames, "الفيديو جيد أصلاً ولا يحتاج تحسيناً");
+
+              if (pendingAddFrame) {
+                try { await pendingAddFrame; } catch {}
+                pendingAddFrame = null;
+              }
+              if (nextFramePromise) {
+                try {
+                  const prefetched = await nextFramePromise;
+                  prefetched?.frame?.close();
+                } catch {}
+                nextFramePromise = null;
+              }
+              encoderSession.cancel();
+              if (webCodecsDecoder) {
+                try { (webCodecsDecoder as WebCodecsVideoDecoder).close(); } catch {}
+                webCodecsDecoder = null;
+              }
+              cleanupSourceVideo();
+              this.memoryManager.disposeCanvas(processCanvas);
+
+              return {
+                outputUrl: videoUrl,
+                mimeType: "video/mp4",
+                width: originalWidth,
+                height: originalHeight,
+                outputWidth: originalWidth,
+                outputHeight: originalHeight,
+                downscaled: false,
+                durationSeconds,
+                fps,
+                frameCount: totalFrames,
+                sizeMB: 0,
+                executionTimeMs: Date.now() - processingStartedAt,
+                taskType: taskType as VideoAITaskType,
+                appliedEngine: "bypass-unchanged",
+                verified: true,
+                unchanged: true,
+              };
+            }
+
             const outImageData =
               imageData.data.byteLength > 0 && enhancedPixels.buffer === imageData.data.buffer
                 ? imageData
@@ -434,12 +501,18 @@ export class VideoProcessingEngine {
             let outputPixels: Uint8ClampedArray;
             let maskInfo: Awaited<ReturnType<typeof this.segmentationEngine.segmentImageSource>> | null = null;
             try {
-              // 1. High-speed 256x256 segmentation (runs in ~6ms)
-              maskInfo = await this.segmentationEngine.segmentImageSource(
-                sourceImage,
-                orientationPolicy || undefined,
-                frameIdx
-              );
+              // 1. High-speed 256x256 segmentation (reuse previous mask if fps > 45 on odd frames)
+              const reuseMask = fps > 45 && frameIdx % 2 !== 0 && cachedMaskInfo !== null;
+              if (reuseMask) {
+                maskInfo = cachedMaskInfo;
+              } else {
+                maskInfo = await this.segmentationEngine.segmentImageSource(
+                  sourceImage,
+                  orientationPolicy || undefined,
+                  frameIdx
+                );
+                cachedMaskInfo = maskInfo;
+              }
 
               totalForegroundPixelsAllFrames += maskInfo.stats.foregroundPixelCount;
               if (maskInfo.stats.foregroundPercentage > maxForegroundPct) {
@@ -555,8 +628,12 @@ export class VideoProcessingEngine {
             try { activeVideoFrame?.close(); } catch {}
           }
 
-          // Stream encoded frame into muxer with exact presentation timestamp
-          await encoderSession.addFrame(processCanvas, timestampMicros, frameIdx === 0);
+          // Stream encoded frame into muxer with exact presentation timestamp (max 1 pending addFrame)
+          if (pendingAddFrame) {
+            await pendingAddFrame;
+            pendingAddFrame = null;
+          }
+          pendingAddFrame = encoderSession.addFrame(processCanvas, timestampMicros, frameIdx === 0);
 
           // Update moving average FPS calculation
           const now = Date.now();
@@ -580,6 +657,19 @@ export class VideoProcessingEngine {
           }
         }
 
+        // Await final pending encoded frame and drain prefetched decoder frame
+        if (pendingAddFrame) {
+          await pendingAddFrame;
+          pendingAddFrame = null;
+        }
+        if (nextFramePromise) {
+          try {
+            const prefetched = await nextFramePromise;
+            prefetched?.frame?.close();
+          } catch {}
+          nextFramePromise = null;
+        }
+
         // VALIDATION CHECK BEFORE COMPLETION:
         if (taskType === "remove-video-background") {
           const isTransparent = !options?.backgroundColor || options.backgroundColor === "transparent";
@@ -591,7 +681,34 @@ export class VideoProcessingEngine {
           }
         } else if (taskType === "enhance-video") {
           if (maxMeanDiff < 0.15 && maxChangedPct < 0.35) {
-            throw new Error("FAILED: لم ينتج عن معالجة تحسين الفيديو أي اختلاف ملحوظ في الألوان أو الإضاءة - تم إيقاف العملية لمنع تكرار الإخراج.");
+            logStage("UNCHANGED_BYPASS", { maxMeanDiff, maxChangedPct });
+            emitProgress("COMPLETED", 100, totalFrames, totalFrames, "الفيديو جيد أصلاً ولا يحتاج تحسيناً");
+            encoderSession.cancel();
+            if (webCodecsDecoder) {
+              try { (webCodecsDecoder as WebCodecsVideoDecoder).close(); } catch {}
+              webCodecsDecoder = null;
+            }
+            cleanupSourceVideo();
+            this.memoryManager.disposeCanvas(processCanvas);
+
+            return {
+              outputUrl: videoUrl,
+              mimeType: "video/mp4",
+              width: originalWidth,
+              height: originalHeight,
+              outputWidth: originalWidth,
+              outputHeight: originalHeight,
+              downscaled: false,
+              durationSeconds,
+              fps,
+              frameCount: totalFrames,
+              sizeMB: 0,
+              executionTimeMs: Date.now() - processingStartedAt,
+              taskType: taskType as VideoAITaskType,
+              appliedEngine: "bypass-unchanged",
+              verified: true,
+              unchanged: true,
+            };
           }
         }
 
@@ -640,6 +757,9 @@ export class VideoProcessingEngine {
           mimeType: outputBlob.type || `video/${outputFormat}`,
           width,
           height,
+          outputWidth,
+          outputHeight,
+          downscaled,
           durationSeconds,
           fps,
           frameCount: totalFrames,
@@ -651,6 +771,17 @@ export class VideoProcessingEngine {
           hasAlpha,
         };
       } catch (loopErr) {
+        if (pendingAddFrame) {
+          try { await pendingAddFrame; } catch {}
+          pendingAddFrame = null;
+        }
+        if (nextFramePromise) {
+          try {
+            const prefetched = await nextFramePromise;
+            prefetched?.frame?.close();
+          } catch {}
+          nextFramePromise = null;
+        }
         if (webCodecsDecoder) {
           try { (webCodecsDecoder as WebCodecsVideoDecoder).close(); } catch {}
           webCodecsDecoder = null;

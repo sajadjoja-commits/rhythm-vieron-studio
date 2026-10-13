@@ -221,7 +221,7 @@ const MaskPanel = ({
 
     // If the layer already has mask keyframes, also update/insert keyframes at localTime for any modified spatial property
     if (maskKeyframeTimes.length > 0) {
-      let updatedLayerKfs = [...layerKeyframes];
+      const updatedLayerKfs = [...layerKeyframes];
       let updatedMaskKfs = [...(nextMask.maskKeyframes || [])];
 
       const spatialKeys = ["maskX", "maskY", "maskSize", "maskWidth", "maskHeight", "maskFeather"] as const;

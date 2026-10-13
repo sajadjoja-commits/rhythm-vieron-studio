@@ -8,8 +8,7 @@
  * - Zero Fake Results: Real neural execution or honest failure reporting.
  */
 
-import { FilesetResolver, ImageSegmenter, FaceDetector } from "@mediapipe/tasks-vision";
-import * as ort from "onnxruntime-web";
+import type { ImageSegmenter, FaceDetector } from "@mediapipe/tasks-vision";
 import {
   ImageAITaskType,
   ImageAIOptions,
@@ -49,13 +48,28 @@ export class ImageInferenceEngine {
     return ImageInferenceEngine.instance;
   }
 
-  private configureOrtEnvironment(): void {
+  private async configureOrtEnvironment(): Promise<void> {
     try {
       if (typeof window !== "undefined") {
+        const ort = await import("onnxruntime-web");
         const isIsolated = typeof crossOriginIsolated !== "undefined" && crossOriginIsolated;
         ort.env.wasm.numThreads = isIsolated ? Math.min(navigator.hardwareConcurrency || 4, 4) : 1;
         ort.env.wasm.simd = true;
-        ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/";
+
+        const baseUrl = (typeof import.meta !== "undefined" && import.meta.env?.BASE_URL) || "/";
+        const cleanBase = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+        const localWasmPath = `${cleanBase}wasm/ort-1.27/`;
+        const cdnWasmPath = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/";
+
+        try {
+          const testRes = await fetch(`${localWasmPath}ort-wasm-simd-threaded.wasm`, { method: "HEAD" });
+          if (testRes.ok && !testRes.headers.get("content-type")?.includes("text/html")) {
+            ort.env.wasm.wasmPaths = localWasmPath;
+            return;
+          }
+        } catch {}
+
+        ort.env.wasm.wasmPaths = cdnWasmPath;
       }
     } catch (e) {
       console.warn("[ImageInferenceEngine] ORT env config error:", e);
@@ -576,6 +590,7 @@ export class ImageInferenceEngine {
       return this.segmenterInstance;
     }
 
+    const { FilesetResolver, ImageSegmenter: MediaPipeImageSegmenter } = await import("@mediapipe/tasks-vision");
     const vision = await FilesetResolver.forVisionTasks(MEDIAPIPE_WASM_PATH);
     const modelBuffer = await this.modelManager.getModelBinary(
       OFFICIAL_MODEL_MANIFESTS["mediapipe-selfie-segmenter"],
@@ -583,7 +598,7 @@ export class ImageInferenceEngine {
       options?.signal
     );
 
-    const segmenter = await ImageSegmenter.createFromOptions(vision, {
+    const segmenter = await MediaPipeImageSegmenter.createFromOptions(vision, {
       baseOptions: {
         modelAssetBuffer: new Uint8Array(modelBuffer),
         delegate: "CPU",
@@ -602,6 +617,7 @@ export class ImageInferenceEngine {
       return this.faceDetectorInstance;
     }
 
+    const { FilesetResolver, FaceDetector: MediaPipeFaceDetector } = await import("@mediapipe/tasks-vision");
     const vision = await FilesetResolver.forVisionTasks(MEDIAPIPE_WASM_PATH);
     let detector: FaceDetector;
 
@@ -610,7 +626,7 @@ export class ImageInferenceEngine {
         OFFICIAL_MODEL_MANIFESTS["mediapipe-face-detector"]
       );
 
-      detector = await FaceDetector.createFromOptions(vision, {
+      detector = await MediaPipeFaceDetector.createFromOptions(vision, {
         baseOptions: {
           modelAssetBuffer: new Uint8Array(modelBuffer),
           delegate: "CPU",
@@ -619,7 +635,7 @@ export class ImageInferenceEngine {
         minDetectionConfidence: 0.5,
       });
     } catch {
-      detector = await FaceDetector.createFromModelPath(
+      detector = await MediaPipeFaceDetector.createFromModelPath(
         vision,
         OFFICIAL_MODEL_MANIFESTS["mediapipe-face-detector"].urls[0]
       );

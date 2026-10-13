@@ -1,4 +1,4 @@
-import * as ort from "onnxruntime-web";
+import type * as ort from "onnxruntime-web";
 import { openDB, IDBPDatabase } from "idb";
 import { sha256 } from "hash-wasm";
 import { AIProgressManager } from "../runtime/AIProgressManager";
@@ -47,13 +47,28 @@ export class ONNXModelLoader {
   /**
    * Configure ONNX Runtime Web options for WebGPU, WASM SIMD, and multi-threading
    */
-  private initORT(): void {
+  private async initORT(): Promise<void> {
     try {
       if (typeof window !== "undefined") {
+        const ort = await import("onnxruntime-web");
         const isIsolated = typeof crossOriginIsolated !== "undefined" && crossOriginIsolated;
         ort.env.wasm.numThreads = isIsolated ? Math.min(navigator.hardwareConcurrency || 4, 4) : 1;
         ort.env.wasm.simd = true;
-        ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/";
+
+        const baseUrl = (typeof import.meta !== "undefined" && import.meta.env?.BASE_URL) || "/";
+        const cleanBase = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+        const localWasmPath = `${cleanBase}wasm/ort-1.27/`;
+        const cdnWasmPath = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/";
+
+        try {
+          const testRes = await fetch(`${localWasmPath}ort-wasm-simd-threaded.wasm`, { method: "HEAD" });
+          if (testRes.ok && !testRes.headers.get("content-type")?.includes("text/html")) {
+            ort.env.wasm.wasmPaths = localWasmPath;
+            return;
+          }
+        } catch {}
+
+        ort.env.wasm.wasmPaths = cdnWasmPath;
       }
     } catch (e) {
       console.warn("[ONNXModelLoader] Failed to set ORT environment options:", e);
@@ -241,6 +256,8 @@ export class ONNXModelLoader {
     manifest: ModelManifest,
     modelBuffer: ArrayBuffer
   ): Promise<{ session: ort.InferenceSession; providerUsed: string }> {
+    const ort = await import("onnxruntime-web");
+    await this.initORT();
     const preferred = manifest.preferredProviders;
     const allowsWebGPU = !preferred || preferred.includes("webgpu");
     const hasWebGPU = allowsWebGPU && typeof navigator !== "undefined" && "gpu" in navigator && !!navigator.gpu;

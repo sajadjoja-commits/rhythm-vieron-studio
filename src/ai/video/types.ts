@@ -91,6 +91,10 @@ export interface VideoAIResult {
   appliedEngine: string;
   verified: boolean;
   hasAlpha?: boolean;
+  outputWidth?: number;
+  outputHeight?: number;
+  downscaled?: boolean;
+  unchanged?: boolean;
 }
 
 export interface VideoCapabilityProfile {
@@ -103,6 +107,7 @@ export interface VideoCapabilityProfile {
   hasWASM: boolean;
   hasSIMD: boolean;
   deviceMemoryGB: number;
+  memoryKnown: boolean;
   hardwareConcurrency: number;
   isAndroid: boolean;
   isIOS: boolean;

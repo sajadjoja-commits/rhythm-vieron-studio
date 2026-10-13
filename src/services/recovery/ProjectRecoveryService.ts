@@ -34,8 +34,12 @@ const RECOVERY_SNAPSHOT_KEY = "vieron_recovery_snapshot_";
 
 export class ProjectRecoveryService {
   private static instance: ProjectRecoveryService;
+  private static readonly MIN_SNAPSHOT_WRITE_INTERVAL_MS = 5000;
   private currentLedger: ProjectRecoveryLedger | null = null;
   private heartbeatInterval: any = null;
+  private lastSnapshotWriteTime = 0;
+  private pendingSnapshotTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingSnapshot: ProjectRecoverySnapshot | null = null;
 
   private constructor() {
     this.setupProcessLifecycleHooks();
@@ -52,6 +56,12 @@ export class ProjectRecoveryService {
    * Initializes or attaches to the active project session
    */
   public startProjectSession(projectId: string, projectName = "Untitled Project"): void {
+    if (this.pendingSnapshotTimer) {
+      clearTimeout(this.pendingSnapshotTimer);
+      this.pendingSnapshotTimer = null;
+    }
+    this.pendingSnapshot = null;
+    this.lastSnapshotWriteTime = 0;
     this.currentLedger = {
       activeProjectId: projectId,
       projectName,
@@ -64,13 +74,14 @@ export class ProjectRecoveryService {
   }
 
   /**
-   * Records a snapshot of timeline and project data
+   * Records a snapshot of timeline and project data (rate-limited to min 5s between storage writes)
    */
   public saveSnapshot(projectId: string, projectName: string, state: any): void {
+    const now = Date.now();
     const snapshot: ProjectRecoverySnapshot = {
       projectId,
       projectName,
-      timestamp: Date.now(),
+      timestamp: now,
       clipsCount: Array.isArray(state?.clips) ? state.clips.length : 0,
       captionsCount: Array.isArray(state?.captions) ? state.captions.length : 0,
       payload: state,
@@ -78,13 +89,44 @@ export class ProjectRecoveryService {
 
     if (this.currentLedger && this.currentLedger.activeProjectId === projectId) {
       this.currentLedger.snapshot = snapshot;
-      this.currentLedger.lastHeartbeat = Date.now();
+      this.currentLedger.lastHeartbeat = now;
+    }
+
+    const elapsed = now - this.lastSnapshotWriteTime;
+    if (elapsed >= ProjectRecoveryService.MIN_SNAPSHOT_WRITE_INTERVAL_MS) {
+      if (this.pendingSnapshotTimer) {
+        clearTimeout(this.pendingSnapshotTimer);
+        this.pendingSnapshotTimer = null;
+      }
+      this.pendingSnapshot = null;
+      this.writeSnapshotToStorage(snapshot);
+    } else {
+      this.pendingSnapshot = snapshot;
+      if (!this.pendingSnapshotTimer) {
+        const waitMs = Math.max(1, ProjectRecoveryService.MIN_SNAPSHOT_WRITE_INTERVAL_MS - elapsed);
+        this.pendingSnapshotTimer = setTimeout(() => {
+          this.pendingSnapshotTimer = null;
+          if (this.pendingSnapshot) {
+            const toWrite = this.pendingSnapshot;
+            this.pendingSnapshot = null;
+            this.writeSnapshotToStorage(toWrite);
+          }
+        }, waitMs);
+      }
+    }
+  }
+
+  private writeSnapshotToStorage(snapshot: ProjectRecoverySnapshot): void {
+    this.lastSnapshotWriteTime = Date.now();
+    if (this.currentLedger && this.currentLedger.activeProjectId === snapshot.projectId) {
+      this.currentLedger.snapshot = snapshot;
+      this.currentLedger.lastHeartbeat = this.lastSnapshotWriteTime;
       this.persistLedger();
     }
 
     try {
       localStorage.setItem(
-        `${RECOVERY_SNAPSHOT_KEY}${projectId}`,
+        `${RECOVERY_SNAPSHOT_KEY}${snapshot.projectId}`,
         JSON.stringify(snapshot)
       );
     } catch (e) {
@@ -102,6 +144,16 @@ export class ProjectRecoveryService {
     timestamp?: number;
     snapshot?: ProjectRecoverySnapshot;
   } {
+    if (this.pendingSnapshot) {
+      if (this.pendingSnapshotTimer) {
+        clearTimeout(this.pendingSnapshotTimer);
+        this.pendingSnapshotTimer = null;
+      }
+      const toWrite = this.pendingSnapshot;
+      this.pendingSnapshot = null;
+      this.writeSnapshotToStorage(toWrite);
+    }
+
     try {
       const raw = localStorage.getItem(LEDGER_STORAGE_KEY);
       if (!raw) return { hasCrashState: false };
@@ -156,6 +208,12 @@ export class ProjectRecoveryService {
    * Dismisses recovery state (user rejected recovery or clean state verified)
    */
   public dismissRecovery(): void {
+    if (this.pendingSnapshotTimer) {
+      clearTimeout(this.pendingSnapshotTimer);
+      this.pendingSnapshotTimer = null;
+    }
+    this.pendingSnapshot = null;
+    this.lastSnapshotWriteTime = 0;
     try {
       localStorage.removeItem(LEDGER_STORAGE_KEY);
     } catch {}

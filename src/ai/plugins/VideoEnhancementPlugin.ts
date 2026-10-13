@@ -32,7 +32,7 @@ export class VideoEnhancementPlugin extends BasePlugin {
       supportedInputFormats: ["mp4", "webm", "mov", "avi"],
       supportedOutputFormats: ["mp4", "webm"],
       requiresWASM: false,
-      estimatedRAMMB: 90,
+      estimatedRAMMB: 450,
       webSupported: true,
       androidSupported: true,
       description: "Enhance video clarity, contrast, and micro-detail sharpness using multi-scale CLAHE and bilateral filtering",
@@ -47,7 +47,7 @@ export class VideoEnhancementPlugin extends BasePlugin {
       supportedInputFormats: ["mp4", "webm", "mov"],
       supportedOutputFormats: ["webm", "mp4"],
       requiresWASM: true,
-      estimatedRAMMB: 120,
+      estimatedRAMMB: 600,
       webSupported: true,
       androidSupported: true,
       description: "Real-time AI video background matting and alpha cutout with temporal stabilization",
@@ -115,18 +115,38 @@ export class VideoEnhancementPlugin extends BasePlugin {
           ? "noise-reduction"
           : "enhance-media";
 
+async function isBlobUrlAlive(url: string | undefined): Promise<boolean> {
+  if (!url) return false;
+  if (!url.startsWith("blob:")) return true;
+  try {
+    const controller = new AbortController();
+    const res = await fetch(url, { signal: controller.signal });
+    controller.abort();
+    return res.ok || res.status === 200;
+  } catch {
+    return false;
+  }
+}
+
       // 1. Check Cache
       const inputHash = AIManager.getInstance().cache.generateHash(`plugin_video_${action}`, vidPayload);
       if (options?.enableCache !== false) {
         const cachedMatch = AIHistoryManager.getInstance().findMatch(historyTaskType, inputHash);
         if (cachedMatch && cachedMatch.resultData) {
-          debugLogger.logStage("Cache Saved / Hit", { action, inputHash });
-          return {
-            success: true,
-            data: cachedMatch.resultData as TResult,
-            cached: true,
-            executionTimeMs: 0,
-          };
+          const cachedData = cachedMatch.resultData as any;
+          const urlToCheck = cachedData.outputVideoBase64OrUrl || cachedData.outputUrl;
+          const alive = await isBlobUrlAlive(urlToCheck);
+          if (alive) {
+            debugLogger.logStage("Cache Saved / Hit", { action, inputHash });
+            return {
+              success: true,
+              data: cachedMatch.resultData as TResult,
+              cached: true,
+              executionTimeMs: 0,
+            };
+          } else {
+            debugLogger.logStage("Cache Dead Blob URL Evicted", { action, inputHash });
+          }
         }
       }
 
@@ -240,9 +260,21 @@ export class VideoEnhancementPlugin extends BasePlugin {
         },
       };
 
-      // 3. Save to History / Cache safely without ever throwing or breaking video result
+      // 3. Save to History / Cache safely without ever throwing or storing heavy Blobs
       if (options?.enableCache !== false) {
         try {
+          const cacheSafeResult = {
+            outputVideoBase64OrUrl: result.outputVideoBase64OrUrl,
+            mimeType: result.mimeType,
+            width: result.width,
+            height: result.height,
+            durationSeconds: result.durationSeconds,
+            fps: result.fps,
+            processingType: result.processingType,
+            appliedEngine: result.appliedEngine,
+            executionTimeMs: result.executionTimeMs,
+            resultOmitted: true,
+          };
           AIHistoryManager.getInstance().recordJob(
             historyTaskType,
             this.id,
@@ -251,7 +283,7 @@ export class VideoEnhancementPlugin extends BasePlugin {
             true,
             action,
             "Video processed successfully",
-            result
+            cacheSafeResult
           );
         } catch (histErr) {
           console.warn("[VideoEnhancementPlugin] Non-fatal history recording warning:", histErr);

@@ -1,10 +1,10 @@
 {
   "native": "1.0.0",
-  "build": "7",
-  "git": "4857bdfadb9124275026bb9c2c2b1844af41db4407f7daebfec0449161425c63",
-  "web": "web-4857bdf",
+  "build": "9",
+  "git": "0e9162752f2b167f833b62636a2cc792e5fbf01ed21e04769dcd6a145333354b",
+  "web": "web-0e91627",
   "packaging": "APK_BUNDLED",
   "ota": false,
-  "timestamp": "2026-10-10T05:02:08.933Z",
-  "fingerprint": "8b7c6c59c0f39e5c9dceb2e0107f66598f37e9db601cc7de0d780e09e00e8ca8"
+  "timestamp": "2026-10-12T14:38:39.931Z",
+  "fingerprint": "d21bcaaf6bac472c62e8d03fe91ed22b6b6850284845ae673647f4a635b6671d"
 }

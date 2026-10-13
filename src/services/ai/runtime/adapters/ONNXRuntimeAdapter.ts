@@ -7,7 +7,7 @@
  * - Safe memory disposal
  */
 
-import * as ort from "onnxruntime-web";
+import type * as ort from "onnxruntime-web";
 import { AIModelRuntime, ModelMemoryUsage, ModelCapabilities } from "../AIModelRuntime";
 
 export interface ONNXInferenceOptions {
@@ -37,6 +37,8 @@ export class ONNXRuntimeAdapter implements AIModelRuntime<Record<string, ort.Ten
     if (!modelPathOrBuffer) {
       throw new Error(`[ONNXRuntimeAdapter] Cannot load model ${this.id}: model source is empty.`);
     }
+
+    const ort = await import("onnxruntime-web");
 
     // Configure backend environment
     try {

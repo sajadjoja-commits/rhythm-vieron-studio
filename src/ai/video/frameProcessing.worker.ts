@@ -3,12 +3,19 @@
  * 1. Adaptive CLAHE (Contrast Limited Adaptive Histogram Equalization)
  * 2. Spatial Bilateral Denoising / Edge-Preserving Blur
  * 3. Unsharp Masking & Detail Refinement
- * 4. Dynamic Vibrance & Gray-World Auto White Balancing
+ * 4. Dynamic Vibrance & Gray-World Auto White Balancing with Temporal EMA
  * 5. Temporal Alpha Smoothing & Transparency Cutout
  * 6. Mathematical Frame Delta & Alpha Verification
  * 
  * Executes off the Main Thread with zero-copy ArrayBuffer transfer.
+ * Shares the core enhancementDsp pipeline with VideoEnhancementEngine.
  */
+
+import {
+  processEnhanceFrameShared,
+  EnhancementDspState,
+  SIGMOID_LUT,
+} from "./enhancementDsp";
 
 export interface WorkerEnhancePayload {
   type: "ENHANCE_FRAME";
@@ -65,231 +72,8 @@ export type WorkerMessageIn =
   | WorkerMetricsPayload
   | WorkerPingPayload;
 
-// ---------------------------------------------------------------------------
-// PRECOMPUTED DSP LOOKUP TABLES (Allocated once per Worker lifecycle)
-// ---------------------------------------------------------------------------
-
-// spatialWeight[dx*dx + dy*dy]: spatialDist can be 0, 1, or 2
-const SPATIAL_WEIGHT_LUT = new Float32Array([
-  1.0,                       // dist 0
-  0.6065306597126334,        // exp(-1/2) for dist 1
-  0.36787944117144233        // exp(-2/2) for dist 2
-]);
-
-// rangeWeightLUT[diff]: |centerLum - nLum| is 0..255
-const RANGE_WEIGHT_LUT = new Float32Array(256);
-for (let d = 0; d < 256; d++) {
-  RANGE_WEIGHT_LUT[d] = Math.exp(-(d * d) / 400);
-}
-
-// Precomputed Sigmoid Alpha LUT (1001 entries) eliminating millions of Math.exp() calls per frame
-const SIGMOID_LUT = new Float32Array(1001);
-for (let i = 0; i <= 1000; i++) {
-  SIGMOID_LUT[i] = 1 / (1 + Math.exp(-12 * (i / 1000 - 0.5)));
-}
-
-// ---------------------------------------------------------------------------
-// DSP ALGORITHMS
-// ---------------------------------------------------------------------------
-
-function processEnhancement(
-  width: number,
-  height: number,
-  data: Uint8ClampedArray,
-  options: WorkerEnhancePayload["options"] = {},
-  prevLuminance: Float32Array | null,
-  sampleOriginal: Uint8ClampedArray | null
-) {
-  const numPixels = width * height;
-  const clipLimit = options?.claheClipLimit ?? 2.0;
-  const denoiseAmount = options?.denoiseIntensity ?? 0.6;
-  const sharpness = options?.sharpnessIntensity ?? 0.5;
-  const vibrance = options?.colorVibrance ?? 0.35;
-
-  const currentLuminance = new Float32Array(numPixels);
-
-  let sumR = 0;
-  let sumG = 0;
-  let sumB = 0;
-
-  for (let i = 0; i < numPixels; i++) {
-    const idx = i * 4;
-    const r = data[idx];
-    const g = data[idx + 1];
-    const b = data[idx + 2];
-    sumR += r;
-    sumG += g;
-    sumB += b;
-    currentLuminance[i] = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  }
-
-  // Gray-World Auto White Balance
-  const avgR = sumR / numPixels;
-  const avgG = sumG / numPixels;
-  const avgB = sumB / numPixels;
-  const avgGray = (avgR + avgG + avgB) / 3;
-
-  const scaleR = avgR > 10 ? 1 + 0.4 * (avgGray / avgR - 1) : 1;
-  const scaleG = avgG > 10 ? 1 + 0.4 * (avgGray / avgG - 1) : 1;
-  const scaleB = avgB > 10 ? 1 + 0.4 * (avgGray / avgB - 1) : 1;
-
-  // Adaptive CLAHE 8x8 Grid
-  const tilesX = 8;
-  const tilesY = 8;
-  const tileW = Math.max(1, Math.floor(width / tilesX));
-  const tileH = Math.max(1, Math.floor(height / tilesY));
-
-  const cdfs = new Float32Array(tilesX * tilesY * 256);
-
-  for (let ty = 0; ty < tilesY; ty++) {
-    for (let tx = 0; tx < tilesX; tx++) {
-      const startX = tx * tileW;
-      const startY = ty * tileH;
-      const endX = tx === tilesX - 1 ? width : startX + tileW;
-      const endY = ty === tilesY - 1 ? height : startY + tileH;
-      const tilePixelCount = (endX - startX) * (endY - startY);
-
-      const hist = new Int32Array(256);
-      for (let y = startY; y < endY; y++) {
-        const rowOffset = y * width;
-        for (let x = startX; x < endX; x++) {
-          const lum = Math.min(255, Math.max(0, Math.round(currentLuminance[rowOffset + x])));
-          hist[lum]++;
-        }
-      }
-
-      const clipThreshold = Math.max(1, Math.round((tilePixelCount / 256) * clipLimit));
-      let excess = 0;
-      for (let b = 0; b < 256; b++) {
-        if (hist[b] > clipThreshold) {
-          excess += hist[b] - clipThreshold;
-          hist[b] = clipThreshold;
-        }
-      }
-      const redist = Math.floor(excess / 256);
-      for (let b = 0; b < 256; b++) {
-        hist[b] += redist;
-      }
-
-      const cdfOffset = (ty * tilesX + tx) * 256;
-      let accum = 0;
-      for (let b = 0; b < 256; b++) {
-        accum += hist[b];
-        cdfs[cdfOffset + b] = (accum / tilePixelCount) * 255;
-      }
-    }
-  }
-
-  // Reuse transferred prevLuminance buffer in-place when dimensions match
-  const enhancedLuminance =
-    prevLuminance && prevLuminance.length === numPixels
-      ? prevLuminance
-      : new Float32Array(numPixels);
-
-  // Bilinear interpolation
-  for (let y = 0; y < height; y++) {
-    const rowOffset = y * width;
-    const normY = (y - tileH / 2) / tileH;
-    const ty1 = Math.max(0, Math.min(tilesY - 1, Math.floor(normY)));
-    const ty2 = Math.min(tilesY - 1, ty1 + 1);
-    const wy = Math.max(0, Math.min(1, normY - ty1));
-
-    for (let x = 0; x < width; x++) {
-      const idx = rowOffset + x;
-      const lum = Math.min(255, Math.max(0, Math.round(currentLuminance[idx])));
-
-      const normX = (x - tileW / 2) / tileW;
-      const tx1 = Math.max(0, Math.min(tilesX - 1, Math.floor(normX)));
-      const tx2 = Math.min(tilesX - 1, tx1 + 1);
-      const wx = Math.max(0, Math.min(1, normX - tx1));
-
-      const cdf11 = cdfs[(ty1 * tilesX + tx1) * 256 + lum];
-      const cdf21 = cdfs[(ty1 * tilesX + tx2) * 256 + lum];
-      const cdf12 = cdfs[(ty2 * tilesX + tx1) * 256 + lum];
-      const cdf22 = cdfs[(ty2 * tilesX + tx2) * 256 + lum];
-
-      const top = cdf11 * (1 - wx) + cdf21 * wx;
-      const bottom = cdf12 * (1 - wx) + cdf22 * wx;
-      let claheLum = top * (1 - wy) + bottom * wy;
-
-      // Temporal stabilization
-      if (prevLuminance && prevLuminance.length === numPixels) {
-        claheLum = prevLuminance[idx] * 0.25 + claheLum * 0.75;
-      }
-
-      enhancedLuminance[idx] = claheLum;
-    }
-  }
-
-  // Bilateral Denoising & Spatial Unsharp Mask with zero transcendent calls in inner loop
-  for (let y = 0; y < height; y++) {
-    const rowOffset = y * width;
-    for (let x = 0; x < width; x++) {
-      const idx = rowOffset + x;
-      const pixelIdx = idx * 4;
-
-      const centerLum = enhancedLuminance[idx];
-      let sumWeight = 0;
-      let sumVal = 0;
-
-      for (let dy = -1; dy <= 1; dy++) {
-        const ny = y + dy;
-        if (ny < 0 || ny >= height) continue;
-        const nRow = ny * width;
-
-        for (let dx = -1; dx <= 1; dx++) {
-          const nx = x + dx;
-          if (nx < 0 || nx >= width) continue;
-
-          const nIdx = nRow + nx;
-          const nLum = enhancedLuminance[nIdx];
-          const spatialDist = dx * dx + dy * dy;
-          const lumDiff = Math.min(255, Math.abs(Math.round(centerLum - nLum)));
-
-          const w = SPATIAL_WEIGHT_LUT[spatialDist] * RANGE_WEIGHT_LUT[lumDiff];
-          sumWeight += w;
-          sumVal += nLum * w;
-        }
-      }
-
-      const smoothedLum = sumWeight > 0 ? sumVal / sumWeight : centerLum;
-      const denoisedLum = centerLum * (1 - denoiseAmount) + smoothedLum * denoiseAmount;
-      const highFreq = centerLum - smoothedLum;
-      const sharpLum = Math.min(255, Math.max(0, denoisedLum + highFreq * sharpness * 1.5));
-
-      const origLum = Math.max(0.1, currentLuminance[idx]);
-      const gain = sharpLum / origLum;
-
-      let r = data[pixelIdx] * scaleR * gain;
-      let g = data[pixelIdx + 1] * scaleG * gain;
-      let b = data[pixelIdx + 2] * scaleB * gain;
-
-      // Vibrance boost
-      const maxC = Math.max(r, g, b);
-      const minC = Math.min(r, g, b);
-      const sat = maxC > 0 ? (maxC - minC) / maxC : 0;
-
-      if (sat < 0.7) {
-        const boost = (1 - sat) * vibrance * 0.4;
-        const avg = (r + g + b) / 3;
-        r = r + (r - avg) * boost;
-        g = g + (g - avg) * boost;
-        b = b + (b - avg) * boost;
-      }
-
-      data[pixelIdx] = Math.min(255, Math.max(0, Math.round(r)));
-      data[pixelIdx + 1] = Math.min(255, Math.max(0, Math.round(g)));
-      data[pixelIdx + 2] = Math.min(255, Math.max(0, Math.round(b)));
-    }
-  }
-
-  let metrics = null;
-  if (sampleOriginal) {
-    metrics = calculateMetrics(sampleOriginal, data, numPixels);
-  }
-
-  return { currentLuminance, metrics };
-}
+// Persistent worker state across video frames
+const enhanceDspState = new EnhancementDspState();
 
 function processSegmentationComposition(
   width: number,
@@ -469,6 +253,8 @@ function calculateMetrics(
   const isMeaningfullyDifferent = meanPixelDifference >= 0.2 || changedPixelPercentage >= 0.5;
 
   return {
+    meanOriginalRGB: [0, 0, 0] as [number, number, number],
+    meanProcessedRGB: [0, 0, 0] as [number, number, number],
     meanPixelDifference,
     changedPixelPercentage,
     luminanceOriginal,
@@ -495,15 +281,14 @@ self.onmessage = (e: MessageEvent<WorkerMessageIn>) => {
   try {
     if (msg.type === "ENHANCE_FRAME") {
       const data = new Uint8ClampedArray(msg.dataBuffer);
-      const prevLum = msg.prevLuminanceBuffer ? new Float32Array(msg.prevLuminanceBuffer) : null;
       const sampleOrig = msg.sampleOriginalBuffer ? new Uint8ClampedArray(msg.sampleOriginalBuffer) : null;
 
-      const { currentLuminance, metrics } = processEnhancement(
+      const { currentLuminance, metrics } = processEnhanceFrameShared(
         msg.width,
         msg.height,
         data,
-        msg.options,
-        prevLum,
+        msg.options || {},
+        enhanceDspState,
         sampleOrig
       );
 

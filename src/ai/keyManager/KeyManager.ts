@@ -38,15 +38,6 @@ export class KeyManager {
       }
     }
 
-    // 3. Check environment variables
-    if (typeof import.meta !== "undefined" && import.meta.env) {
-      const envKeyName = `VITE_${normalized.toUpperCase()}_API_KEY`;
-      const envVal = import.meta.env[envKeyName] || import.meta.env[`${normalized.toUpperCase()}_API_KEY`];
-      if (envVal && typeof envVal === "string" && envVal.trim().length > 0) {
-        return envVal.trim();
-      }
-    }
-
     return undefined;
   }
 

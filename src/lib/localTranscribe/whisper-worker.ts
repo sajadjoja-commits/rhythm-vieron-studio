@@ -133,7 +133,7 @@ async function getLocalTranscriber(
 
   // Candidates for local model bundled inside the application
   const candidateModels = Array.from(
-    new Set([preferredModel, "whisper-tiny", "Xenova/whisper-tiny", "whisper-base"])
+    new Set([preferredModel, "whisper-tiny", "whisper-base"])
   ).filter(Boolean) as string[];
 
   let loadedTranscriber: any = null;

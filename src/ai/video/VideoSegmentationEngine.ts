@@ -4,7 +4,7 @@
  * Eliminates frame-to-frame mask flickering and edge jitter.
  */
 
-import { FilesetResolver, ImageSegmenter } from "@mediapipe/tasks-vision";
+import type { ImageSegmenter } from "@mediapipe/tasks-vision";
 import { VideoAIOptions } from "./types";
 
 const MEDIAPIPE_WASM_PATH = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm";
@@ -460,6 +460,7 @@ export class VideoSegmentationEngine {
 
     this.initPromise = (async () => {
       try {
+        const { FilesetResolver, ImageSegmenter: MediaPipeImageSegmenter } = await import("@mediapipe/tasks-vision");
         // 1. Resolve WASM Fileset
         const wasmPath = await this.resolveWasmPath();
         const vision = await FilesetResolver.forVisionTasks(wasmPath);
@@ -475,7 +476,7 @@ export class VideoSegmentationEngine {
         let segmenter: ImageSegmenter | null = null;
         let activeDelegate: "CPU" | "GPU" = "CPU";
         try {
-          segmenter = await ImageSegmenter.createFromOptions(vision, {
+          segmenter = await MediaPipeImageSegmenter.createFromOptions(vision, {
             baseOptions: {
               modelAssetPath: activeModelPath,
               delegate: "CPU",
@@ -488,7 +489,7 @@ export class VideoSegmentationEngine {
           console.log("[VideoSegmentationEngine] Successfully initialized ImageSegmenter with CPU (XNNPack SIMD) delegate.");
         } catch (cpuError) {
           console.warn("[VideoSegmentationEngine] CPU delegate initialization failed, attempting GPU delegate fallback:", cpuError);
-          segmenter = await ImageSegmenter.createFromOptions(vision, {
+          segmenter = await MediaPipeImageSegmenter.createFromOptions(vision, {
             baseOptions: {
               modelAssetPath: activeModelPath,
               delegate: "GPU",

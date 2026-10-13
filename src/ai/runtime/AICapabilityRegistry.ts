@@ -108,10 +108,26 @@ export class AICapabilityRegistry {
       supportedInputFormats: ["mp4", "webm", "mov"],
       supportedOutputFormats: ["mp4", "webm"],
       requiresWASM: false,
-      estimatedRAMMB: 90,
+      estimatedRAMMB: 450,
       webSupported: true,
       androidSupported: true,
       description: "Enhance video clarity, contrast, and micro-detail sharpness locally",
+    });
+
+    this.register({
+      id: "mediapipe-video-bg-removal",
+      name: "Neural Video Background Removal",
+      taskType: "background-removal",
+      domain: "video",
+      executionMode: "local",
+      providerId: "plugin-video-enhancement",
+      supportedInputFormats: ["mp4", "webm", "mov"],
+      supportedOutputFormats: ["webm", "mp4"],
+      requiresWASM: true,
+      estimatedRAMMB: 600,
+      webSupported: true,
+      androidSupported: true,
+      description: "Real-time AI video background matting and alpha cutout with temporal stabilization",
     });
 
     // 7. Image Generation & Editing (Replicate FLUX.2 Pro & BFL FLUX.1)

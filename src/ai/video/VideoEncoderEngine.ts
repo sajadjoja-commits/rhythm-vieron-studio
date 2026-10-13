@@ -10,6 +10,82 @@ import { VideoAIOptions, VideoCapabilityProfile } from "./types";
 import { VideoMemoryManager } from "./VideoMemoryManager";
 import { createSoftwareVideoSession } from "./SoftwareVideoEncoder";
 
+const DEBUG_VIDEO_AI = false;
+
+export function calculateH264Level(width: number, height: number, fps: number): string {
+  const mbs = Math.ceil(width / 16) * Math.ceil(height / 16);
+  const mbps = mbs * fps;
+
+  if (mbs <= 1620 && mbps <= 40500) return "1E"; // 3.0 (0x1E)
+  if (mbs <= 3600 && mbps <= 108000) return "1F"; // 3.1 (0x1F)
+  if (mbs <= 5120 && mbps <= 216000) return "20"; // 3.2 (0x20)
+  if (mbs <= 8192 && mbps <= 245760) return "28"; // 4.0 (0x28)
+  if (mbs <= 8704 && mbps <= 522240) return "2A"; // 4.2 (0x2A)
+  if (mbs <= 22080 && mbps <= 589824) return "32"; // 5.0 (0x32)
+  if (mbs <= 36864 && mbps <= 983040) return "33"; // 5.1 (0x33)
+  return "34"; // 5.2 (0x34)
+}
+
+async function waitForEncoderBackpressure(
+  encoder: { encodeQueueSize: number; addEventListener?: any; removeEventListener?: any },
+  maxQueueSize = 2,
+  timeoutMs = 3000
+): Promise<void> {
+  if (encoder.encodeQueueSize <= maxQueueSize) return;
+
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    let timer: any = null;
+    let safetyTimer: any = null;
+
+    const cleanup = () => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (safetyTimer) clearTimeout(safetyTimer);
+      if (typeof encoder.removeEventListener === "function") {
+        try {
+          encoder.removeEventListener("dequeue", onDequeue);
+        } catch {}
+      }
+    };
+
+    const onDequeue = () => {
+      if (encoder.encodeQueueSize <= maxQueueSize) {
+        cleanup();
+        resolve();
+      }
+    };
+
+    safetyTimer = setTimeout(() => {
+      cleanup();
+      if (encoder.encodeQueueSize > maxQueueSize) {
+        reject(new Error("WebCodecs encode queue stalled."));
+      } else {
+        resolve();
+      }
+    }, timeoutMs);
+
+    if (typeof encoder.addEventListener === "function") {
+      try {
+        encoder.addEventListener("dequeue", onDequeue);
+        return;
+      } catch {}
+    }
+
+    const poll = () => {
+      if (settled) return;
+      if (encoder.encodeQueueSize <= maxQueueSize) {
+        cleanup();
+        resolve();
+      } else {
+        timer = setTimeout(poll, 10);
+      }
+    };
+    timer = setTimeout(poll, 10);
+  });
+}
+
 export enum EncoderState {
   CREATED = "CREATED",
   CONFIGURED = "CONFIGURED",
@@ -182,44 +258,50 @@ export class VideoEncoderEngine {
     }
 
     // Candidate codecs for negotiation
+    const h264Level = calculateH264Level(width, height, fps);
     const candidateCodecs = isWebm
       ? ["vp09.00.10.08", "vp8"]
-      : ["avc1.4D401E", "avc1.42E01E", "avc1.64001F"];
+      : [`avc1.6400${h264Level}`, `avc1.4D40${h264Level}`, `avc1.42E0${h264Level}`];
 
     let chosenCodec = candidateCodecs[0];
+    let chosenLatencyMode: "quality" | "realtime" = "quality";
     let isSupported = false;
     const wantAlpha = isWebm && (!params.options?.backgroundColor || params.options.backgroundColor === "transparent");
     let supportsAlpha = false;
 
     for (const candidate of candidateCodecs) {
-      try {
-        const testConfig: VideoEncoderConfig = {
-          codec: candidate,
-          width,
-          height,
-          bitrate,
-          framerate: fps,
-          hardwareAcceleration: "prefer-hardware",
-          latencyMode: "realtime",
-        };
-        const check = await VideoEncoder.isConfigSupported(testConfig);
-        if (check && check.supported) {
-          chosenCodec = candidate;
-          isSupported = true;
-          if (wantAlpha) {
-            try {
-              const alphaCheck = await VideoEncoder.isConfigSupported({
-                ...testConfig,
-                alpha: "keep",
-              });
-              if (alphaCheck && alphaCheck.supported) {
-                supportsAlpha = true;
-              }
-            } catch {}
+      for (const latencyMode of ["quality", "realtime"] as const) {
+        try {
+          const testConfig: VideoEncoderConfig = {
+            codec: candidate,
+            width,
+            height,
+            bitrate,
+            framerate: fps,
+            hardwareAcceleration: "prefer-hardware",
+            latencyMode,
+          };
+          const check = await VideoEncoder.isConfigSupported(testConfig);
+          if (check && check.supported) {
+            chosenCodec = candidate;
+            chosenLatencyMode = latencyMode;
+            isSupported = true;
+            if (wantAlpha) {
+              try {
+                const alphaCheck = await VideoEncoder.isConfigSupported({
+                  ...testConfig,
+                  alpha: "keep",
+                });
+                if (alphaCheck && alphaCheck.supported) {
+                  supportsAlpha = true;
+                }
+              } catch {}
+            }
+            break;
           }
-          break;
-        }
-      } catch {}
+        } catch {}
+      }
+      if (isSupported) break;
     }
 
     if (!isSupported) {
@@ -284,9 +366,11 @@ export class VideoEncoderEngine {
           if (chunk.type === "key") {
             hasGeneratedKeyFrame = true;
           }
-          console.log(
-            `[VideoEncoderEngine] Output chunk: ts=${chunk.timestamp}µs, size=${chunk.byteLength}B, type=${chunk.type}`
-          );
+          if (DEBUG_VIDEO_AI) {
+            console.log(
+              `[VideoEncoderEngine] Output chunk: ts=${chunk.timestamp}µs, size=${chunk.byteLength}B, type=${chunk.type}`
+            );
+          }
           if (isWebm && webmMuxer) {
             webmMuxer.addVideoChunk(chunk, meta);
           } else if (mp4Muxer) {
@@ -312,7 +396,7 @@ export class VideoEncoderEngine {
       bitrate,
       framerate: fps,
       hardwareAcceleration: "prefer-hardware",
-      latencyMode: "realtime",
+      latencyMode: chosenLatencyMode,
       ...(useAlphaInMuxer ? { alpha: "keep" } : { alpha: "discard" }),
     });
 
@@ -390,32 +474,7 @@ export class VideoEncoderEngine {
         throw new Error(`Cannot call encode on encoder in ${state} state.`);
       }
 
-      // 2. Safe queue backlog wait with timeout & state verification
-      let waitCount = 0;
-      while (videoEncoder.encodeQueueSize > 2) {
-        if (state !== EncoderState.PROCESSING) {
-          if (state === EncoderState.ERROR) throw lastError || new Error("Encoder encountered error while waiting for queue.");
-          if (state === EncoderState.CANCELLED) throw new Error("Encoder was cancelled while waiting for queue.");
-          throw new Error(`Cannot call encode on a ${String(state).toLowerCase()} codec`);
-        }
-        await new Promise((r) => setTimeout(r, 10));
-        waitCount++;
-        if (waitCount > 300) {
-          // 3 seconds queue stall timeout
-          state = EncoderState.ERROR;
-          lastError = new Error("WebCodecs encode queue stalled.");
-          throw lastError;
-        }
-      }
-
-      if (state !== EncoderState.PROCESSING) {
-        throw new Error(`Cannot call encode on a ${String(state).toLowerCase()} codec`);
-      }
-
-      // Progressively encode audio interleaved with video frames
-      encodeAudioUpTo(timestampMicros + Math.round(1_000_000 / fps));
-
-      // 3. Construct VideoFrame, encode, and dispose synchronously
+      // Snapshot VideoFrame immediately from canvasSource before backpressure wait
       const keyFrame = isKeyFrame || frameIndex % Math.max(1, fps) === 0;
       const frameInit: any = {
         timestamp: timestampMicros,
@@ -429,6 +488,9 @@ export class VideoEncoderEngine {
       const frame = new VideoFrame(canvasSource as any, frameInit);
 
       try {
+        // 2. Safe queue backlog wait with dequeue event listener & timeout
+        await waitForEncoderBackpressure(videoEncoder, 2);
+
         if (state !== EncoderState.PROCESSING) {
           throw new Error(`Cannot call encode on a ${String(state).toLowerCase()} codec`);
         }
@@ -436,8 +498,11 @@ export class VideoEncoderEngine {
           throw new Error(`Cannot encode frame: VideoEncoder is in '${videoEncoder.state}' state (expected 'configured')`);
         }
 
+        // Progressively encode audio interleaved with video frames
+        encodeAudioUpTo(timestampMicros + Math.round(1_000_000 / fps));
+
         // Diagnostic tracing before encoder.encode(frame)
-        if (frameIndex === 0 || isKeyFrame || frameIndex % Math.max(1, fps) === 0) {
+        if (DEBUG_VIDEO_AI && (frameIndex === 0 || isKeyFrame || frameIndex % Math.max(1, fps) === 0)) {
           console.log(
             `[VideoEncoderEngine] Encode frame ${frameIndex}: ts=${timestampMicros}µs, size=${frame.displayWidth || width}x${frame.displayHeight || height}, format=${(frame as any).format || "canvas/RGBA"}, encoderState=${videoEncoder.state}, sessionState=${state}, keyFrame=${keyFrame}`
           );
@@ -543,155 +608,5 @@ export class VideoEncoderEngine {
     };
 
     return session;
-  }
-
-  /**
-   * MediaRecorder Canvas Fallback Session with state management.
-   */
-  private async createMediaRecorderSession(params: {
-    width: number;
-    height: number;
-    fps: number;
-    bitrate: number;
-    format: "mp4" | "webm";
-    audioBuffer?: AudioBuffer | null;
-  }): Promise<EncoderSession> {
-    const { width, height, fps, bitrate, format } = params;
-
-    let state: EncoderState = EncoderState.CREATED;
-    let lastError: Error | null = null;
-    let finalBlob: Blob | null = null;
-    let finishPromise: Promise<Blob> | null = null;
-
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d")!;
-
-    const stream = canvas.captureStream(fps);
-    let audioContext: AudioContext | null = null;
-
-    if (params.audioBuffer && params.audioBuffer.length > 0) {
-      try {
-        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-        if (AudioCtx) {
-          audioContext = new AudioCtx();
-          const bufferSource = audioContext.createBufferSource();
-          bufferSource.buffer = params.audioBuffer;
-          const dest = audioContext.createMediaStreamDestination();
-          bufferSource.connect(dest);
-          dest.stream.getAudioTracks().forEach((track) => {
-            stream.addTrack(track);
-          });
-          bufferSource.start(0);
-        }
-      } catch (audioCtxErr) {
-        console.warn("[VideoEncoderEngine] MediaRecorder audio attach failed:", audioCtxErr);
-      }
-    }
-    
-    // Choose truly supported container & mime
-    let mimeType = "video/webm";
-    if (format === "mp4" && typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("video/mp4;codecs=avc1")) {
-      mimeType = "video/mp4;codecs=avc1";
-    } else if (format === "mp4" && typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("video/mp4")) {
-      mimeType = "video/mp4";
-    } else if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("video/webm;codecs=vp9")) {
-      mimeType = "video/webm;codecs=vp9";
-    } else if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("video/webm;codecs=vp8")) {
-      mimeType = "video/webm;codecs=vp8";
-    }
-
-    const chunks: Blob[] = [];
-    const mediaRecorder = new MediaRecorder(stream, {
-      mimeType,
-      videoBitsPerSecond: bitrate,
-    });
-
-    mediaRecorder.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) {
-        chunks.push(e.data);
-      }
-    };
-
-    mediaRecorder.onerror = (e: any) => {
-      state = EncoderState.ERROR;
-      lastError = new Error(e?.error?.message || "MediaRecorder error");
-    };
-
-    mediaRecorder.start();
-    state = EncoderState.PROCESSING;
-
-    const addFrame = async (canvasSource: HTMLCanvasElement | OffscreenCanvas) => {
-      if (state !== EncoderState.PROCESSING) {
-        throw new Error(`MediaRecorder is not processing (state: ${state})`);
-      }
-      ctx.clearRect(0, 0, width, height);
-      ctx.drawImage(canvasSource as any, 0, 0, width, height);
-      await new Promise((r) => setTimeout(r, Math.max(5, Math.floor(1000 / fps))));
-    };
-
-    const finish = async (): Promise<Blob> => {
-      if (finishPromise) return finishPromise;
-      if (state === EncoderState.CLOSED && finalBlob) return finalBlob;
-      if (state === EncoderState.ERROR) throw lastError || new Error("MediaRecorder in ERROR state");
-      if (state === EncoderState.CANCELLED) throw new Error("MediaRecorder was CANCELLED");
-
-      state = EncoderState.FLUSHING;
-
-      finishPromise = new Promise<Blob>((resolve, reject) => {
-        mediaRecorder.onstop = () => {
-          state = EncoderState.CLOSED;
-          try {
-            audioContext?.close();
-          } catch {}
-          // Determine actual output format
-          const actualMime = mimeType.startsWith("video/mp4") ? "video/mp4" : "video/webm";
-          finalBlob = new Blob(chunks, { type: actualMime });
-          canvas.width = 1;
-          canvas.height = 1;
-          resolve(finalBlob);
-        };
-        try {
-          mediaRecorder.stop();
-        } catch (err: any) {
-          state = EncoderState.ERROR;
-          lastError = err;
-          try {
-            audioContext?.close();
-          } catch {}
-          reject(err);
-        }
-      });
-
-      return finishPromise;
-    };
-
-    const cancel = () => {
-      if (state === EncoderState.CLOSED || state === EncoderState.CANCELLED) return;
-      state = EncoderState.CANCELLED;
-      try {
-        if (mediaRecorder.state !== "inactive") {
-          mediaRecorder.stop();
-        }
-      } catch {}
-      try {
-        audioContext?.close();
-      } catch {}
-      canvas.width = 1;
-      canvas.height = 1;
-    };
-
-    const getError = () => lastError;
-
-    return {
-      get state() {
-        return state;
-      },
-      addFrame,
-      finish,
-      cancel,
-      getError,
-    };
   }
 }
