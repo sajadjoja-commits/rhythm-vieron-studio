@@ -10,12 +10,15 @@ import RecommendedAITools from "@/components/home/RecommendedAITools";
 import RecentAIActivity from "@/components/home/RecentAIActivity";
 import SmartTemplatesSection from "@/components/home/SmartTemplatesSection";
 import MediaPicker from "@/components/MediaPicker";
+import { AccountModal } from "@/components/home/AccountModal";
 
 interface HomeScreenProps {
   onNavigate: (tab: string) => void;
   onStartEditor: () => void;
   onOpenPhotoEditor?: () => void;
   session?: any;
+  isGuest?: boolean;
+  onLogout?: () => void;
   newProject: () => void;
 }
 
@@ -33,12 +36,15 @@ const HomeScreen = ({
   onStartEditor,
   onOpenPhotoEditor,
   session,
+  isGuest,
+  onLogout,
   newProject,
 }: HomeScreenProps) => {
   const en = getLang() === "en";
   const { listProjects, loadProject, deleteProject } = useMedia();
   const { showInstallEntry } = useInstallPrompt();
   const [recentProjects, setRecentProjects] = useState<ProjectMeta[]>([]);
+  const [showAccountModal, setShowAccountModal] = useState(false);
 
   const refreshRecent = async () => {
     try {
@@ -108,16 +114,23 @@ const HomeScreen = ({
           <NotificationsBell />
 
           {userAvatar ? (
-            <img
-              src={userAvatar}
-              alt=""
-              className="w-9 h-9 rounded-full object-cover border-2 border-primary cursor-pointer hover:scale-105 transition-transform"
-              onClick={() => onNavigate("settings")}
-            />
+            <div
+              className="relative group cursor-pointer"
+              onClick={() => setShowAccountModal(true)}
+              title={en ? "Account Profile" : "الملف الشخصي والحساب"}
+            >
+              <img
+                src={userAvatar}
+                alt=""
+                className="w-9 h-9 rounded-full object-cover border-2 border-primary/80 group-hover:border-primary group-hover:scale-105 transition-all shadow-sm"
+              />
+              <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-background ring-1 ring-emerald-400/40" />
+            </div>
           ) : (
             <button
-              onClick={() => onNavigate("settings")}
-              className="w-9 h-9 rounded-full bg-secondary flex items-center justify-center border border-border hover:border-primary/50 transition-colors"
+              onClick={() => setShowAccountModal(true)}
+              className="w-9 h-9 rounded-full bg-secondary flex items-center justify-center border border-border hover:border-primary/60 hover:bg-secondary/80 transition-all shadow-sm"
+              title={en ? "Account Profile" : "الملف الشخصي والحساب"}
             >
               <User className="w-4 h-4 text-muted-foreground" />
             </button>
@@ -126,9 +139,18 @@ const HomeScreen = ({
       </div>
 
       {userName && (
-        <p className="text-xs font-medium text-muted-foreground mb-4 animate-fade-in">
-          {en ? `Welcome back, ${userName.split(" ")[0]} 👋` : `مرحباً بعودتك، ${userName.split(" ")[0]} 👋`}
-        </p>
+        <div className="flex items-center justify-between mb-4 px-1 animate-fade-in">
+          <p className="text-xs font-semibold text-foreground/80 flex items-center gap-1.5">
+            <span>{en ? `Welcome back, ${userName.split(" ")[0]}` : `مرحباً بعودتك، ${userName.split(" ")[0]}`}</span>
+            <span className="text-sm">👋</span>
+          </p>
+          <button
+            onClick={() => setShowAccountModal(true)}
+            className="text-[10px] font-bold text-primary hover:underline transition-colors"
+          >
+            {en ? "View Profile" : "عرض الحساب"}
+          </button>
+        </div>
       )}
 
       {/* 1. Hero Auto Carousel with Character Imagery & Create Project Button */}
@@ -250,6 +272,16 @@ const HomeScreen = ({
             : "يحلل Vireon AI الوسائط بذكاء اصطناعي فائق، يختار أفضل اللحظات، يزيل الصمت الميت، ينسق الألوان عصبياً، ويصدر النتائج بدقة 4K."}
         </p>
       </div>
+
+      <AccountModal
+        isOpen={showAccountModal}
+        onClose={() => setShowAccountModal(false)}
+        session={session}
+        isGuest={isGuest}
+        onNavigate={onNavigate}
+        onLogout={onLogout}
+        projectsCount={recentProjects.length}
+      />
 
       <style>{`@keyframes float { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-8px) scale(1.05); } }`}</style>
     </div>

@@ -497,6 +497,8 @@ const Index = () => {
             onStartEditor={handleOpenEditor}
             onOpenPhotoEditor={() => setShowPhotoEditor(true)}
             session={session}
+            isGuest={isGuest}
+            onLogout={handleLogout}
             newProject={newProject}
           />
         )}

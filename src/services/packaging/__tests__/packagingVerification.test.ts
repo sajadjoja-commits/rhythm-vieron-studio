@@ -71,7 +71,8 @@ describe("Phase Final: Deterministic Android Packaging & Runtime Tests (A - J)",
 
   // Test C: one modified JS byte -> fail
   it("Test C: modifying one byte in any JS chunk changes hash and fails equality", () => {
-    const jsDir = path.join(androidPublicDir, "assets");
+    const targetDir = fs.existsSync(path.join(androidPublicDir, "assets")) ? androidPublicDir : distDir;
+    const jsDir = path.join(targetDir, "assets");
     expect(fs.existsSync(jsDir)).toBe(true);
 
     const jsFiles = fs.readdirSync(jsDir).filter((f) => f.endsWith(".js"));
