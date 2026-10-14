@@ -8,3 +8,4 @@ export * from "./ImageOutputVerifier";
 export * from "./ImageInferenceEngine";
 export * from "./ImageWorkerManager";
 export * from "./ImageAIEngine";
+export * from "./toolsRegistry";

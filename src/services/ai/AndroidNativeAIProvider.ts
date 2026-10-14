@@ -318,6 +318,18 @@ export class AndroidNativeAIProvider implements IAIProvider {
     const plug = this.getPlugin();
     const targetPlugin: any = plug || registerPlugin<any>("AIImageProcessor");
 
+    const onAbort = () => {
+      try {
+        if (typeof targetPlugin.cancelAI === "function") {
+          targetPlugin.cancelAI({ operationId: opId });
+        }
+      } catch {}
+    };
+
+    if (options?.signal) {
+      options.signal.addEventListener("abort", onAbort, { once: true });
+    }
+
     try {
       const resp = await targetPlugin.removeBackground({
         filePath: resolved.filePath,
@@ -357,6 +369,7 @@ export class AndroidNativeAIProvider implements IAIProvider {
       if (err instanceof AIError) throw err;
       const message = err?.message || String(err);
       if (message.includes("AI_CANCELLED") || options?.signal?.aborted) {
+        onAbort();
         throw new AIError("AI_CANCELLED", "Operation cancelled by user", err);
       }
       if (message.includes("AI_OUT_OF_MEMORY")) {
@@ -364,6 +377,9 @@ export class AndroidNativeAIProvider implements IAIProvider {
       }
       throw new AIError("AI_INFERENCE_FAILED", `Native background removal failed: ${message}`, err);
     } finally {
+      if (options?.signal) {
+        options.signal.removeEventListener("abort", onAbort);
+      }
       if (resolved.tempFileName) {
         Filesystem.deleteFile({ path: resolved.tempFileName, directory: Directory.Cache }).catch(() => {});
       }

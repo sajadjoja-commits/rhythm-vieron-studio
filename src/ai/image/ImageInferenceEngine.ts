@@ -83,9 +83,21 @@ export class ImageInferenceEngine {
     imageInput: string | Blob | File,
     options?: ImageAIOptions
   ): Promise<ImageAIResult> {
+    if (options?.signal?.aborted) {
+      const err = new Error("Operation was cancelled");
+      (err as any).code = "AI_CANCELLED";
+      throw err;
+    }
+
     const startTime = Date.now();
     const capability = await this.capabilityDetector.detect();
     const taskId = `bg_rem_${Date.now()}`;
+
+    if (options?.signal?.aborted) {
+      const err = new Error("Operation was cancelled");
+      (err as any).code = "AI_CANCELLED";
+      throw err;
+    }
 
     options?.onProgress?.({
       taskId,
@@ -96,10 +108,22 @@ export class ImageInferenceEngine {
     });
 
     return this.memoryManager.withScope(async () => {
+      if (options?.signal?.aborted) {
+        const err = new Error("Operation was cancelled");
+        (err as any).code = "AI_CANCELLED";
+        throw err;
+      }
+
       // 1. Preprocess image
       const prepStart = Date.now();
       const prepared = await this.preprocessor.prepareImage(imageInput, capability);
       const preprocessMs = Date.now() - prepStart;
+
+      if (options?.signal?.aborted) {
+        const err = new Error("Operation was cancelled");
+        (err as any).code = "AI_CANCELLED";
+        throw err;
+      }
 
       // 2. Load Segmenter Model
       const modelStart = Date.now();
@@ -369,7 +393,7 @@ export class ImageInferenceEngine {
         originalWidth: prepared.originalWidth,
         originalHeight: prepared.originalHeight,
         taskType: "face-enhance",
-        engineName: "Google MediaPipe BlazeFace & High-Frequency Facial Restoration",
+        engineName: "Classical High-Frequency Facial Detail Restoration (BlazeFace Detected)",
         executionProvider: capability.preferredProvider,
         executionTimeMs: totalMs,
         timings: {
@@ -397,7 +421,7 @@ export class ImageInferenceEngine {
   }
 
   // --------------------------------------------------------------------------
-  // 4. IMAGE ENHANCE (Adaptive Bilateral Denoise & Dynamic Range)
+  // 4. IMAGE ENHANCE (Adaptive Bilateral Denoise & Dynamic Range - Classical)
   // --------------------------------------------------------------------------
   public async enhanceImage(
     imageInput: string | Blob | File,
@@ -463,7 +487,7 @@ export class ImageInferenceEngine {
         originalWidth: prepared.originalWidth,
         originalHeight: prepared.originalHeight,
         taskType: "enhance",
-        engineName: "Adaptive Bilateral Denoise & Dynamic Range Engine",
+        engineName: "Classical Bilateral Denoise & Dynamic Range Enhancer",
         executionProvider: capability.preferredProvider,
         executionTimeMs: totalMs,
         timings: {

@@ -396,7 +396,7 @@ export const ImageAIToolsModal: React.FC<ImageAIToolsModalProps> = ({
       className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
       dir={isArabic ? "rtl" : "ltr"}
     >
-      <div className="relative flex flex-col w-full max-w-5xl h-[95vh] sm:h-[90vh] max-h-[920px] bg-slate-950 border border-slate-800 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden text-slate-100">
+      <div className="relative flex flex-col w-full max-w-5xl h-[95dvh] sm:h-[90dvh] max-h-[920px] bg-slate-950 border border-slate-800 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden text-slate-100">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 sm:px-6 sm:py-4 border-b border-slate-800 bg-slate-900/60 backdrop-blur-md">
           <div className="flex items-center gap-3">
@@ -602,7 +602,7 @@ export const ImageAIToolsModal: React.FC<ImageAIToolsModalProps> = ({
                         afterImage={activeResultUrl}
                         beforeLabel={isArabic ? "الأصلية" : "Original"}
                         afterLabel={isArabic ? "المعالجة بالذكاء الاصطناعي" : "AI Result"}
-                        aspectRatio="16/9"
+                        aspectRatio="auto"
                         className="w-full h-full"
                       />
                     </div>
@@ -702,7 +702,7 @@ export const ImageAIToolsModal: React.FC<ImageAIToolsModalProps> = ({
           </div>
 
           {/* Options & Settings Sidebar / Bottom Sheet */}
-          <div className="w-full md:w-80 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-900/40 p-4 flex flex-col gap-4 overflow-y-auto max-h-72 md:max-h-none">
+          <div className="w-full md:w-80 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-900/40 p-4 flex flex-col gap-4 overflow-y-auto max-h-[35dvh] md:max-h-none min-h-0">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
                 <Sliders className="w-3.5 h-3.5 text-primary" />

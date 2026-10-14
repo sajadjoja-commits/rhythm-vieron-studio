@@ -22,6 +22,7 @@ import { BackgroundPreviewBar, BgPreviewMode } from "./BackgroundPreviewBar";
 import { MaskEditor } from "./MaskEditor";
 import { ImageExportPanel } from "./ImageExportPanel";
 import { playSfx } from "@/lib/soundFx";
+import { t } from "@/lib/i18n";
 
 interface BackgroundRemovalResultProps {
   originalImageUrl: string;
@@ -155,10 +156,10 @@ export const BackgroundRemovalResult: React.FC<BackgroundRemovalResultProps> = (
             <BeforeAfterSlider
               beforeImage={originalImageUrl}
               afterImage={currentResultUrl}
-              beforeLabel="الأصل"
-              afterLabel="مفرغة (AI)"
+              beforeLabel={t("imageAi.original")}
+              afterLabel={t("imageAi.cutout")}
               aspectRatio="auto"
-              className="w-full h-full max-h-[70vh] rounded-2xl"
+              className="w-full h-full max-h-[70dvh] rounded-2xl"
               showCheckerboard={true}
             />
           </div>

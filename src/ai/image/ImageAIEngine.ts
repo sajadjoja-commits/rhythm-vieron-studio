@@ -86,6 +86,10 @@ export class ImageAIEngine {
 
       const outputDataUrl = segRes.outputDataUrl || segRes.imageDataUrl || segRes.outputUri || "";
 
+      const totalMs = Date.now() - startTime;
+      const inferenceMs = segRes.processingTimeMs || totalMs;
+      const capability = await this.capabilityDetector.detect();
+
       return {
         success: segRes.success,
         outputDataUrl,
@@ -95,18 +99,15 @@ export class ImageAIEngine {
         originalWidth: segRes.width,
         originalHeight: segRes.height,
         taskType: "remove-background",
-        engineName: segRes.engine,
-        executionProvider: (segRes.accelerator as any) || "local-wasm",
-        executionTimeMs: segRes.processingTimeMs || Date.now() - startTime,
+        engineName: segRes.engine || "MediaPipe Vision Segmenter",
+        executionProvider: (segRes.accelerator as any) || capability.preferredProvider,
+        executionTimeMs: totalMs,
         timings: {
-          modelLoadMs: 10,
-          preprocessMs: 15,
-          inferenceMs: segRes.processingTimeMs || Date.now() - startTime,
-          postprocessMs: 10,
-          totalMs: Date.now() - startTime,
+          inferenceMs,
+          totalMs,
         },
         metrics: {
-          deviceTier: "high",
+          deviceTier: capability.deviceTier,
           isLocal: true,
           hasAlphaChannel: true,
         },
@@ -120,7 +121,7 @@ export class ImageAIEngine {
   }
 
   /**
-   * 2. AI Face Restoration & Enhancement (Google MediaPipe BlazeFace + High-Frequency Restore)
+   * 2. Classical Facial Detail Restoration & Enhancement
    */
   public async enhanceFace(
     imageInput: string | Blob | File,
@@ -218,6 +219,78 @@ export class ImageAIEngine {
     } finally {
       if (isTempInput) this.memoryManager.revokeUrl(inputUrl);
       if (isTempMask) this.memoryManager.revokeUrl(maskUrl);
+    }
+  }
+
+  /**
+   * 6. Classical Image Upscaling (2x / 4x)
+   */
+  public async upscaleImage(
+    imageInput: string | Blob | File,
+    scale: 2 | 4 = 2,
+    options?: ImageAIOptions
+  ): Promise<ImageAIResult> {
+    const startTime = Date.now();
+    let inputUrl = "";
+    let isTempUrl = false;
+
+    if (typeof imageInput === "string") {
+      inputUrl = imageInput;
+    } else {
+      inputUrl = this.memoryManager.createTrackedUrl(imageInput);
+      isTempUrl = true;
+    }
+
+    try {
+      const { imageUpscalerService } = await import("@/services/ai/ImageUpscalerService");
+      const upRes = await imageUpscalerService.upscaleImage(inputUrl, {
+        scale,
+        denoiseStrength: options?.denoiseIntensity,
+        sharpenStrength: options?.detailSharpen,
+        format: options?.format || "image/png",
+        quality: options?.quality,
+        signal: options?.signal,
+        onProgress: (p) => {
+          options?.onProgress?.({
+            taskId: `upscale_${Date.now()}`,
+            taskType: "upscale",
+            stage: p.stage as any,
+            progress: p.percent / 100,
+            message: p.message,
+          });
+        },
+      });
+
+      return {
+        success: upRes.success,
+        outputDataUrl: upRes.outputDataUrl,
+        outputBlob: upRes.outputBlob,
+        mimeType: options?.format || "image/png",
+        width: upRes.width,
+        height: upRes.height,
+        originalWidth: upRes.originalWidth,
+        originalHeight: upRes.originalHeight,
+        taskType: "upscale",
+        engineName: upRes.engine,
+        executionProvider: "wasm",
+        executionTimeMs: upRes.timings.totalMs || Date.now() - startTime,
+        timings: {
+          modelLoadMs: 0,
+          preprocessMs: upRes.timings.preprocessMs,
+          inferenceMs: upRes.timings.inferenceMs,
+          postprocessMs: upRes.timings.postprocessMs,
+          totalMs: upRes.timings.totalMs,
+        },
+        metrics: {
+          deviceTier: "high",
+          isLocal: true,
+          hasAlphaChannel: false,
+        },
+      };
+    } finally {
+      if (isTempUrl) {
+        this.memoryManager.revokeUrl(inputUrl);
+      }
     }
   }
 

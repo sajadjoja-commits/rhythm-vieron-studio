@@ -11,6 +11,7 @@ import {
 } from "./types";
 import { ImageInferenceEngine } from "@/ai/image/ImageInferenceEngine";
 import { ImageCapabilityDetector } from "@/ai/image/ImageCapabilityDetector";
+import { ImageWorkerManager } from "@/ai/image/ImageWorkerManager";
 import { WebCaptionProvider } from "@/services/caption/WebCaptionProvider";
 
 export class WebAIProvider implements IAIProvider {
@@ -19,11 +20,14 @@ export class WebAIProvider implements IAIProvider {
   public readonly platform = "web" as const;
 
   private imageEngine: ImageInferenceEngine;
+  private workerManager: ImageWorkerManager;
   private capabilityDetector: ImageCapabilityDetector;
   private captionProvider: WebCaptionProvider;
+  private activeOperations: Map<string, AbortController> = new Map();
 
   constructor() {
     this.imageEngine = ImageInferenceEngine.getInstance();
+    this.workerManager = ImageWorkerManager.getInstance();
     this.capabilityDetector = ImageCapabilityDetector.getInstance();
     this.captionProvider = new WebCaptionProvider();
   }
@@ -88,10 +92,14 @@ export class WebAIProvider implements IAIProvider {
       return "AVAILABLE";
     }
     if (modelId === "rmbg-2.0") {
+      // RMBG-2.0 is a 176MB ONNX model that is not bundled by default on Web; requires download
+      return "NOT_DOWNLOADED";
+    }
+    if (modelId.includes("whisper-tiny")) {
       return "AVAILABLE";
     }
     if (modelId.includes("whisper")) {
-      return "AVAILABLE";
+      return "NOT_DOWNLOADED";
     }
     return "NOT_SUPPORTED";
   }
@@ -101,19 +109,71 @@ export class WebAIProvider implements IAIProvider {
     options?: ImageSegmentationOptions
   ): Promise<ImageSegmentationResult> {
     const startTime = Date.now();
+    const opId = options?.operationId || `web_rembg_${Date.now()}`;
 
     if (options?.signal?.aborted) {
       throw new AIError("AI_CANCELLED", "Background removal cancelled before execution");
     }
 
-    try {
-      const res = await this.imageEngine.removeBackground(imageInput, {
-        edgeRefinement: options?.refineEdges,
-        featherRadius: options?.edgeFeather,
-        onProgress: (p) => {
-          options?.onProgress?.(p.progress, p.message || p.stage);
-        },
+    const abortController = new AbortController();
+    this.activeOperations.set(opId, abortController);
+
+    // Link external signal to internal controller
+    const onExternalAbort = () => {
+      abortController.abort();
+    };
+    if (options?.signal) {
+      options.signal.addEventListener("abort", onExternalAbort, { once: true });
+    }
+
+    let inputDataUrl = "";
+    if (typeof imageInput === "string") {
+      inputDataUrl = imageInput;
+    } else if (imageInput instanceof Blob) {
+      inputDataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(imageInput);
       });
+    }
+
+    try {
+      if (abortController.signal.aborted || options?.signal?.aborted) {
+        throw new AIError("AI_CANCELLED", "Operation was aborted");
+      }
+
+      const abortPromise = new Promise<never>((_, reject) => {
+        const triggerAbort = () => {
+          reject(new AIError("AI_CANCELLED", "Background removal operation was aborted"));
+        };
+        if (abortController.signal.aborted || options?.signal?.aborted) {
+          triggerAbort();
+        } else {
+          abortController.signal.addEventListener("abort", triggerAbort, { once: true });
+          options?.signal?.addEventListener("abort", triggerAbort, { once: true });
+        }
+      });
+
+      const execPromise = this.workerManager.execute(
+        "remove-background",
+        inputDataUrl,
+        undefined,
+        {
+          edgeRefinement: options?.refineEdges,
+          featherRadius: options?.edgeFeather,
+          signal: abortController.signal,
+          onProgress: (p) => {
+            options?.onProgress?.(p.progress, p.message || p.stage);
+          },
+        }
+      );
+
+      const res = await Promise.race([execPromise, abortPromise]);
+
+      if (abortController.signal.aborted) {
+        throw new AIError("AI_CANCELLED", "Operation was aborted");
+      }
 
       return {
         success: res.success,
@@ -125,10 +185,15 @@ export class WebAIProvider implements IAIProvider {
         accelerator: "WASM SIMD",
       };
     } catch (err: any) {
-      if (options?.signal?.aborted) {
+      if (abortController.signal.aborted || options?.signal?.aborted) {
         throw new AIError("AI_CANCELLED", "Background removal operation was aborted");
       }
       throw new AIError("AI_INFERENCE_FAILED", `Web background removal error: ${err.message}`, err);
+    } finally {
+      this.activeOperations.delete(opId);
+      if (options?.signal) {
+        options.signal.removeEventListener("abort", onExternalAbort);
+      }
     }
   }
 
@@ -207,7 +272,20 @@ export class WebAIProvider implements IAIProvider {
     }
   }
 
-  public async cancel(_operationId: string): Promise<boolean> {
-    return true;
+  public async cancel(operationId: string): Promise<boolean> {
+    const controller = this.activeOperations.get(operationId);
+    if (controller) {
+      controller.abort();
+      this.activeOperations.delete(operationId);
+      return true;
+    }
+    // If no matching ID, check if only one active operation exists and abort it
+    if (this.activeOperations.size === 1) {
+      const single = this.activeOperations.values().next().value;
+      single?.abort();
+      this.activeOperations.clear();
+      return true;
+    }
+    return false;
   }
 }

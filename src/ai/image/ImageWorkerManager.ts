@@ -96,6 +96,37 @@ export class ImageWorkerManager {
     maskDataUrl?: string,
     options?: ImageAIOptions
   ): Promise<ImageAIResult> {
+    if (options?.signal?.aborted) {
+      const err = new Error("Operation was cancelled");
+      (err as any).code = "AI_CANCELLED";
+      throw err;
+    }
+
+    const abortPromise = options?.signal
+      ? new Promise<never>((_, reject) => {
+          const onAbort = () => {
+            const err = new Error("Operation was cancelled");
+            (err as any).code = "AI_CANCELLED";
+            reject(err);
+          };
+          if (options.signal!.aborted) {
+            onAbort();
+          } else {
+            options.signal!.addEventListener("abort", onAbort, { once: true });
+          }
+        })
+      : null;
+
+    const runPromise = this.internalExecute(taskType, imageDataUrl, maskDataUrl, options);
+    return abortPromise ? Promise.race([runPromise, abortPromise]) : runPromise;
+  }
+
+  private async internalExecute(
+    taskType: ImageAITaskType,
+    imageDataUrl: string,
+    maskDataUrl?: string,
+    options?: ImageAIOptions
+  ): Promise<ImageAIResult> {
     const detector = ImageCapabilityDetector.getInstance();
     const capability = await detector.detect();
 

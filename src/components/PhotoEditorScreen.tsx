@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect, lazy, Suspense } from "react";
 import {
   Upload,
   Download,
@@ -27,13 +27,18 @@ import {
   AlignRight,
   Plus,
   Loader2,
-  Maximize2
+  Maximize2,
+  Undo2,
+  Redo2
 } from "lucide-react";
 import { toast } from "sonner";
 import { t, getLang } from "@/lib/i18n";
-import { AIToolsPanel } from "@/components/editor/AIToolsPanel";
-import { ImageAIToolsModal } from "@/components/imageAi/ImageAIToolsModal";
 import PhotoExportDialog from "@/components/photo/PhotoExportDialog";
+import { ImageAITaskType } from "@/ai/image/types";
+
+// Lazy-load AI components on demand: no AI bundle is downloaded until AI tab is accessed
+const ImageAIHub = lazy(() => import("@/components/imageAi/ImageAIHub"));
+const ImageAIWorkspace = lazy(() => import("@/components/imageAi/ImageAIWorkspace"));
 
 interface PhotoEditorScreenProps {
   onClose: () => void;
@@ -130,6 +135,74 @@ const PhotoEditorScreen = ({ onClose }: PhotoEditorScreenProps) => {
   const [exporting, setExporting] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
 
+  // Active AI Tool State
+  const [selectedAITool, setSelectedAITool] = useState<ImageAITaskType | null>(null);
+
+  // Non-destructive Image Version History Stack (Original + Applied AI/Filters results)
+  const [imageHistory, setImageHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState<number>(-1);
+  const createdBlobUrlsRef = useRef<Set<string>>(new Set());
+
+  // Revoke abandoned object URLs cleanly on unmount
+  useEffect(() => {
+    const urlsToClean = createdBlobUrlsRef.current;
+    return () => {
+      urlsToClean.forEach((url) => {
+        try {
+          if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+        } catch {}
+      });
+      urlsToClean.clear();
+    };
+  }, []);
+
+  // Track and push new image version to history stack
+  const pushImageVersion = useCallback((newUrl: string) => {
+    if (newUrl.startsWith("blob:")) {
+      createdBlobUrlsRef.current.add(newUrl);
+    }
+    setImageHistory((prev) => {
+      // Truncate any future redo states if user applies a new change
+      const updated = prev.slice(0, historyIndex + 1);
+      // Revoke superseded abandoned URLs that are beyond historyIndex if they are not in the remaining history
+      const superseded = prev.slice(historyIndex + 1);
+      superseded.forEach((u) => {
+        if (u.startsWith("blob:") && !updated.includes(u) && u !== newUrl) {
+          try {
+            URL.revokeObjectURL(u);
+            createdBlobUrlsRef.current.delete(u);
+          } catch {}
+        }
+      });
+      updated.push(newUrl);
+      setHistoryIndex(updated.length - 1);
+      return updated;
+    });
+    setImgUrl(newUrl);
+  }, [historyIndex]);
+
+  const handleUndoImage = useCallback(() => {
+    if (historyIndex > 0) {
+      const prevIdx = historyIndex - 1;
+      const prevUrl = imageHistory[prevIdx];
+      setHistoryIndex(prevIdx);
+      setImgUrl(prevUrl);
+      playSfx("click");
+      toast.success(t("imageAi.historyUndone"));
+    }
+  }, [historyIndex, imageHistory]);
+
+  const handleRedoImage = useCallback(() => {
+    if (historyIndex < imageHistory.length - 1) {
+      const nextIdx = historyIndex + 1;
+      const nextUrl = imageHistory[nextIdx];
+      setHistoryIndex(nextIdx);
+      setImgUrl(nextUrl);
+      playSfx("click");
+      toast.success(t("imageAi.historyRedone"));
+    }
+  }, [historyIndex, imageHistory]);
+
   // Crop & Scale states
   const [cropRatio, setCropRatio] = useState<string>("free");
   const [targetRes, setTargetRes] = useState<string>("original");
@@ -160,8 +233,21 @@ const PhotoEditorScreen = ({ onClose }: PhotoEditorScreenProps) => {
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    // Revoke previous URLs before uploading new photo
+    createdBlobUrlsRef.current.forEach((u) => {
+      try {
+        if (u.startsWith("blob:")) URL.revokeObjectURL(u);
+      } catch {}
+    });
+    createdBlobUrlsRef.current.clear();
+
     const url = URL.createObjectURL(file);
+    createdBlobUrlsRef.current.add(url);
     setImgUrl(url);
+    setImageHistory([url]);
+    setHistoryIndex(0);
+
     // Reset editing attributes
     setFilter("none");
     setBrightness(100);
@@ -180,6 +266,7 @@ const PhotoEditorScreen = ({ onClose }: PhotoEditorScreenProps) => {
     setVfxType("none");
     setLayers([]);
     setSelectedLayerId(null);
+    setSelectedAITool(null);
   };
 
   const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
@@ -431,329 +518,118 @@ const PhotoEditorScreen = ({ onClose }: PhotoEditorScreenProps) => {
     });
   };
 
-  // High quality Export
-  const exportImage = useCallback(async () => {
-    const img = imgRef.current;
-    if (!img) return;
-    setExporting(true);
-
-    try {
-      // Determine final canvas resolution
-      let exportW = naturalSize.width;
-      let exportH = naturalSize.height;
-
-      if (targetRes === "instagram-post") {
-        exportW = 1080;
-        exportH = 1080;
-      } else if (targetRes === "instagram-story") {
-        exportW = 1080;
-        exportH = 1920;
-      } else if (targetRes === "youtube-hd") {
-        exportW = 1920;
-        exportH = 1080;
-      } else if (targetRes === "custom") {
-        exportW = customWidth;
-        exportH = customHeight;
-      } else if (cropRatio !== "free") {
-        // Respect aspect ratio if set to preset and using "original" size
-        const ratioParts = cropRatio.split(":");
-        const ratioVal = Number(ratioParts[0]) / Number(ratioParts[1]);
-        if (exportW / exportH > ratioVal) {
-          exportW = Math.round(exportH * ratioVal);
-        } else {
-          exportH = Math.round(exportW / ratioVal);
-        }
-      }
-
-      const canvas = document.createElement("canvas");
-      canvas.width = exportW;
-      canvas.height = exportH;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Could not create canvas context");
-
-      // Draw background color (fill with black to look professional)
-      ctx.fillStyle = "#000000";
-      ctx.fillRect(0, 0, exportW, exportH);
-
-      // Save context to apply filters and transformations to base image
-      ctx.save();
-
-      // Set CSS filters equivalent on context
-      const filterParts = [
-        FILTERS.find((f) => f.id === filter)?.css !== "none" ? FILTERS.find((f) => f.id === filter)?.css : "",
-        `brightness(${brightness}%)`,
-        `contrast(${contrast}%)`,
-        `saturate(${saturate}%)`,
-        blurVal > 0 ? `blur(${blurVal}px)` : "",
-        hueVal > 0 ? `hue-rotate(${hueVal}deg)` : ""
-      ].filter(Boolean).join(" ");
-      ctx.filter = filterParts || "none";
-
-      // Translate to center to rotate/scale/flip/pan correctly
-      ctx.translate(exportW / 2, exportH / 2);
-      ctx.rotate((rotation * Math.PI) / 180);
-      ctx.scale(flipH ? -1 : 1, flipV ? -1 : 1);
-
-      // Replicate cover/fit styling
-      const sX = exportW / img.naturalWidth;
-      const sY = exportH / img.naturalHeight;
-      const fitScale = cropRatio === "free" ? Math.min(sX, sY) : Math.max(sX, sY);
-      const drawScale = fitScale * zoom;
-
-      const dw = img.naturalWidth * drawScale;
-      const dh = img.naturalHeight * drawScale;
-
-      // Transform pan from preview width to canvas width
-      const previewW = previewContainerRef.current?.getBoundingClientRect().width || 450;
-      const scaleFactor = exportW / previewW;
-      const cx = panX * scaleFactor;
-      const cy = panY * scaleFactor;
-
-      ctx.drawImage(img, -dw / 2 + cx, -dh / 2 + cy, dw, dh);
-      ctx.restore();
-
-      // Draw Visual Effects (VFX)
-      if (vfxType === "vignette") {
-        ctx.save();
-        const grad = ctx.createRadialGradient(
-          exportW / 2, exportH / 2, exportW * 0.25,
-          exportW / 2, exportH / 2, exportW * 0.7
-        );
-        grad.addColorStop(0, "transparent");
-        grad.addColorStop(1, `rgba(0,0,0,${vfxIntensity / 100})`);
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, exportW, exportH);
-        ctx.restore();
-      } else if (vfxType === "light-leak") {
-        ctx.save();
-        ctx.globalCompositeOperation = "screen";
-        ctx.globalAlpha = vfxIntensity / 100;
-        const grad = ctx.createLinearGradient(0, 0, exportW * 0.8, exportH * 0.8);
-        grad.addColorStop(0, "rgba(255, 120, 50, 0.4)");
-        grad.addColorStop(0.5, "rgba(255, 200, 80, 0.2)");
-        grad.addColorStop(1, "transparent");
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, exportW, exportH);
-        ctx.restore();
-      } else if (vfxType === "film-grain") {
-        ctx.save();
-        ctx.fillStyle = "rgba(255, 255, 255, 0.08)";
-        const grainCount = Math.floor(exportW * exportH * 0.04 * (vfxIntensity / 100));
-        for (let i = 0; i < grainCount; i++) {
-          const gx = Math.random() * exportW;
-          const gy = Math.random() * exportH;
-          const gSize = Math.random() * (exportW / 500) + 1;
-          ctx.fillRect(gx, gy, gSize, gSize);
-        }
-        ctx.restore();
-      } else if (vfxType === "neon-glow") {
-        ctx.save();
-        ctx.globalCompositeOperation = "color-dodge";
-        ctx.fillStyle = `rgba(59, 130, 246, ${vfxIntensity / 250})`;
-        ctx.fillRect(0, 0, exportW, exportH);
-        ctx.restore();
-      }
-
-      // Draw active layers on top
-      for (const layer of layers) {
-        if (!layer.visible) continue;
-        ctx.save();
-        ctx.globalAlpha = layer.opacity;
-
-        // Position coordinates mapped to high resolution canvas
-        const lx = (layer.x / 100) * exportW;
-        const ly = (layer.y / 100) * exportH;
-
-        ctx.translate(lx, ly);
-        ctx.rotate((layer.rotation * Math.PI) / 180);
-        ctx.scale(layer.scale, layer.scale);
-
-        if (layer.type === "text") {
-          const drawFontSize = (layer.fontSize || 20) * scaleFactor;
-          ctx.font = `${layer.fontWeight || "bold"} ${drawFontSize}px "${layer.fontFamily || "Cairo"}"`;
-          ctx.textAlign = layer.textAlign || "center";
-          ctx.textBaseline = "middle";
-
-          const lines = (layer.text || "").split("\n");
-          let yOffset = 0;
-
-          for (const line of lines) {
-            const metrics = ctx.measureText(line);
-            const textW = metrics.width;
-            const textH = drawFontSize;
-
-            // Background box render
-            if (layer.bgColor && layer.bgColor !== "transparent") {
-              ctx.fillStyle = layer.bgColor;
-              let rx = -textW / 2 - 12 * scaleFactor;
-              if (layer.textAlign === "left") rx = -12 * scaleFactor;
-              else if (layer.textAlign === "right") rx = -textW - 12 * scaleFactor;
-              const ry = yOffset - textH / 2 - 6 * scaleFactor;
-              const rw = textW + 24 * scaleFactor;
-              const rh = textH + 12 * scaleFactor;
-              ctx.fillRect(rx, ry, rw, rh);
-            }
-
-            // Text Stroke (shadow outline)
-            ctx.strokeStyle = "rgba(0,0,0,0.85)";
-            ctx.lineWidth = Math.max(2, 4 * scaleFactor);
-            ctx.strokeText(line, 0, yOffset);
-
-            // Text Fill
-            ctx.fillStyle = layer.color || "#ffffff";
-            ctx.fillText(line, 0, yOffset);
-
-            yOffset += drawFontSize + 6;
-          }
-        } else if (layer.type === "sticker") {
-          const drawStickerSize = (layer.fontSize || 40) * scaleFactor;
-          ctx.font = `${drawStickerSize}px Cairo, sans-serif`;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.fillText(layer.emoji || "✨", 0, 0);
-        } else if (layer.type === "image" && layer.url) {
-          try {
-            const pipImg = await loadImage(layer.url);
-            const dw = (layer.width || 25) * 10 * scaleFactor;
-            const dh = (layer.height || 25) * 10 * scaleFactor;
-            ctx.drawImage(pipImg, -dw / 2, -dh / 2, dw, dh);
-          } catch (err) {
-            console.error("PIP image loading failed during canvas drawing:", err);
-          }
-        } else if (layer.type === "shape") {
-          const sw = (layer.width || 20) * 10 * scaleFactor;
-          const sh = (layer.height || 20) * 10 * scaleFactor;
-          ctx.fillStyle = layer.fillColor || "rgba(59, 130, 246, 0.4)";
-          ctx.strokeStyle = layer.strokeColor || "#ffffff";
-          ctx.lineWidth = (layer.strokeWidth || 2) * scaleFactor;
-
-          if (layer.shapeType === "rect") {
-            ctx.fillRect(-sw / 2, -sh / 2, sw, sh);
-            ctx.strokeRect(-sw / 2, -sh / 2, sw, sh);
-          } else if (layer.shapeType === "circle") {
-            ctx.beginPath();
-            ctx.arc(0, 0, sw / 2, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-          } else if (layer.shapeType === "triangle") {
-            ctx.beginPath();
-            ctx.moveTo(0, -sh / 2);
-            ctx.lineTo(sw / 2, sh / 2);
-            ctx.lineTo(-sw / 2, sh / 2);
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
-          } else if (layer.shapeType === "star") {
-            ctx.beginPath();
-            const spikes = 5;
-            const outerRadius = sw / 2;
-            const innerRadius = sw / 4;
-            let rot = (Math.PI / 2) * 3;
-            let cx = 0, cy = 0;
-            const step = Math.PI / spikes;
-            ctx.moveTo(0, -outerRadius);
-            for (let i = 0; i < spikes; i++) {
-              cx = Math.cos(rot) * outerRadius;
-              cy = Math.sin(rot) * outerRadius;
-              ctx.lineTo(cx, cy);
-              rot += step;
-              cx = Math.cos(rot) * innerRadius;
-              cy = Math.sin(rot) * innerRadius;
-              ctx.lineTo(cx, cy);
-              rot += step;
-            }
-            ctx.lineTo(0, -outerRadius);
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
-          }
-        }
-
-        ctx.restore();
-      }
-
-      canvas.toBlob(
-        (blob) => {
-          setExporting(false);
-          if (!blob) return;
-          const downloadUrl = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = downloadUrl;
-          a.download = `vireon-photo-${Date.now()}.png`;
-          a.click();
-          URL.revokeObjectURL(downloadUrl);
-          toast.success(en ? "High Quality photo exported successfully!" : "تم تصدير الصورة بجودة عالية بنجاح!");
-        },
-        "image/png",
-        1.0
-      );
-    } catch (err) {
-      setExporting(false);
-      console.error(err);
-      toast.error(en ? "Failed to export photo" : "فشل تصدير الصورة");
-    }
-  }, [
-    filter,
-    brightness,
-    contrast,
-    saturate,
-    blurVal,
-    hueVal,
-    naturalSize,
-    targetRes,
-    cropRatio,
-    customWidth,
-    customHeight,
-    rotation,
-    flipH,
-    flipV,
-    zoom,
-    panX,
-    panY,
-    vfxType,
-    vfxIntensity,
-    layers,
-    en
-  ]);
-
   // Selected layer reference for the settings tab
   const activeLayer = layers.find((l) => l.id === selectedLayerId);
+
+  if (selectedAITool) {
+    return (
+      <div className="dark fixed inset-0 z-[60] bg-[#0c0f16] flex flex-col" style={{ height: "100dvh" }} dir="rtl">
+        <Suspense
+          fallback={
+            <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-muted-foreground bg-[#0c0f16]">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              <span className="text-xs">{t("imageAi.processing")}</span>
+            </div>
+          }
+        >
+          <ImageAIWorkspace
+            taskId={selectedAITool}
+            imageUrl={imgUrl || ""}
+            onApply={(resultUrl) => {
+              if (resultUrl) {
+                pushImageVersion(resultUrl);
+                setSelectedAITool(null);
+                setTab("crop");
+                toast.success(t("imageAi.historyApplied"));
+              }
+            }}
+            onCancel={() => {
+              setSelectedAITool(null);
+            }}
+            onBackToHub={() => {
+              setSelectedAITool(null);
+            }}
+            onUndo={() => {
+              handleUndoImage();
+            }}
+            canUndo={historyIndex > 0}
+          />
+        </Suspense>
+      </div>
+    );
+  }
 
   return (
     <div className="dark fixed inset-0 z-[60] bg-[#0c0f16] flex flex-col" dir="rtl">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 bg-[#131924] border-b border-white/5 shadow-md">
-        <button onClick={onClose} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 active:scale-95 transition-transform">
-          <X className="w-5 h-5 text-foreground" />
-        </button>
+      <div className="flex items-center justify-between px-3 py-2.5 bg-[#131924] border-b border-white/5 shadow-md flex-shrink-0" style={{ paddingTop: "max(0.6rem, env(safe-area-inset-top))" }}>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={onClose}
+            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 active:scale-95 transition-transform min-w-[44px] min-h-[44px] flex items-center justify-center"
+            title={en ? "Close" : "إغلاق"}
+            aria-label={en ? "Close" : "إغلاق"}
+          >
+            <X className="w-5 h-5 text-foreground" />
+          </button>
+
+          {/* Non-destructive Undo / Redo for Image History */}
+          {imgUrl && imageHistory.length > 1 && (
+            <div className="flex items-center gap-1 bg-white/[0.03] p-0.5 rounded-xl border border-white/5">
+              <button
+                type="button"
+                onClick={handleUndoImage}
+                disabled={historyIndex <= 0}
+                className="p-2 rounded-lg hover:bg-white/10 text-slate-300 disabled:opacity-30 transition min-w-[40px] min-h-[40px] flex items-center justify-center"
+                title={t("imageAi.undo")}
+                aria-label={t("imageAi.undo")}
+              >
+                <Undo2 className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={handleRedoImage}
+                disabled={historyIndex >= imageHistory.length - 1}
+                className="p-2 rounded-lg hover:bg-white/10 text-slate-300 disabled:opacity-30 transition min-w-[40px] min-h-[40px] flex items-center justify-center"
+                title={t("imageAi.redo")}
+                aria-label={t("imageAi.redo")}
+              >
+                <Redo2 className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+        </div>
+
         <div className="flex flex-col items-center">
-          <h1 className="font-heading font-black tracking-wide text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-indigo-400 to-purple-400 text-base md:text-lg">
+          <h1 className="font-heading font-black tracking-wide text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-indigo-400 to-purple-400 text-sm md:text-base">
             {en ? "Advanced Photo Editor" : "محرر الصور المطور Pro"}
           </h1>
           {imgUrl && (
-            <span className="text-[9px] text-muted-foreground">
+            <span className="text-[10px] text-muted-foreground font-mono">
               {naturalSize.width} × {naturalSize.height} PX
             </span>
           )}
         </div>
+
         <button
           onClick={() => setShowExportModal(true)}
           disabled={!imgUrl}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-xl gradient-primary text-primary-foreground text-xs md:text-sm font-black shadow-lg shadow-blue-500/20 active:scale-95 transition-transform disabled:opacity-40"
+          className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl gradient-primary text-primary-foreground text-xs md:text-sm font-black shadow-lg shadow-blue-500/20 active:scale-95 transition-transform disabled:opacity-40 min-h-[44px]"
         >
           <Download className="w-4 h-4" />
-          {en ? "Full Export" : "تصدير كامل"}
+          <span className="hidden sm:inline">{en ? "Full Export" : "تصدير كامل"}</span>
+          <span className="sm:hidden">{en ? "Export" : "تصدير"}</span>
         </button>
       </div>
 
-      {/* Canvas Area */}
-      <div className="flex-1 flex flex-col items-center justify-center p-4 overflow-hidden relative bg-[#090b10] bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(120,119,198,0.15),rgba(255,255,255,0))]">
+      {/* Canvas Area: Dynamic viewport safe, >= 50% available height on mobile */}
+      <div className="flex-1 min-h-0 flex flex-col items-center justify-center p-2 sm:p-4 overflow-hidden relative bg-[#090b10] bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(120,119,198,0.15),rgba(255,255,255,0))]">
         {imgUrl ? (
           <div
             ref={previewContainerRef}
             onMouseDown={handleContainerDragStart}
             onTouchStart={handleContainerDragStart}
-            className="relative max-w-full max-h-[50vh] bg-black/90 shadow-2xl rounded-2xl overflow-hidden transition-all duration-300 border border-white/10"
+            className="relative max-w-full max-h-[50dvh] bg-black/90 shadow-2xl rounded-2xl overflow-hidden transition-all duration-300 border border-white/10"
             style={{
               aspectRatio:
                 cropRatio === "1:1"
@@ -776,7 +652,7 @@ const PhotoEditorScreen = ({ onClose }: PhotoEditorScreenProps) => {
               alt="edit"
               crossOrigin="anonymous"
               onLoad={handleImageLoad}
-              className={`max-w-full max-h-[50vh] transition-all duration-150 select-none pointer-events-none ${
+              className={`max-w-full max-h-[50dvh] transition-all duration-150 select-none pointer-events-none ${
                 cropRatio === "free" ? "object-contain" : "w-full h-full object-cover"
               }`}
               style={{ filter: filterCss, transform: `rotate(${rotation}deg) scaleX(${flipH ? -1 : 1}) scaleY(${flipV ? -1 : 1}) translate(${panX}px, ${panY}px) scale(${zoom})`, transformOrigin: "center center" }}
@@ -990,9 +866,12 @@ const PhotoEditorScreen = ({ onClose }: PhotoEditorScreenProps) => {
 
       {/* Editor Controls Interface */}
       {imgUrl && (
-        <div className="border-t border-white/5 bg-[#131924] shadow-2xl relative z-10">
+        <div
+          className="border-t border-white/5 bg-[#131924] shadow-2xl relative z-10 flex flex-col flex-shrink-0"
+          style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}
+        >
           {/* Main Controls Tabs Bar */}
-          <div className="flex items-center justify-around py-2 border-b border-white/5 overflow-x-auto no-scrollbar scroll-smooth px-3 bg-[#0d121c]">
+          <div className="flex items-center justify-around py-1.5 border-b border-white/5 overflow-x-auto no-scrollbar scroll-smooth px-2 bg-[#0d121c]">
             {[
               { id: "ai", icon: Sparkles, label: en ? "AI Tools" : "أدوات AI" },
               { id: "crop", icon: Crop, label: en ? "Size & Crop" : "القص والأبعاد" },
@@ -1006,25 +885,25 @@ const PhotoEditorScreen = ({ onClose }: PhotoEditorScreenProps) => {
               <button
                 key={tb.id}
                 onClick={() => setTab(tb.id as any)}
-                className={`flex flex-col items-center gap-1 px-3.5 py-1.5 text-[10px] md:text-xs font-bold shrink-0 transition-all rounded-xl ${
-                  tab === tb.id ? "text-blue-400 bg-blue-500/10 scale-105 shadow-inner" : "text-muted-foreground hover:text-foreground"
+                className={`flex flex-col items-center justify-center gap-1 px-3 py-1.5 text-[10px] md:text-xs font-bold shrink-0 transition-all rounded-xl min-h-[44px] min-w-[44px] ${
+                  tab === tb.id ? "text-blue-400 bg-blue-500/15 scale-105 shadow-inner" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 <tb.icon className="w-4 h-4" />
-                {tb.label}
+                <span>{tb.label}</span>
               </button>
             ))}
             <button
               onClick={resetAll}
-              className="flex flex-col items-center gap-1 px-3.5 py-1.5 text-[10px] md:text-xs font-bold text-red-400/80 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-all"
+              className="flex flex-col items-center justify-center gap-1 px-3 py-1.5 text-[10px] md:text-xs font-bold text-red-400/80 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-all min-h-[44px] min-w-[44px]"
             >
               <RotateCcw className="w-4 h-4" />
-              {en ? "Reset" : "إعادة ضبط"}
+              <span>{en ? "Reset" : "إعادة ضبط"}</span>
             </button>
           </div>
 
           {/* Sub Panels Container */}
-          <div className="p-4 max-h-[35vh] md:max-h-[30vh] overflow-y-auto no-scrollbar bg-[#131924]">
+          <div className="p-3.5 max-h-[38dvh] md:max-h-[32dvh] overflow-y-auto no-scrollbar bg-[#131924]">
             {/* CROP AND DIMENSIONS PANEL */}
             {tab === "crop" && (
               <div className="space-y-4">
@@ -1635,18 +1514,26 @@ const PhotoEditorScreen = ({ onClose }: PhotoEditorScreenProps) => {
                 )}
               </div>
             )}
-            {/* AI TOOLS PANEL & MODAL */}
+            {/* AI TOOLS TAB: HUB & EMBEDDED WORKSPACE */}
             {tab === "ai" && (
-              <ImageAIToolsModal
-                isOpen={tab === "ai"}
-                onClose={() => setTab("crop")}
-                imageUrl={imgUrl || ""}
-                onApplyResult={(resultUrl) => {
-                  if (resultUrl) {
-                    setImgUrl(resultUrl);
+              <div className="w-full">
+                <Suspense
+                  fallback={
+                    <div className="p-8 flex flex-col items-center justify-center gap-2 text-muted-foreground">
+                      <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                      <span className="text-xs">{t("imageAi.processing")}</span>
+                    </div>
                   }
-                }}
-              />
+                >
+                  <ImageAIHub
+                    onSelectTool={(toolId) => {
+                      setSelectedAITool(toolId);
+                      playSfx("click");
+                    }}
+                    onClose={() => setTab("crop")}
+                  />
+                </Suspense>
+              </div>
             )}
 
             {/* UPGRADED UNIFIED PHOTO EXPORT MODAL */}

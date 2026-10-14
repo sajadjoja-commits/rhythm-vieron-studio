@@ -17,12 +17,30 @@ export const BeforeAfterSlider: React.FC<BeforeAfterSliderProps> = ({
   beforeLabel = "قبل / Before",
   afterLabel = "بعد / After",
   className = "",
-  aspectRatio = "16/9",
+  aspectRatio = "auto",
   showCheckerboard = true,
 }) => {
   const [sliderPosition, setSliderPosition] = useState(50);
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [naturalAspectRatio, setNaturalAspectRatio] = useState<string | undefined>(
+    aspectRatio !== "auto" ? aspectRatio : undefined
+  );
+
+  useEffect(() => {
+    if (aspectRatio && aspectRatio !== "auto") {
+      setNaturalAspectRatio(aspectRatio);
+      return;
+    }
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      if (img.naturalWidth && img.naturalHeight) {
+        setNaturalAspectRatio(`${img.naturalWidth} / ${img.naturalHeight}`);
+      }
+    };
+    img.src = beforeImage || afterImage;
+  }, [beforeImage, afterImage, aspectRatio]);
 
   const handleMove = useCallback((clientX: number) => {
     if (!containerRef.current) return;
@@ -87,7 +105,7 @@ export const BeforeAfterSlider: React.FC<BeforeAfterSliderProps> = ({
     <div
       ref={containerRef}
       className={`relative overflow-hidden rounded-2xl select-none group touch-none border border-border/60 shadow-xl cursor-ew-resize ${className}`}
-      style={{ aspectRatio, ...checkerboardStyle }}
+      style={{ aspectRatio: naturalAspectRatio || aspectRatio || "auto", ...checkerboardStyle }}
       onMouseDown={(e) => {
         setIsDragging(true);
         handleMove(e.clientX);
@@ -117,7 +135,10 @@ export const BeforeAfterSlider: React.FC<BeforeAfterSliderProps> = ({
           src={beforeImage}
           alt="Before"
           className="absolute inset-0 w-full h-full object-contain max-w-none pointer-events-none"
-          style={{ width: containerRef.current ? `${containerRef.current.clientWidth}px` : "100%" }}
+          style={{
+            width: containerRef.current ? `${containerRef.current.clientWidth}px` : "100%",
+            height: containerRef.current ? `${containerRef.current.clientHeight}px` : "100%",
+          }}
           draggable={false}
         />
         <div className="absolute top-3 left-3 px-2.5 py-1 rounded-full bg-slate-900/85 backdrop-blur-md text-[11px] font-bold text-slate-200 border border-white/10 shadow-lg z-10 pointer-events-none">

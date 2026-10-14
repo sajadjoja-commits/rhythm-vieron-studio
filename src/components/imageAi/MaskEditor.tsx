@@ -19,6 +19,8 @@ import {
 import { BgPreviewMode } from "./BackgroundPreviewBar";
 import { playSfx } from "@/lib/soundFx";
 import { toast } from "sonner";
+import { t } from "@/lib/i18n";
+import { computeLetterboxRect } from "@/ai/image/coordinateTransform";
 
 export type MaskBrushTool = "restore" | "erase";
 export type MaskViewMode = "result" | "mask" | "original";
@@ -76,6 +78,41 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({
   const initialPinchDistanceRef = useRef<number | null>(null);
   const initialZoomOnPinchRef = useRef<number>(1);
   const lastTapTimeRef = useRef<number>(0);
+  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
+
+  const [displayedRect, setDisplayedRect] = useState<{ width: number; height: number }>({
+    width: 0,
+    height: 0,
+  });
+
+  const [cursorPos, setCursorPos] = useState<{ x: number; y: number; visible: boolean }>({
+    x: 0,
+    y: 0,
+    visible: false,
+  });
+
+  // Calculate exact image rectangle within container using ResizeObserver
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const updateRect = () => {
+      const srcImg = sourceImageRef.current;
+      if (!srcImg || srcImg.naturalWidth === 0 || srcImg.naturalHeight === 0) return;
+      const rect = computeLetterboxRect(
+        container.clientWidth,
+        container.clientHeight,
+        srcImg.naturalWidth,
+        srcImg.naturalHeight
+      );
+      setDisplayedRect({ width: rect.width, height: rect.height });
+    };
+
+    updateRect();
+    const ro = new ResizeObserver(() => updateRect());
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [originalImageUrl]);
 
   // Update Undo / Redo states
   const updateHistoryButtons = useCallback(() => {
@@ -249,41 +286,33 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({
     renderComposite();
   }, [viewMode, bgPreviewMode, customBgColor, renderComposite]);
 
-  // Brush Painting Implementation on Mask Canvas
-  const paintOnMask = (canvasX: number, canvasY: number) => {
+  // Continuous Stroke Painting Implementation on Mask Canvas
+  const paintOnMask = (canvasX: number, canvasY: number, prevX?: number, prevY?: number) => {
     const maskCanvas = maskCanvasRef.current;
     if (!maskCanvas) return;
     const ctx = maskCanvas.getContext("2d");
     if (!ctx) return;
 
+    const fromX = prevX !== undefined ? prevX : canvasX;
+    const fromY = prevY !== undefined ? prevY : canvasY;
+
     ctx.save();
-    ctx.beginPath();
-    ctx.arc(canvasX, canvasY, brushSize / 2, 0, Math.PI * 2);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = brushSize;
 
-    if (isSoftEdge && featherAmount > 0) {
-      const gradient = ctx.createRadialGradient(
-        canvasX,
-        canvasY,
-        Math.max(0, (brushSize / 2) * (1 - featherAmount / 100)),
-        canvasX,
-        canvasY,
-        brushSize / 2
-      );
-
-      if (activeTool === "restore") {
-        gradient.addColorStop(0, "rgba(255, 255, 255, 1)");
-        gradient.addColorStop(1, "rgba(255, 255, 255, 0)");
-      } else {
-        gradient.addColorStop(0, "rgba(0, 0, 0, 1)");
-        gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
-      }
-
-      ctx.fillStyle = gradient;
-      ctx.fill();
+    if (activeTool === "restore") {
+      ctx.strokeStyle = "#ffffff";
+      ctx.fillStyle = "#ffffff";
     } else {
-      ctx.fillStyle = activeTool === "restore" ? "#ffffff" : "#000000";
-      ctx.fill();
+      ctx.strokeStyle = "#000000";
+      ctx.fillStyle = "#000000";
     }
+
+    ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+    ctx.lineTo(canvasX, canvasY);
+    ctx.stroke();
 
     ctx.restore();
     renderComposite();
@@ -324,11 +353,24 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({
         setIsDrawing(true);
         (e.target as HTMLElement).setPointerCapture(e.pointerId);
         const coords = getCanvasCoords(e.clientX, e.clientY);
-        if (coords) paintOnMask(coords.x, coords.y);
+        if (coords) {
+          lastPointRef.current = { x: coords.x, y: coords.y };
+          paintOnMask(coords.x, coords.y, coords.x, coords.y);
+          const rect = displayCanvasRef.current?.getBoundingClientRect();
+          if (rect) {
+            setCursorPos({
+              x: e.clientX - rect.left,
+              y: e.clientY - rect.top - 45,
+              visible: true,
+            });
+          }
+        }
       }
     } else if (activePointersRef.current.size === 2) {
-      // Pinch to Zoom start
+      // 2 fingers = Pinch to Zoom / Pan
       setIsDrawing(false);
+      lastPointRef.current = null;
+      setCursorPos((p) => ({ ...p, visible: false }));
       const points = Array.from(activePointersRef.current.values());
       const dist = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
       initialPinchDistanceRef.current = dist;
@@ -339,6 +381,15 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (activePointersRef.current.has(e.pointerId)) {
       activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+
+    const rect = displayCanvasRef.current?.getBoundingClientRect();
+    if (rect) {
+      setCursorPos({
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top - 45,
+        visible: true,
+      });
     }
 
     if (activePointersRef.current.size === 2 && initialPinchDistanceRef.current !== null) {
@@ -359,9 +410,12 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({
       return;
     }
 
-    if (isDrawing) {
+    if (isDrawing && activePointersRef.current.size === 1) {
       const coords = getCanvasCoords(e.clientX, e.clientY);
-      if (coords) paintOnMask(coords.x, coords.y);
+      if (coords && lastPointRef.current) {
+        paintOnMask(coords.x, coords.y, lastPointRef.current.x, lastPointRef.current.y);
+        lastPointRef.current = { x: coords.x, y: coords.y };
+      }
     }
   };
 
@@ -370,6 +424,11 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({
 
     if (activePointersRef.current.size < 2) {
       initialPinchDistanceRef.current = null;
+    }
+
+    if (activePointersRef.current.size === 0) {
+      setCursorPos((p) => ({ ...p, visible: false }));
+      lastPointRef.current = null;
     }
 
     if (isDrawing) {
@@ -440,7 +499,7 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({
     pushHistory(initialMaskImageDataRef.current);
     renderComposite();
     emitUpdatedResult();
-    toast.info("تمت إعادة ضبط القناع إلى حالة الذكاء الاصطناعي الأولية");
+    toast.info(t("imageAi.resetMaskDone"));
   };
 
   // Auto Edge Smoothing Filter on Mask
@@ -500,35 +559,35 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({
           <button
             type="button"
             onClick={() => setViewMode("result")}
-            className={`px-2.5 py-1 text-xs font-bold rounded-lg transition ${
+            className={`px-2.5 py-1 text-xs font-bold rounded-lg transition min-h-[36px] flex items-center ${
               viewMode === "result"
                 ? "bg-primary text-white shadow"
                 : "text-slate-400 hover:text-slate-200"
             }`}
           >
-            النتيجة
+            {t("imageAi.result")}
           </button>
           <button
             type="button"
             onClick={() => setViewMode("mask")}
-            className={`px-2.5 py-1 text-xs font-bold rounded-lg transition ${
+            className={`px-2.5 py-1 text-xs font-bold rounded-lg transition min-h-[36px] flex items-center ${
               viewMode === "mask"
                 ? "bg-indigo-600 text-white shadow"
                 : "text-slate-400 hover:text-slate-200"
             }`}
           >
-            القناع
+            {t("imageAi.mask")}
           </button>
           <button
             type="button"
             onClick={() => setViewMode("original")}
-            className={`px-2.5 py-1 text-xs font-bold rounded-lg transition ${
+            className={`px-2.5 py-1 text-xs font-bold rounded-lg transition min-h-[36px] flex items-center ${
               viewMode === "original"
                 ? "bg-slate-700 text-white shadow"
                 : "text-slate-400 hover:text-slate-200"
             }`}
           >
-            الأصل
+            {t("imageAi.original")}
           </button>
         </div>
 
@@ -538,8 +597,9 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({
             type="button"
             onClick={handleUndo}
             disabled={!canUndo}
-            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-750 text-slate-300 disabled:opacity-30 disabled:pointer-events-none transition border border-slate-700"
-            title="تراجع"
+            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 disabled:opacity-30 disabled:pointer-events-none transition border border-slate-700 min-w-[40px] min-h-[40px] flex items-center justify-center"
+            title={t("imageAi.undo")}
+            aria-label={t("imageAi.undo")}
           >
             <Undo2 className="w-4 h-4" />
           </button>
@@ -547,16 +607,18 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({
             type="button"
             onClick={handleRedo}
             disabled={!canRedo}
-            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-750 text-slate-300 disabled:opacity-30 disabled:pointer-events-none transition border border-slate-700"
-            title="إعادة"
+            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 disabled:opacity-30 disabled:pointer-events-none transition border border-slate-700 min-w-[40px] min-h-[40px] flex items-center justify-center"
+            title={t("imageAi.redo")}
+            aria-label={t("imageAi.redo")}
           >
             <Redo2 className="w-4 h-4" />
           </button>
           <button
             type="button"
             onClick={handleResetMask}
-            className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950 text-rose-300 transition border border-slate-700"
-            title="إعادة ضبط القناع"
+            className="p-2 rounded-xl bg-slate-800 hover:bg-rose-950 text-rose-300 transition border border-slate-700 min-w-[40px] min-h-[40px] flex items-center justify-center"
+            title={t("imageAi.resetMask")}
+            aria-label={t("imageAi.resetMask")}
           >
             <RotateCcw className="w-4 h-4" />
           </button>
@@ -567,8 +629,9 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({
           <button
             type="button"
             onClick={() => setZoom((z) => Math.min(4, z + 0.5))}
-            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-750 text-slate-300 transition border border-slate-700"
-            title="تكبير"
+            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 transition border border-slate-700 min-w-[40px] min-h-[40px] flex items-center justify-center"
+            title={t("imageAi.zoomIn")}
+            aria-label={t("imageAi.zoomIn")}
           >
             <ZoomIn className="w-4 h-4" />
           </button>
@@ -578,12 +641,12 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({
               setZoom(1);
               setPanOffset({ x: 0, y: 0 });
             }}
-            className={`px-2 py-1 text-[11px] font-bold rounded-lg border transition ${
+            className={`px-2.5 py-1 text-xs font-bold rounded-xl border transition min-h-[40px] flex items-center justify-center ${
               zoom > 1
                 ? "bg-primary text-white border-primary"
                 : "bg-slate-800 text-slate-400 border-slate-700"
             }`}
-            title="إعادة التكبير"
+            title={t("imageAi.resetZoom")}
           >
             {Math.round(zoom * 100)}%
           </button>
@@ -593,7 +656,7 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({
       {/* Main Canvas Viewport Area */}
       <div
         ref={containerRef}
-        className="flex-1 relative flex items-center justify-center overflow-hidden bg-slate-950/80 p-2 touch-none select-none"
+        className="flex-1 relative flex items-center justify-center overflow-hidden bg-slate-950/80 p-2 touch-none select-none min-h-0"
         style={{
           backgroundImage:
             bgPreviewMode === "transparent" && viewMode === "result"
@@ -614,16 +677,41 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
-          className="max-w-full max-h-full object-contain rounded-xl shadow-2xl transition-transform duration-75 cursor-crosshair touch-none"
+          className="rounded-xl shadow-2xl transition-transform duration-75 cursor-crosshair touch-none"
           style={{
+            width: displayedRect.width > 0 ? `${displayedRect.width}px` : "auto",
+            height: displayedRect.height > 0 ? `${displayedRect.height}px` : "auto",
+            maxWidth: "100%",
+            maxHeight: "100%",
             transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoom})`,
             transformOrigin: "center center",
           }}
         />
 
+        {/* Elevated Brush Cursor Indicator above touch */}
+        {cursorPos.visible && !isPanning && (
+          <div
+            className="pointer-events-none absolute rounded-full border-2 transform -translate-x-1/2 -translate-y-1/2 z-20 transition-opacity"
+            style={{
+              left: cursorPos.x,
+              top: cursorPos.y,
+              width: brushSize,
+              height: brushSize,
+              borderColor:
+                activeTool === "restore"
+                  ? "rgba(16, 185, 129, 0.95)"
+                  : "rgba(244, 63, 94, 0.95)",
+              backgroundColor:
+                activeTool === "restore"
+                  ? "rgba(16, 185, 129, 0.25)"
+                  : "rgba(244, 63, 94, 0.25)",
+            }}
+          />
+        )}
+
         {zoom > 1 && (
-          <div className="absolute bottom-3 right-3 px-2.5 py-1 rounded-full bg-black/75 backdrop-blur-md text-[10px] font-bold text-slate-300 border border-white/10 pointer-events-none">
-            انقر مرتين لإعادة ضبط الحجم
+          <div className="absolute bottom-3 right-3 px-2.5 py-1 rounded-full bg-black/75 backdrop-blur-md text-[11px] font-bold text-slate-300 border border-white/10 pointer-events-none">
+            {t("imageAi.doubleTapHint")}
           </div>
         )}
       </div>
@@ -640,14 +728,14 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({
                 playSfx("tap");
                 setActiveTool("restore");
               }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition min-h-[44px] ${
                 activeTool === "restore"
                   ? "bg-emerald-600 text-white shadow"
                   : "text-slate-400 hover:text-slate-200"
               }`}
             >
-              <Brush className="w-3.5 h-3.5" />
-              <span>استعادة</span>
+              <Brush className="w-4 h-4" />
+              <span>{t("imageAi.restoreMode")}</span>
             </button>
             <button
               type="button"
@@ -655,35 +743,35 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({
                 playSfx("tap");
                 setActiveTool("erase");
               }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition min-h-[44px] ${
                 activeTool === "erase"
                   ? "bg-rose-600 text-white shadow"
                   : "text-slate-400 hover:text-slate-200"
               }`}
             >
-              <Eraser className="w-3.5 h-3.5" />
-              <span>مسح</span>
+              <Eraser className="w-4 h-4" />
+              <span>{t("imageAi.eraseMode")}</span>
             </button>
           </div>
 
           {/* Quick Brush Size Presets */}
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5">
             {[
-              { label: "صغير", size: 12 },
-              { label: "وسط", size: 32 },
-              { label: "كبير", size: 64 },
+              { labelKey: "imageAi.brushSmall", size: 12 },
+              { labelKey: "imageAi.brushMedium", size: 32 },
+              { labelKey: "imageAi.brushLarge", size: 64 },
             ].map((preset) => (
               <button
                 key={preset.size}
                 type="button"
                 onClick={() => setBrushSize(preset.size)}
-                className={`px-2 py-1 rounded-lg text-[11px] font-bold border transition ${
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition min-h-[44px] min-w-[44px] flex items-center justify-center ${
                   brushSize === preset.size
                     ? "bg-primary text-white border-primary shadow-sm"
                     : "bg-slate-950/60 text-slate-400 border-slate-800 hover:text-slate-200"
                 }`}
               >
-                {preset.label}
+                {t(preset.labelKey)}
               </button>
             ))}
           </div>
@@ -692,8 +780,8 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({
         {/* Sliders: Brush Size & Feather & Edge Smooth */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
           {/* Brush Size Slider */}
-          <div className="flex items-center gap-2 px-2 py-1.5 rounded-xl bg-slate-950/60 border border-slate-800">
-            <span className="text-slate-400 whitespace-nowrap text-[11px]">حجم الفرشاة:</span>
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-950/60 border border-slate-800 min-h-[44px]">
+            <span className="text-slate-400 whitespace-nowrap text-xs font-medium">{t("imageAi.brushSize")}:</span>
             <input
               type="range"
               min="4"
@@ -702,12 +790,12 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({
               onChange={(e) => setBrushSize(parseInt(e.target.value, 10))}
               className="flex-1 accent-primary h-1.5 bg-slate-800 rounded-lg cursor-pointer"
             />
-            <span className="font-bold text-primary text-[11px] w-8 text-left">{brushSize}px</span>
+            <span className="font-bold text-primary text-xs w-9 text-left">{brushSize}px</span>
           </div>
 
           {/* Feather / Softness Slider */}
-          <div className="flex items-center gap-2 px-2 py-1.5 rounded-xl bg-slate-950/60 border border-slate-800">
-            <span className="text-slate-400 whitespace-nowrap text-[11px]">نعومة الحواف:</span>
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-950/60 border border-slate-800 min-h-[44px]">
+            <span className="text-slate-400 whitespace-nowrap text-xs font-medium">{t("imageAi.feather")}:</span>
             <input
               type="range"
               min="0"
@@ -716,33 +804,33 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({
               onChange={(e) => setFeatherAmount(parseInt(e.target.value, 10))}
               className="flex-1 accent-emerald-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
             />
-            <span className="font-bold text-emerald-400 text-[11px] w-8 text-left">
+            <span className="font-bold text-emerald-400 text-xs w-9 text-left">
               {featherAmount}%
             </span>
           </div>
         </div>
 
         {/* Auto Edge Smoothing Bar */}
-        <div className="flex items-center justify-between gap-2 px-2 py-1 rounded-xl bg-slate-950/40 border border-slate-800/80">
+        <div className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-slate-950/40 border border-slate-800/80 min-h-[44px]">
           <div className="flex items-center gap-2 flex-1">
-            <Wand2 className="w-3.5 h-3.5 text-primary flex-shrink-0" />
-            <span className="text-[11px] text-slate-300">تنعيم تلقائي:</span>
+            <Wand2 className="w-4 h-4 text-primary flex-shrink-0" />
+            <span className="text-xs text-slate-300 font-medium">{t("imageAi.autoSmooth")}:</span>
             <input
               type="range"
               min="0"
               max="100"
               value={edgeSmoothingLevel}
               onChange={(e) => setEdgeSmoothingLevel(parseInt(e.target.value, 10))}
-              className="flex-1 accent-primary h-1 bg-slate-800 rounded-lg cursor-pointer"
+              className="flex-1 accent-primary h-1.5 bg-slate-800 rounded-lg cursor-pointer"
             />
-            <span className="text-[10px] font-bold text-slate-400">{edgeSmoothingLevel}%</span>
+            <span className="text-xs font-bold text-slate-400 w-8">{edgeSmoothingLevel}%</span>
           </div>
           <button
             type="button"
             onClick={handleApplyEdgeSmoothing}
-            className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold shadow transition flex-shrink-0"
+            className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow transition flex-shrink-0 min-h-[40px]"
           >
-            تطبيق
+            {t("imageAi.apply")}
           </button>
         </div>
       </div>
