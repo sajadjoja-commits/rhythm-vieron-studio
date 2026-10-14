@@ -28,7 +28,7 @@ public class VieronNativeBridge {
     private void loadBuildInfo() {
         try {
             BufferedReader reader = new BufferedReader(
-                new InputStreamReader(context.getAssets().open("www/build_info.json"))
+                new InputStreamReader(context.getAssets().open("public/build_info.json"))
             );
             StringBuilder sb = new StringBuilder();
             String line;
@@ -38,7 +38,7 @@ public class VieronNativeBridge {
             reader.close();
             cachedBuildInfo = sb.toString();
         } catch (Exception e) {
-            Log.w(TAG, "Could not load build_info.json from assets/www: " + e.getMessage());
+            Log.w(TAG, "Could not load build_info.json from assets/public: " + e.getMessage());
             try {
                 JSONObject obj = new JSONObject();
                 obj.put("runtime", "APK_ASSET_LOADER");

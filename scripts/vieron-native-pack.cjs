@@ -1,129 +1,71 @@
-const fs = require('fs');
-const path = require('path');
-const crypto = require('crypto');
-const { execSync } = require('child_process');
+const fs = require("fs");
+const path = require("path");
+const crypto = require("crypto");
+const { spawnSync, execFileSync } = require("child_process");
 
-const ROOT_DIR = path.resolve(__dirname, '..');
-const DIST_DIR = path.join(ROOT_DIR, 'dist');
-const WWW_DIR = path.join(ROOT_DIR, 'android', 'app', 'src', 'main', 'assets', 'www');
-const BUILD_INFO_PATH = path.join(WWW_DIR, 'build_info.json');
+const ROOT = path.resolve(__dirname, "..");
+const DIST = path.join(ROOT, "dist");
+const PUBLIC = path.join(ROOT, "android", "app", "src", "main", "assets", "public");
+const LEGACY_WWW = path.join(ROOT, "android", "app", "src", "main", "assets", "www");
+const SOURCE_BUILD_INFO = path.join(ROOT, "src", "build_info.json");
+const METADATA = new Set(["build_info.json", "fingerprint.txt"]);
 
-function log(msg) {
-  console.log(`[VIERON NATIVE PACK] ${msg}`);
+function fail(message) { console.error(`[VIERON PACKAGE] ${message}`); process.exit(1); }
+function gitSha() {
+  try { return execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: ROOT, encoding: "utf8" }).trim(); }
+  catch { return "unknown"; }
 }
-
-function error(msg) {
-  console.error(`[VIERON NATIVE PACK ERROR] ${msg}`);
-  process.exit(1);
-}
-
-function getGitSha() {
-  try {
-    return execSync('git rev-parse --short HEAD', { cwd: ROOT_DIR }).toString().trim();
-  } catch (e) {
-    return 'unknown';
+function copyDirectory(source, destination) {
+  for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
+    const from = path.join(source, entry.name);
+    const to = path.join(destination, entry.name);
+    if (entry.isDirectory()) { fs.mkdirSync(to, { recursive: true }); copyDirectory(from, to); }
+    else if (entry.isFile()) fs.copyFileSync(from, to);
   }
 }
-
-function cleanDir(dir) {
-  if (fs.existsSync(dir)) {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-  fs.mkdirSync(dir, { recursive: true });
-}
-
-function copyRecursive(src, dest) {
-  const stat = fs.statSync(src);
-  if (stat.isDirectory()) {
-    if (!fs.existsSync(dest)) {
-      fs.mkdirSync(dest, { recursive: true });
+function filesIn(directory, relativeTo = directory) {
+  const files = [];
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const full = path.join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...filesIn(full, relativeTo));
+    else if (entry.isFile()) {
+      const relative = path.relative(relativeTo, full).replace(/\\/g, "/");
+      if (!METADATA.has(relative)) files.push({ full, relative });
     }
-    fs.readdirSync(src).forEach(child => {
-      copyRecursive(path.join(src, child), path.join(dest, child));
-    });
-  } else {
-    fs.copyFileSync(src, dest);
   }
+  return files;
 }
-
-function getAllFiles(dirPath, relativeTo = dirPath) {
-  let results = [];
-  if (!fs.existsSync(dirPath)) return results;
-  const list = fs.readdirSync(dirPath);
-  list.forEach(file => {
-    const fullPath = path.join(dirPath, file);
-    const stat = fs.statSync(fullPath);
-    if (stat && stat.isDirectory()) {
-      results = results.concat(getAllFiles(fullPath, relativeTo));
-    } else {
-      const relPath = path.relative(relativeTo, fullPath).replace(/\\/g, '/');
-      if (relPath !== 'build_info.json') {
-        results.push({ relPath, fullPath, size: stat.size });
-      }
-    }
-  });
-  return results;
-}
-
-function computeFingerprint(files) {
-  const hash = crypto.createHash('sha256');
-  for (const file of [...files].sort((a, b) => a.relPath.localeCompare(b.relPath))) {
-    hash.update(file.relPath);
-    hash.update(fs.readFileSync(file.fullPath));
+function fingerprint(directory) {
+  const hash = crypto.createHash("sha256");
+  for (const file of filesIn(directory).sort((a, b) => a.relative.localeCompare(b.relative))) {
+    hash.update(file.relative);
+    hash.update(fs.readFileSync(file.full));
   }
-  return hash.digest('hex');
+  return hash.digest("hex");
 }
 
-log('Starting deterministic Native Web Asset packaging...');
-
-// 1. Run Vite build
-log('Running Vite production build (npm run build)...');
-try {
-  execSync('npm run build', { stdio: 'inherit', cwd: ROOT_DIR });
-} catch (e) {
-  error('Vite build failed.');
-}
-
-const distIndex = path.join(DIST_DIR, 'index.html');
-if (!fs.existsSync(distIndex)) {
-  error('dist/index.html is missing after Vite build.');
-}
-
-// 2. Clean android/app/src/main/assets/www/
-log('Cleaning android/app/src/main/assets/www/...');
-cleanDir(WWW_DIR);
-
-// 3. Copy dist into www/
-log('Copying complete dist/ directory to android/app/src/main/assets/www/...');
-copyRecursive(DIST_DIR, WWW_DIR);
-
-const wwwIndex = path.join(WWW_DIR, 'index.html');
-if (!fs.existsSync(wwwIndex)) {
-  error('www/index.html is missing after copy.');
-}
-
-// 4 & 5. Count files & calculate fingerprint
-const wwwFiles = getAllFiles(WWW_DIR);
-if (wwwFiles.length === 0) {
-  error('www/ asset directory is empty.');
-}
-const fingerprint = computeFingerprint(wwwFiles);
-log(`Total files copied: ${wwwFiles.length}`);
-log(`Asset SHA-256 Fingerprint: ${fingerprint}`);
-
-// 6. Write build metadata file (build_info.json)
-const gitSha = getGitSha();
-const buildMetadata = {
-  app: "Vieron Studio",
-  nativePackage: "com.vireon.ai",
-  webRuntime: "APK_ASSET_LOADER",
-  git: gitSha,
-  webBuild: Date.now().toString(),
-  assetFingerprint: fingerprint,
-  timestamp: new Date().toISOString()
+const build = {
+  schema: 1, app: "Vieron Studio", nativePackage: "com.vireon.ai",
+  runtime: "APK_ASSET_LOADER", source: "APK_BUNDLED", assetDirectory: "assets/public",
+  git: gitSha(), buildId: `${Date.now()}`, timestamp: new Date().toISOString(),
 };
+fs.writeFileSync(SOURCE_BUILD_INFO, JSON.stringify({ ...build, fingerprint: "pending" }, null, 2) + "\n");
 
-fs.writeFileSync(BUILD_INFO_PATH, JSON.stringify(buildMetadata, null, 2));
-log(`build_info.json written to ${BUILD_INFO_PATH}`);
+console.log("[VIERON PACKAGE] Building the web app...");
+const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+const result = spawnSync(npm, ["run", "build"], { cwd: ROOT, stdio: "inherit", shell: true });
+if (result.status !== 0) fail("Web build failed.");
+if (!fs.existsSync(path.join(DIST, "index.html"))) fail("dist/index.html was not generated.");
 
-log('SUCCESS: Native web packaging completed and verified.');
+console.log("[VIERON PACKAGE] Replacing Android assets/public with this build...");
+fs.rmSync(PUBLIC, { recursive: true, force: true });
+fs.mkdirSync(PUBLIC, { recursive: true });
+copyDirectory(DIST, PUBLIC);
+fs.rmSync(LEGACY_WWW, { recursive: true, force: true });
+
+const assetFingerprint = fingerprint(PUBLIC);
+const metadata = { ...build, fingerprint: assetFingerprint, files: filesIn(PUBLIC).length };
+fs.writeFileSync(path.join(PUBLIC, "build_info.json"), JSON.stringify(metadata, null, 2) + "\n");
+fs.writeFileSync(path.join(PUBLIC, "fingerprint.txt"), `${assetFingerprint}\n`);
+console.log(`[VIERON PACKAGE] Packaged ${metadata.files} web files into assets/public.`);
+console.log(`[VIERON PACKAGE] Fingerprint: ${assetFingerprint}`);

@@ -10,6 +10,8 @@ import androidx.webkit.WebViewAssetLoader;
 import androidx.webkit.WebViewClientCompat;
 
 import java.io.InputStream;
+import java.io.File;
+import java.io.FileInputStream;
 import java.net.URLConnection;
 
 public class VieronWebViewShell {
@@ -29,6 +31,25 @@ public class VieronWebViewShell {
                     }
                     if (assetPath.isEmpty() || assetPath.equals("index.html")) {
                         assetPath = "index.html";
+                    }
+
+                    // Selected media is copied to this cache directory by MainActivity. Serving it
+                    // from the appassets origin lets the editor fetch it as a normal same-origin File.
+                    if (assetPath.startsWith("media/")) {
+                        String fileName = assetPath.substring("media/".length());
+                        if (fileName.contains("/") || fileName.contains("\\") || fileName.contains("..")) {
+                            return null;
+                        }
+                        File mediaFile = new File(new File(context.getCacheDir(), "picked-media"), fileName);
+                        if (mediaFile.isFile()) {
+                            String mimeType = getMimeType(fileName);
+                            return new WebResourceResponse(
+                                mimeType != null ? mimeType : "application/octet-stream",
+                                null,
+                                new FileInputStream(mediaFile)
+                            );
+                        }
+                        return null;
                     }
 
                     String targetAsset = "public/" + assetPath;

@@ -1,21 +1,20 @@
 import { createRoot } from "react-dom/client";
-import { Capacitor } from "@capacitor/core";
 import App from "./App";
 import ErrorBoundary from "./components/ErrorBoundary";
 import "./index.css";
 import { applyLangToDOM } from "./lib/i18n";
 import { preloadSfx } from "./lib/soundFx";
 import { initializePerformanceOptimizations, logPerformanceMetrics, enableGarbageCollectionHints } from "./lib/performanceOptimizations";
+import { vieronNative } from "./native/VieronNative";
 
 // Expose window.VieronNative bridge foundation for Native Android Shell
 if (typeof window !== "undefined") {
-  (window as any).VieronNative = (window as any).VieronNative || {};
+  const nativeClient = (window as any).VieronNative || vieronNative;
   const bridgeHandler = {
     getRuntimeInfo: async () => {
       try {
-        if ((window as any).VieronNativeBridgeImpl && typeof (window as any).VieronNativeBridgeImpl.getRuntimeInfo === "function") {
-          const res = (window as any).VieronNativeBridgeImpl.getRuntimeInfo();
-          return typeof res === "string" ? JSON.parse(res) : res;
+        if ((window as any).VieronNativeBridgeImpl) {
+          return nativeClient.app.getRuntimeInfo();
         }
         return {
           runtime: "APK_ASSET_LOADER",
@@ -23,7 +22,7 @@ if (typeof window !== "undefined") {
           remoteUrl: null,
           capacitorWebRuntime: false,
           ota: false,
-          nativeVersion: "1.0.3"
+          nativeVersion: "unknown"
         };
       } catch (e) {
         return { runtime: "APK_ASSET_LOADER", source: "APK_BUNDLED", error: String(e) };
@@ -31,31 +30,29 @@ if (typeof window !== "undefined") {
     },
     isNativeFeatureSupported: async (feature: string) => {
       try {
-        if ((window as any).VieronNativeBridgeImpl && typeof (window as any).VieronNativeBridgeImpl.isNativeFeatureSupported === "function") {
-          return (window as any).VieronNativeBridgeImpl.isNativeFeatureSupported(feature);
-        }
-        return true;
+        return Boolean((window as any).VieronNativeBridgeImpl) && feature !== "capacitor";
       } catch {
         return false;
       }
     },
     getAppVersion: async () => {
       try {
-        if ((window as any).VieronNativeBridgeImpl && typeof (window as any).VieronNativeBridgeImpl.getAppVersion === "function") {
-          return (window as any).VieronNativeBridgeImpl.getAppVersion();
+        if ((window as any).VieronNativeBridgeImpl) {
+          return nativeClient.app.getAppVersion();
         }
-        return "1.0.3";
+        return "web";
       } catch {
         return "1.0.3";
       }
     },
     getBuildInfo: async () => {
-      return (window as any).VieronNative.getRuntimeInfo();
+      return nativeClient.app.getRuntimeInfo();
     }
   };
 
-  Object.assign((window as any).VieronNative, bridgeHandler);
-  (window as any).VieronNative.app = bridgeHandler;
+  Object.assign(nativeClient, bridgeHandler);
+  nativeClient.app = bridgeHandler;
+  (window as any).VieronNative = nativeClient;
 }
 
 // Filter benign WebAssembly / TensorFlow Lite engine informational logs
@@ -168,7 +165,7 @@ if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
   );
 
   // Disable service worker in native platform / native shell to avoid conflict with local assets and clear old caches
-  if (import.meta.env.DEV || isIframe || Capacitor.isNativePlatform() || isNativeShell) {
+  if (import.meta.env.DEV || isIframe || isNativeShell) {
     navigator.serviceWorker.getRegistrations().then((registrations) => {
       for (const registration of registrations) {
         registration.unregister().catch(() => {});

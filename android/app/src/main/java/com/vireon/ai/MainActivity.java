@@ -18,6 +18,11 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.UUID;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -31,6 +36,7 @@ public class MainActivity extends AppCompatActivity {
 
     private WebView mainWebView;
     private String pendingPickerCallbackId = null;
+    private ValueCallback<Uri[]> pendingFilePathCallback;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -67,6 +73,10 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
                 Log.i("VIERON_PICKER", "onShowFileChooser triggered");
+                if (pendingFilePathCallback != null) {
+                    pendingFilePathCallback.onReceiveValue(null);
+                }
+                pendingFilePathCallback = filePathCallback;
                 startMediaPicker("any", true, "fileChooser_" + System.currentTimeMillis());
                 return true;
             }
@@ -114,6 +124,7 @@ public class MainActivity extends AppCompatActivity {
 
             if (resultCode == RESULT_CANCELED) {
                 Log.i("VIERON_PICKER", "cancelled");
+                deliverFileChooserResult(null);
                 resolvePickerResult(cbId, "{ \"success\": false, \"cancelled\": true }");
                 return;
             }
@@ -121,17 +132,20 @@ public class MainActivity extends AppCompatActivity {
             if (resultCode == RESULT_OK && data != null) {
                 try {
                     JSONArray filesArray = new JSONArray();
+                    ArrayList<Uri> originalUris = new ArrayList<>();
                     android.content.ContentResolver resolver = getContentResolver();
 
                     if (data.getClipData() != null) {
                         int count = data.getClipData().getItemCount();
                         for (int i = 0; i < count; i++) {
                             Uri uri = data.getClipData().getItemAt(i).getUri();
+                            originalUris.add(uri);
                             JSONObject fileObj = queryUriInfo(resolver, uri);
                             filesArray.put(fileObj);
                         }
                     } else if (data.getData() != null) {
                         Uri uri = data.getData();
+                        originalUris.add(uri);
                         JSONObject fileObj = queryUriInfo(resolver, uri);
                         filesArray.put(fileObj);
                     }
@@ -141,13 +155,16 @@ public class MainActivity extends AppCompatActivity {
                     resultObj.put("files", filesArray);
 
                     Log.i("VIERON_PICKER", "result count=" + filesArray.length());
+                    deliverFileChooserResult(originalUris.toArray(new Uri[0]));
                     resolvePickerResult(cbId, resultObj.toString());
                 } catch (Exception e) {
                     Log.e("VIERON_PICKER", "error processing result: " + e.getMessage());
+                    deliverFileChooserResult(null);
                     resolvePickerResult(cbId, "{ \"success\": false, \"error\": \"" + e.getMessage() + "\" }");
                 }
             } else {
                 Log.i("VIERON_PICKER", "cancelled or empty result");
+                deliverFileChooserResult(null);
                 resolvePickerResult(cbId, "{ \"success\": false, \"cancelled\": true }");
             }
         }
@@ -184,7 +201,7 @@ public class MainActivity extends AppCompatActivity {
 
             Log.i("VIERON_PICKER", "uri=" + uri.toString() + " mime=" + mimeType);
 
-            obj.put("uri", uri.toString());
+            obj.put("uri", copyPickedMediaToWebOrigin(uri, name));
             obj.put("name", name);
             obj.put("mimeType", mimeType);
             obj.put("size", size);
@@ -192,6 +209,41 @@ public class MainActivity extends AppCompatActivity {
             Log.w("VIERON_PICKER", "Error querying uri info: " + e.getMessage());
         }
         return obj;
+    }
+
+    private String copyPickedMediaToWebOrigin(Uri uri, String displayName) throws Exception {
+        String safeName = displayName == null ? "media" : displayName.replaceAll("[^A-Za-z0-9._-]", "_");
+        String extension = "";
+        int dot = safeName.lastIndexOf('.');
+        if (dot >= 0 && dot < safeName.length() - 1 && safeName.length() - dot <= 16) {
+            extension = safeName.substring(dot);
+        }
+        String cachedName = UUID.randomUUID().toString() + extension;
+        File mediaDir = new File(getCacheDir(), "picked-media");
+        if (!mediaDir.exists() && !mediaDir.mkdirs()) {
+            throw new IllegalStateException("Unable to create picked-media cache directory");
+        }
+
+        File target = new File(mediaDir, cachedName);
+        try (InputStream input = getContentResolver().openInputStream(uri);
+             FileOutputStream output = new FileOutputStream(target)) {
+            if (input == null) {
+                throw new IllegalArgumentException("Unable to open selected media");
+            }
+            byte[] buffer = new byte[64 * 1024];
+            int read;
+            while ((read = input.read(buffer)) != -1) {
+                output.write(buffer, 0, read);
+            }
+        }
+        return "https://appassets.androidplatform.net/media/" + cachedName;
+    }
+
+    private void deliverFileChooserResult(Uri[] uris) {
+        if (pendingFilePathCallback != null) {
+            pendingFilePathCallback.onReceiveValue(uris);
+            pendingFilePathCallback = null;
+        }
     }
 
     private void resolvePickerResult(String callbackId, String jsonResult) {

@@ -1,7 +1,7 @@
 /**
  * VieronNative TypeScript Client Wrapper
  * Communicates with VieronNativeBridgeImpl via Android @JavascriptInterface
- * Includes automatic fallback to Capacitor plugins during migration.
+ * The Android WebView shell calls this client through VieronNativeBridgeImpl.
  */
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { VieronNativeResponse, FsReadRequest, FsWriteRequest, FsDeleteRequest, FsExistsRequest, FsMkdirRequest, FsListRequest, FsStatRequest } from './VieronNativeTypes';
@@ -11,8 +11,10 @@ class VieronNativeClient {
 
   constructor() {
     if (typeof window !== "undefined") {
-      (window as any).VieronNative = (window as any).VieronNative || this;
-      (window as any).VieronNative._resolvePicker = (callbackId: string, result: any) => {
+      const target = (window as any).VieronNative || this;
+      Object.assign(target, this);
+      (window as any).VieronNative = target;
+      target._resolvePicker = (callbackId: string, result: any) => {
         console.log(`[VIERON_PICKER] result callbackId=${callbackId}`, result);
         if (this.pickerResolvers[callbackId]) {
           this.pickerResolvers[callbackId](result);

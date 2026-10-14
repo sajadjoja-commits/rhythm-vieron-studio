@@ -1,10 +1,7 @@
 import { useRef, useId, ReactNode } from "react";
-import { registerPlugin, Capacitor } from "@capacitor/core";
 import { useMedia } from "@/context/MediaContext";
 import { toast } from "sonner";
 import { getLang } from "@/lib/i18n";
-
-const VireonMedia = registerPlugin<any>('VireonMedia');
 
 export interface MediaPickerProps {
   accept?: "video" | "image" | "both";
@@ -71,7 +68,7 @@ export const MediaPicker = ({
       }
     };
 
-    const isNativeRuntime = Capacitor.isNativePlatform() || (window as any).VieronNativeBridgeImpl || (window as any).VieronNative;
+    const isNativeRuntime = Boolean((window as any).VieronNativeBridgeImpl && (window as any).VieronNative?.media?.pickMedia);
     if (isNativeRuntime) {
       const timeoutId = setTimeout(fallback, 2000);
       try {

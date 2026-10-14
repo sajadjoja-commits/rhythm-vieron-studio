@@ -1,12 +1,12 @@
 {
-  "native": "1.0.3",
-  "build": "1791728557208",
-  "web": "web-44a7c91",
-  "git": "44a7c91",
-  "channel": "production-local",
-  "packaging": "APK_BUNDLED",
-  "ota": "OFF",
-  "timestamp": "2026-10-11T14:22:37.211Z",
-  "localOnly": true,
-  "fingerprint": "a9794b9eb750f71cd4cd69cf84f8564acedca49adfa8847563b4383de9f4e50c"
+  "schema": 1,
+  "app": "Vieron Studio",
+  "nativePackage": "com.vireon.ai",
+  "runtime": "APK_ASSET_LOADER",
+  "source": "APK_BUNDLED",
+  "assetDirectory": "assets/public",
+  "git": "edc1e2b",
+  "buildId": "1791957345337",
+  "timestamp": "2026-10-14T05:55:45.337Z",
+  "fingerprint": "pending"
 }
