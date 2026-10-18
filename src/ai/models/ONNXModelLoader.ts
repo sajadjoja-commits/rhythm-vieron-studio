@@ -3,7 +3,8 @@ import * as ort from 'onnxruntime-web';
 // Configure onnxruntime-web wasm paths
 if (typeof window !== 'undefined' || typeof self !== 'undefined') {
   try {
-    ort.env.wasm.numThreads = 2;
+    const isIsolated = typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated;
+    ort.env.wasm.numThreads = isIsolated ? 2 : 1;
     ort.env.wasm.simd = true;
   } catch {
     // Ignore in unsupported environments
