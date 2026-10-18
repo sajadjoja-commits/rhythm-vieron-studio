@@ -189,11 +189,58 @@ describe('Local Image Outpainting Synthetic Tests', () => {
     const scale = maxLongest / Math.max(targetW, targetH);
     const scaledTargetW = Math.round(targetW * scale);
     const scaledTargetH = Math.round(targetH * scale);
-    const scaledOrigW = Math.round(origW * scale);
-    const scaledOrigH = Math.round(origH * scale);
 
     expect(Math.max(scaledTargetW, scaledTargetH)).toBeLessThanOrEqual(4096);
     expect(scaledTargetW).toBe(4096);
     expect(scaledTargetH).toBe(2048);
   });
+
+  /**
+   * (F) Zero network requests / fetch during outpaint execution (Offline Guarantee)
+   */
+  it('(F) No fetch or network calls are made during local push-pull and mirror-blur outpainting', () => {
+    let fetchCalled = false;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (() => {
+      fetchCalled = true;
+      return Promise.reject(new Error('Network access forbidden'));
+    }) as unknown as typeof fetch;
+
+    try {
+      const origW = 32;
+      const origH = 32;
+      const origRgba = new Uint8ClampedArray(origW * origH * 4);
+      origRgba.fill(128);
+
+      // Run mirror blur expansion
+      const preview = ImagePostprocessor.createMirrorBlurExpandedCanvas(
+        origRgba,
+        origW,
+        origH,
+        48,
+        48,
+        8,
+        8
+      );
+      expect(preview.length).toBe(48 * 48 * 4);
+
+      // Run push-pull inpainting
+      const mask = new Float32Array(48 * 48);
+      for (let y = 0; y < 48; y++) {
+        for (let x = 0; x < 48; x++) {
+          if (x < 8 || x >= 40 || y < 8 || y >= 40) {
+            mask[y * 48 + x] = 1.0;
+          }
+        }
+      }
+      const inpainted = ImagePostprocessor.pushPullInpaint(preview, mask, 48, 48);
+      expect(inpainted.length).toBe(48 * 48 * 4);
+
+      // Zero fetch calls occurred!
+      expect(fetchCalled).toBe(false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
+
