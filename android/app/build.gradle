@@ -84,7 +84,7 @@ task verifyWebAssets(type: Exec) {
     group = "vieron"
     description = "Verifies that Android web assets match the latest web build"
     workingDir "../../"
-    ignoreExitValue = true
+    ignoreExitValue = false
     if (System.getProperty('os.name').toLowerCase().contains('windows')) {
         commandLine 'cmd', '/c', 'node scripts/verify-web-assets.cjs'
     } else {

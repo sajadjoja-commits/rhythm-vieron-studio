@@ -1,1 +1,1 @@
-require("./vieron-native-pack.cjs");
+require("./vieron-pack.cjs");
