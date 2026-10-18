@@ -1,0 +1,10 @@
+{
+  "native": "1.0.0",
+  "build": "9",
+  "git": "0e9162752f2b167f833b62636a2cc792e5fbf01ed21e04769dcd6a145333354b",
+  "web": "web-0e91627",
+  "packaging": "APK_BUNDLED",
+  "ota": false,
+  "timestamp": "2026-10-12T14:38:39.931Z",
+  "fingerprint": "d21bcaaf6bac472c62e8d03fe91ed22b6b6850284845ae673647f4a635b6671d"
+}

@@ -1,0 +1,2447 @@
+import { useState, useEffect, useRef } from "react";
+import { useMedia, Caption, CaptionAnimation, CaptionTemplate, CaptionStyle } from "@/context/MediaContext";
+import { useAdGate } from "@/context/AdGateContext";
+import { X, Plus, Trash2, Type, Languages, Sparkles, Loader2, Palette, Eye, EyeOff, Check, Music, AlertTriangle, CheckCircle2, RotateCw, RefreshCw, Search, Layers, Sliders, Zap, BookOpen, Radio, Youtube, Instagram, MapPin, Quote, Star, Flame, Award, WrapText, FlipHorizontal, FlipVertical, Upload, FileText } from "lucide-react";
+import { toast } from "sonner";
+import { Capacitor } from "@capacitor/core";
+import { captionService } from "@/services/caption";
+import { AudioSourceResolver } from "@/ai/audio/AudioSourceResolver";
+import { analyzeAudioTrack } from "@/lib/beatDetector";
+import { parseSRT } from "@/lib/srtParser";
+import { getLang } from "@/lib/i18n";
+import { playSfx } from "@/lib/soundFx";
+import { animClass } from "./CaptionOverlay";
+import DraggableLibrarySheet from "./DraggableLibrarySheet";
+import {
+  TextTemplate,
+  TextTemplateCategory,
+  TEXT_TEMPLATES,
+  applyTemplateToCaption,
+  generateKeyframesForTemplate,
+  loadCustomTemplates,
+  saveCustomTemplate,
+  deleteCustomTemplate,
+} from "@/lib/textTemplatesLibrary";
+
+
+interface Props {
+  open: boolean;
+  onClose: () => void;
+  currentTime: number;
+}
+
+const FONTS = [
+  "Cairo",
+  "Tajawal",
+  "Almarai",
+  "Amiri",
+  "Changa",
+  "El Messiri",
+  "Reem Kufi",
+  "Lalezar",
+  "Aref Ruqaa",
+  "Rakkas",
+  "Markazi Text",
+  "Kufam",
+  "Lemonada",
+  "Mada",
+  "Harmattan",
+  "Marhey",
+  "Alexandria",
+  "IBM Plex Sans Arabic",
+  "Noto Sans Arabic",
+  "Vibes",
+  "Plus Jakarta Sans",
+  "Syne",
+  "Inter",
+  "Bebas Neue",
+  "Archivo Black",
+  "Space Grotesk",
+  "Montserrat",
+  "Oswald",
+  "Outfit",
+  "Playfair Display",
+  "Fira Code",
+  "JetBrains Mono",
+  "Sacramento",
+  "Fredoka",
+  "Cinzel"
+];
+const LANGS = [
+  { code: "ar", label: "العربية" },
+  { code: "en", label: "English" },
+  { code: "fr", label: "Français" },
+  { code: "es", label: "Español" },
+  { code: "tr", label: "Türkçe" },
+  { code: "de", label: "Deutsch" },
+];
+const POSITIONS: Array<"top" | "center" | "bottom"> = ["top", "center", "bottom"];
+
+const COLOR_SWATCHES = [
+  "#ffffff",
+  "#000000",
+  "#fde047",
+  "#f97316",
+  "#ef4444",
+  "#22c55e",
+  "#06b6d4",
+  "#3b82f6",
+  "#a855f7",
+  "#ec4899",
+  "linear-gradient(135deg, #facc15, #f97316)",
+  "linear-gradient(135deg, #22d3ee, #3b82f6)",
+  "linear-gradient(135deg, #f43f5e, #a855f7)",
+  "linear-gradient(135deg, #4ade80, #06b6d4)",
+  "linear-gradient(135deg, #ff007f, #7928ca)",
+  "linear-gradient(135deg, #ffed4a, #ff7675)",
+];
+
+const BG_SWATCHES = [
+  "rgba(0,0,0,0)",
+  "rgba(0,0,0,0.55)",
+  "rgba(0,0,0,0.85)",
+  "rgba(255,255,255,0.85)",
+  "rgba(59,130,246,0.85)",
+  "rgba(239,68,68,0.85)",
+  "rgba(168,85,247,0.85)",
+  "rgba(34,197,94,0.85)",
+  "linear-gradient(135deg, rgba(15,23,42,0.9), rgba(30,41,59,0.9))",
+  "linear-gradient(135deg, rgba(234,179,8,0.9), rgba(249,115,22,0.9))",
+  "linear-gradient(135deg, rgba(236,72,153,0.9), rgba(168,85,247,0.9))",
+];
+
+const ANIMATIONS: { id: CaptionAnimation; label: string; labelEn: string }[] = [
+  { id: "none", label: "بدون", labelEn: "None" },
+  { id: "fade", label: "تلاشي", labelEn: "Fade" },
+  { id: "slide-up", label: "صعود", labelEn: "Slide Up" },
+  { id: "slide-down", label: "نزول", labelEn: "Slide Down" },
+  { id: "pop", label: "بوب", labelEn: "Pop" },
+  { id: "typewriter", label: "آلة كاتبة", labelEn: "Typewriter" },
+  { id: "bounce", label: "قفز حيوي", labelEn: "Bounce" },
+  { id: "glitch", label: "جليتش", labelEn: "Glitch" },
+  { id: "zoom-fade", label: "تلاشي زوم", labelEn: "Zoom Fade" },
+  { id: "scale-up", label: "تمدد لأعلى", labelEn: "Scale Up" },
+  { id: "rotate-in", label: "دوران أنيق", labelEn: "Rotate In" },
+  { id: "blur-in", label: "تمويه سينمائي", labelEn: "Blur In" },
+  { id: "elastic-drop", label: "سقوط مرن 🎈", labelEn: "Elastic Drop" },
+  { id: "swing-in", label: "أرجوحة 3D 🎪", labelEn: "3D Swing In" },
+  { id: "reveal-left", label: "كشف لليسار ⬅️", labelEn: "Reveal Left" },
+  { id: "reveal-right", label: "كشف لليمين ➡️", labelEn: "Reveal Right" },
+  { id: "heartbeat", label: "نبض القلب 💖", labelEn: "Heartbeat" },
+  { id: "neon-flicker", label: "نيون ساطع ⚡", labelEn: "Neon Flicker" },
+  { id: "3d-flip", label: "قلب 3D 🌀", labelEn: "3D Flip" },
+  { id: "wave-bounce", label: "موجة 🌊", labelEn: "Wave Bounce" },
+  { id: "curtain-reveal", label: "ستارة 🎭", labelEn: "Curtain Reveal" },
+  { id: "shatter-pop", label: "انفجار 💥", labelEn: "Shatter Pop" },
+];
+
+const MOTION_PRESET_TEMPLATES = [
+  {
+    id: "m-cyber-pulse",
+    nameAr: "سايبر توهج نيون ⚡",
+    nameEn: "Cyber Neon Pulse ⚡",
+    animation: "neon-flicker" as CaptionAnimation,
+    font: "Space Grotesk",
+    size: 24,
+    color: "#22d3ee",
+    bg: "rgba(15, 23, 42, 0.9)",
+    strokeColor: "#06b6d4",
+    strokeWidth: 1.5,
+    shadowColor: "rgba(34, 211, 238, 0.8)",
+    shadowBlur: 14,
+    badgeIcon: "sparkles",
+    sampleAr: "أنيميشن سايبر نيون ⚡",
+    sampleEn: "CYBER NEON PULSE ⚡",
+  },
+  {
+    id: "m-elastic-drop",
+    nameAr: "سقوط مرن 🎈",
+    nameEn: "Elastic Drop 🎈",
+    animation: "elastic-drop" as CaptionAnimation,
+    font: "Marhey",
+    size: 25,
+    color: "#ffffff",
+    bg: "rgba(249,115,22,0.9)",
+    bgRadius: 18,
+    shadowColor: "rgba(249,115,22,0.5)",
+    shadowBlur: 10,
+    sampleAr: "مرح وقافز 🎈",
+    sampleEn: "ELASTIC BOUNCE 🎈",
+  },
+  {
+    id: "m-3d-swing",
+    nameAr: "أرجوحة 3D 🎪",
+    nameEn: "3D Swing 🎪",
+    animation: "swing-in" as CaptionAnimation,
+    font: "Cairo",
+    size: 23,
+    color: "#fbbf24",
+    bg: "rgba(88,28,135,0.85)",
+    bgRadius: 14,
+    shadowColor: "rgba(251, 191, 36, 0.4)",
+    shadowBlur: 8,
+    badgeIcon: "star",
+    sampleAr: "تأثير أرجوحة سينمائي ✨",
+    sampleEn: "3D SWING MOTION ✨",
+  },
+  {
+    id: "m-shatter-pop",
+    nameAr: "انفجار دراماتيكي 💥",
+    nameEn: "Shatter Pop 💥",
+    animation: "shatter-pop" as CaptionAnimation,
+    font: "Archivo Black",
+    size: 24,
+    color: "#ffffff",
+    bg: "rgba(220, 38, 38, 0.95)",
+    bgRadius: 10,
+    strokeColor: "#ffffff",
+    strokeWidth: 1,
+    shadowColor: "rgba(220, 38, 38, 0.6)",
+    shadowBlur: 12,
+    badgeIcon: "fire",
+    sampleAr: "انفجار حركي 💥",
+    sampleEn: "SHATTER POP MOTION 💥",
+  },
+  {
+    id: "m-wave-bounce",
+    nameAr: "موجة متدفقة 🌊",
+    nameEn: "Wave Flow 🌊",
+    animation: "wave-bounce" as CaptionAnimation,
+    font: "Tajawal",
+    size: 22,
+    color: "#38bdf8",
+    bg: "rgba(15, 23, 42, 0.85)",
+    bgRadius: 16,
+    shadowColor: "rgba(56, 189, 248, 0.5)",
+    shadowBlur: 8,
+    sampleAr: "موجات خفيفة متدفقة 🌊",
+    sampleEn: "DYNAMIC WAVE FLOW 🌊",
+  },
+  {
+    id: "m-heartbeat",
+    nameAr: "نبض حيوي 💖",
+    nameEn: "Heartbeat Pulse 💖",
+    animation: "heartbeat" as CaptionAnimation,
+    font: "Outfit",
+    size: 23,
+    color: "#f472b6",
+    bg: "rgba(15, 23, 42, 0.9)",
+    bgRadius: 20,
+    shadowColor: "rgba(244, 114, 182, 0.6)",
+    shadowBlur: 10,
+    badgeIcon: "check",
+    sampleAr: "نبض مشاعر حيوي 💖",
+    sampleEn: "HEARTBEAT PULSE 💖",
+  },
+  {
+    id: "m-curtain-reveal",
+    nameAr: "ستارة سينمائية 🎭",
+    nameEn: "Curtain Reveal 🎭",
+    animation: "curtain-reveal" as CaptionAnimation,
+    font: "Cinzel",
+    size: 22,
+    color: "#f59e0b",
+    bg: "rgba(0, 0, 0, 0.9)",
+    bgRadius: 8,
+    strokeColor: "#fbbf24",
+    strokeWidth: 1,
+    shadowColor: "rgba(245, 158, 11, 0.5)",
+    shadowBlur: 10,
+    badgeIcon: "award",
+    sampleAr: "كشف الستارة الملكية 🎭",
+    sampleEn: "ROYAL CURTAIN REVEAL 🎭",
+  },
+  {
+    id: "m-retro-glitch",
+    nameAr: "جليتش ريترو ⚡",
+    nameEn: "Retro Glitch ⚡",
+    animation: "glitch" as CaptionAnimation,
+    font: "JetBrains Mono",
+    size: 21,
+    color: "#22d3ee",
+    bg: "rgba(0, 0, 0, 0.9)",
+    strokeColor: "#ec4899",
+    strokeWidth: 1.5,
+    shadowColor: "rgba(34, 211, 238, 0.7)",
+    shadowBlur: 10,
+    badgeIcon: "news",
+    sampleAr: "جليتش ريترو ساخن ⚡",
+    sampleEn: "RETRO GLITCH SHIFT ⚡",
+  }
+];
+
+const TEMPLATE_CATEGORIES = [
+  { id: "all", labelAr: "الكل 🌟", labelEn: "All 🌟" },
+  { id: "viral", labelAr: "رائج وفيرال 🔥", labelEn: "Viral 🔥" },
+  { id: "reels", labelAr: "ريلز وشورتس 📱", labelEn: "Reels & Shorts 📱" },
+  { id: "minimal", labelAr: "مينيمال وترجمة ✨", labelEn: "Minimal & Subs ✨" },
+  { id: "cinematic", labelAr: "سينمائي 🎬", labelEn: "Cinematic 🎬" },
+  { id: "music", labelAr: "موسيقى وإيقاع 🎵", labelEn: "Music & Rhythm 🎵" },
+  { id: "gaming", labelAr: "ألعاب وميمز 🎮", labelEn: "Gaming & Meme 🎮" },
+  { id: "podcast", labelAr: "بودكاست 🎙️", labelEn: "Podcast 🎙️" },
+  { id: "news", labelAr: "أخبار ورياضة 🔴", labelEn: "News & Sports 🔴" },
+  { id: "neon", labelAr: "نيون و 3D ⚡", labelEn: "Neon & 3D ⚡" },
+  { id: "social", labelAr: "شبكات تواصل 📱", labelEn: "Social 📱" },
+  { id: "custom", labelAr: "قوالبي المخصصة ⭐", labelEn: "My Presets ⭐" },
+];
+
+const TEMPLATES: CaptionTemplate[] = [
+  // Social Media
+  {
+    id: "yt-subscribe",
+    name: "يوتيوب اشتراك 🔴",
+    nameEn: "YouTube Subscribe 🔴",
+    category: "social",
+    font: "Cairo",
+    size: 20,
+    color: "#ffffff",
+    bg: "rgba(220, 38, 38, 0.95)",
+    animation: "bounce",
+    badgeIcon: "youtube",
+    bgRadius: 20,
+    strokeColor: "#7f1d1d",
+    strokeWidth: 1,
+    shadowColor: "rgba(220, 38, 38, 0.5)",
+    shadowBlur: 8,
+    sampleTextAr: "اشترك في القناة 🔔",
+    sampleTextEn: "SUBSCRIBE NOW 🔔",
+  },
+  {
+    id: "insta-handle",
+    name: "انستغرام معرّف 📸",
+    nameEn: "Instagram Handle 📸",
+    category: "social",
+    font: "Outfit",
+    size: 19,
+    color: "#ffffff",
+    bg: "rgba(236,72,153,0.95)",
+    animation: "slide-up",
+    badgeIcon: "instagram",
+    bgRadius: 16,
+    shadowColor: "rgba(236,72,153,0.4)",
+    shadowBlur: 10,
+    sampleTextAr: "@username_official",
+    sampleTextEn: "@username_official",
+  },
+  {
+    id: "tiktok-tag",
+    name: "تيك توك ترند 🎵",
+    nameEn: "TikTok Trend 🎵",
+    category: "social",
+    font: "Archivo Black",
+    size: 22,
+    color: "#22d3ee",
+    bg: "rgba(0, 0, 0, 0.85)",
+    animation: "glitch",
+    badgeIcon: "fire",
+    strokeColor: "#ec4899",
+    strokeWidth: 2,
+    shadowColor: "rgba(34, 211, 238, 0.6)",
+    shadowBlur: 12,
+    bgRadius: 12,
+    sampleTextAr: "#ترند_تيك_توك 🔥",
+    sampleTextEn: "#TikTokTrend 🔥",
+  },
+  {
+    id: "breaking-news",
+    name: "خبر عاجل 📺",
+    nameEn: "Breaking News 📺",
+    category: "social",
+    font: "Almarai",
+    size: 22,
+    color: "#ffffff",
+    bg: "rgba(185, 28, 28, 0.95)",
+    animation: "shatter-pop",
+    badgeIcon: "news",
+    bgRadius: 4,
+    strokeColor: "#ffffff",
+    strokeWidth: 1,
+    shadowColor: "rgba(0,0,0,0.8)",
+    shadowBlur: 6,
+    sampleTextAr: "خبر عاجل | تفاصيل جديدة",
+    sampleTextEn: "BREAKING NEWS | Live Updates",
+  },
+  {
+    id: "location-tag",
+    name: "الموقع الجغرافي 📍",
+    nameEn: "Location Badge 📍",
+    category: "social",
+    font: "Tajawal",
+    size: 18,
+    color: "#e0f2fe",
+    bg: "rgba(15, 23, 42, 0.9)",
+    animation: "pop",
+    badgeIcon: "location",
+    bgRadius: 24,
+    shadowColor: "rgba(56, 189, 248, 0.4)",
+    shadowBlur: 8,
+    sampleTextAr: "دبي، الإمارات 🇦🇪",
+    sampleTextEn: "Dubai, UAE 🇦🇪",
+  },
+  {
+    id: "neon",
+    name: "نيون توهج",
+    nameEn: "Neon Glow",
+    font: "Bebas Neue",
+    size: 26,
+    color: "#fde047",
+    bg: "rgba(0,0,0,0.85)",
+    animation: "pop",
+  },
+  {
+    id: "vhs-glitch",
+    name: "جليتش ريترو 📼",
+    nameEn: "VHS Glitch 📼",
+    font: "JetBrains Mono",
+    size: 20,
+    color: "#22d3ee",
+    bg: "rgba(0,0,0,0.85)",
+    animation: "glitch",
+  },
+  {
+    id: "tiktok",
+    name: "تيك توك",
+    nameEn: "TikTok",
+    font: "Archivo Black",
+    size: 22,
+    color: "#ffffff",
+    bg: "rgba(0,0,0,0.0)",
+    animation: "slide-up",
+  },
+  {
+    id: "dreamy-blur",
+    name: "تمويه حالم 🌸",
+    nameEn: "Dreamy Blur 🌸",
+    font: "Outfit",
+    size: 22,
+    color: "#ffffff",
+    bg: "rgba(168,85,247,0.3)",
+    animation: "blur-in",
+  },
+  {
+    id: "elegant",
+    name: "أنيق سينمائي",
+    nameEn: "Elegant Cine",
+    font: "Syne",
+    size: 20,
+    color: "#ffffff",
+    bg: "rgba(59,130,246,0.85)",
+    animation: "fade",
+  },
+  {
+    id: "cinematic-zoom",
+    name: "سينمائي زووم 🎬",
+    nameEn: "Cinematic Zoom 🎬",
+    font: "Playfair Display",
+    size: 24,
+    color: "#ffffff",
+    bg: "rgba(0,0,0,0.0)",
+    animation: "zoom-fade",
+  },
+  {
+    id: "bold-red",
+    name: "أحمر جريء",
+    nameEn: "Bold Red",
+    font: "Archivo Black",
+    size: 24,
+    color: "#ffffff",
+    bg: "rgba(239,68,68,0.9)",
+    animation: "pop",
+  },
+  {
+    id: "subtitle",
+    name: "ترجمة كلاسيكية",
+    nameEn: "Classic Subtitle",
+    font: "Cairo",
+    size: 16,
+    color: "#ffffff",
+    bg: "rgba(0,0,0,0.7)",
+    animation: "fade",
+  },
+  {
+    id: "retro-vhs",
+    name: "ريترو VHS",
+    nameEn: "Retro VHS",
+    font: "JetBrains Mono",
+    size: 17,
+    color: "#22d3ee",
+    bg: "rgba(15,23,42,0.85)",
+    animation: "typewriter",
+  },
+  {
+    id: "outline-yellow",
+    name: "محدد بالأصفر",
+    nameEn: "Yellow Outline",
+    font: "Fredoka",
+    size: 23,
+    color: "#facc15",
+    bg: "rgba(0,0,0,0.8)",
+    animation: "pop",
+  },
+  {
+    id: "royal-gold",
+    name: "ذهبي ملكي",
+    nameEn: "Royal Gold",
+    font: "Cairo",
+    size: 21,
+    color: "#fbbf24",
+    bg: "rgba(45,0,0,0.75)",
+    animation: "fade",
+  },
+  {
+    id: "sweet-pink",
+    name: "وردي ناعم",
+    nameEn: "Sweet Pink",
+    font: "Sacramento",
+    size: 28,
+    color: "#f472b6",
+    bg: "rgba(24,24,27,0.7)",
+    animation: "pop",
+  },
+  {
+    id: "outline-emerald",
+    name: "زمردي محدد",
+    nameEn: "Emerald Outline",
+    font: "Outfit",
+    size: 22,
+    color: "#10b981",
+    bg: "rgba(0,0,0,0.85)",
+    animation: "slide-up",
+  },
+  {
+    id: "arabian-vibes",
+    name: "سحر الشرقي ✨",
+    nameEn: "Arabian Vibes ✨",
+    font: "Vibes",
+    size: 28,
+    color: "#fbbf24",
+    bg: "rgba(88,28,135,0.7)",
+    animation: "swing-in",
+  },
+  {
+    id: "playful-marhey",
+    name: "مرح كرتوني 🎈",
+    nameEn: "Playful Marhey 🎈",
+    font: "Marhey",
+    size: 25,
+    color: "#ffffff",
+    bg: "rgba(249,115,22,0.85)",
+    animation: "elastic-drop",
+  },
+  {
+    id: "modern-alexandria",
+    name: "أليكس المودرن 💎",
+    nameEn: "Modern Alex 💎",
+    font: "Alexandria",
+    size: 21,
+    color: "#22d3ee",
+    bg: "rgba(15,23,42,0.9)",
+    animation: "reveal-left",
+  },
+  {
+    id: "corporate-ibm",
+    name: "احترافي متميز 👔",
+    nameEn: "Professional IBM 👔",
+    font: "IBM Plex Sans Arabic",
+    size: 20,
+    color: "#ffffff",
+    bg: "rgba(30,58,138,0.85)",
+    animation: "reveal-right",
+  },
+  {
+    id: "cyber-glow",
+    name: "سايبر نيون ⚡",
+    nameEn: "Cyber Glow ⚡",
+    font: "Space Grotesk",
+    size: 24,
+    color: "#22d3ee",
+    bg: "rgba(6,182,212,0.25)",
+    animation: "neon-flicker",
+  },
+  {
+    id: "gradient-sunset",
+    name: "غروب الشمس 🌅",
+    nameEn: "Sunset Glow 🌅",
+    font: "Tajawal",
+    size: 23,
+    color: "#f97316",
+    bg: "rgba(124,45,18,0.75)",
+    animation: "wave-bounce",
+  },
+  {
+    id: "bold-journal",
+    name: "عنوان جريء 📰",
+    nameEn: "Bold Header 📰",
+    font: "Archivo Black",
+    size: 25,
+    color: "#ffffff",
+    bg: "rgba(0,0,0,0.95)",
+    animation: "shatter-pop",
+  },
+  {
+    id: "cinema-gold",
+    name: "سينما ذهبية 🏆",
+    nameEn: "Cinema Gold 🏆",
+    font: "Cinzel",
+    size: 22,
+    color: "#f59e0b",
+    bg: "rgba(0,0,0,0.8)",
+    animation: "curtain-reveal",
+  },
+  {
+    id: "comic-pop",
+    name: "كوميكس حركي 💥",
+    nameEn: "Comic Pop 💥",
+    font: "Fredoka",
+    size: 26,
+    color: "#fde047",
+    bg: "rgba(220,38,38,0.9)",
+    animation: "3d-flip",
+  },
+  {
+    id: "minimal-glass",
+    name: "زجاجي ناعم 💎",
+    nameEn: "Minimal Glass 💎",
+    font: "Outfit",
+    size: 21,
+    color: "#ffffff",
+    bg: "rgba(255,255,255,0.2)",
+    animation: "fade",
+  }
+];
+
+const STICKER_CATEGORIES = [
+  { id: "all", labelAr: "الكل 🌟", labelEn: "All 🌟" },
+  { id: "emojis", labelAr: "تعبيرية 😃", labelEn: "Emojis 😃" },
+  { id: "badges", labelAr: "شارات ورتب 🏷️", labelEn: "Badges 🏷️" },
+  { id: "social", labelAr: "تواصل واشتراك 📱", labelEn: "Social & Sub 📱" },
+  { id: "reactions", labelAr: "تفاعلات وكلام 💥", labelEn: "Reactions 💥" },
+];
+
+const STICKERS_LIST = [
+  // Emojis & Expressions
+  { id: "s1", category: "emojis", text: "🔥", size: 42, bg: "rgba(0,0,0,0.0)" },
+  { id: "s2", category: "emojis", text: "🚀", size: 42, bg: "rgba(0,0,0,0.0)" },
+  { id: "s3", category: "emojis", text: "💯", size: 42, bg: "rgba(0,0,0,0.0)" },
+  { id: "s4", category: "emojis", text: "❤️", size: 42, bg: "rgba(0,0,0,0.0)" },
+  { id: "s5", category: "emojis", text: "👑", size: 42, bg: "rgba(0,0,0,0.0)" },
+  { id: "s6", category: "emojis", text: "✨", size: 42, bg: "rgba(0,0,0,0.0)" },
+  { id: "s7", category: "emojis", text: "💥", size: 42, bg: "rgba(0,0,0,0.0)" },
+  { id: "s8", category: "emojis", text: "🎉", size: 42, bg: "rgba(0,0,0,0.0)" },
+  { id: "s9", category: "emojis", text: "💎", size: 42, bg: "rgba(0,0,0,0.0)" },
+  { id: "s10", category: "emojis", text: "⚡", size: 42, bg: "rgba(0,0,0,0.0)" },
+  { id: "s11", category: "emojis", text: "🌟", size: 42, bg: "rgba(0,0,0,0.0)" },
+  { id: "s12", category: "emojis", text: "🤩", size: 42, bg: "rgba(0,0,0,0.0)" },
+  { id: "s13", category: "emojis", text: "📌", size: 42, bg: "rgba(0,0,0,0.0)" },
+  { id: "s14", category: "emojis", text: "🏆", size: 42, bg: "rgba(0,0,0,0.0)" },
+  { id: "s15", category: "emojis", text: "🍿", size: 42, bg: "rgba(0,0,0,0.0)" },
+  { id: "s16", category: "emojis", text: "💣", size: 42, bg: "rgba(0,0,0,0.0)" },
+  { id: "s17", category: "emojis", text: "🎵", size: 42, bg: "rgba(0,0,0,0.0)" },
+  { id: "s18", category: "emojis", text: "📷", size: 42, bg: "rgba(0,0,0,0.0)" },
+  { id: "s19", category: "emojis", text: "💡", size: 42, bg: "rgba(0,0,0,0.0)" },
+  { id: "s20", category: "emojis", text: "🥇", size: 42, bg: "rgba(0,0,0,0.0)" },
+
+  // Badges & Labels
+  { id: "b1", category: "badges", text: "VIP 👑", textEn: "VIP 👑", color: "#fbbf24", bg: "rgba(120, 53, 15, 0.95)", radius: 20 },
+  { id: "b2", category: "badges", text: "جديد ⚡", textEn: "NEW ⚡", color: "#ffffff", bg: "rgba(225, 29, 72, 0.95)", radius: 16 },
+  { id: "b3", category: "badges", text: "ترند 🔥", textEn: "HOT 🔥", color: "#ffffff", bg: "rgba(234, 88, 12, 0.95)", radius: 16 },
+  { id: "b4", category: "badges", text: "مباشر 🔴", textEn: "LIVE 🔴", color: "#ffffff", bg: "rgba(220, 38, 38, 0.95)", radius: 24 },
+  { id: "b5", category: "badges", text: "خصم 50% 🏷️", textEn: "50% OFF 🏷️", color: "#fef08a", bg: "rgba(16, 185, 129, 0.95)", radius: 16 },
+  { id: "b6", category: "badges", text: "جودة 4K 🎬", textEn: "4K ULTRA 🎬", color: "#67e8f9", bg: "rgba(15, 23, 42, 0.9)", radius: 14 },
+  { id: "b7", category: "badges", text: "المركز الأول 🏆", textEn: "TOP 1 🏆", color: "#fef08a", bg: "rgba(161, 98, 7, 0.95)", radius: 20 },
+  { id: "b8", category: "badges", text: "الأكثر تداولاً 🔥", textEn: "TRENDING 🔥", color: "#ffffff", bg: "linear-gradient(135deg, #ec4899, #8b5cf6)", radius: 18 },
+  { id: "b9", category: "badges", text: "موثّق ✔️", textEn: "VERIFIED ✔️", color: "#38bdf8", bg: "rgba(15, 23, 42, 0.95)", radius: 20 },
+  { id: "b10", category: "badges", text: "الخيار الأفضل ⭐", textEn: "BEST CHOICE ⭐", color: "#fef08a", bg: "rgba(109, 40, 217, 0.95)", radius: 18 },
+
+  // Social & Sub
+  { id: "sc1", category: "social", text: "اشترك الآن 🔔", textEn: "SUBSCRIBE 🔔", color: "#ffffff", bg: "rgba(220, 38, 38, 0.95)", radius: 20, badgeIcon: "youtube" },
+  { id: "sc2", category: "social", text: "تابع الحساب 📸", textEn: "FOLLOW US 📸", color: "#ffffff", bg: "linear-gradient(135deg, #f43f5e, #a855f7)", radius: 20, badgeIcon: "instagram" },
+  { id: "sc3", category: "social", text: "إعجاب ومشاركة 👍", textEn: "LIKE & SHARE 👍", color: "#38bdf8", bg: "rgba(15, 23, 42, 0.9)", radius: 20 },
+  { id: "sc4", category: "social", text: "دبي 📍 Dubai", textEn: "Dubai 📍", color: "#e0f2fe", bg: "rgba(30, 41, 59, 0.9)", radius: 20, badgeIcon: "location" },
+  { id: "sc5", category: "social", text: "@VireonStudio", textEn: "@VireonStudio", color: "#38bdf8", bg: "rgba(0, 0, 0, 0.85)", radius: 16 },
+
+  // Reactions & Pop
+  { id: "r1", category: "reactions", text: "واو! 😱", textEn: "WOW! 😱", color: "#fef08a", bg: "rgba(225, 29, 72, 0.95)", radius: 16 },
+  { id: "r2", category: "reactions", text: "انفجار! 💥", textEn: "BOOM! 💥", color: "#ffffff", bg: "rgba(234, 88, 12, 0.95)", radius: 16 },
+  { id: "r3", category: "reactions", text: "غير معقول! 🤩", textEn: "OMG! 🤩", color: "#67e8f9", bg: "rgba(109, 40, 217, 0.95)", radius: 16 },
+  { id: "r4", category: "reactions", text: "نعم! 🎉", textEn: "YES! 🎉", color: "#86efac", bg: "rgba(6, 95, 70, 0.95)", radius: 16 },
+  { id: "r5", category: "reactions", text: "اسحب للأعلى ⬆️", textEn: "SWIPE UP ⬆️", color: "#ffffff", bg: "rgba(15, 23, 42, 0.9)", radius: 24 },
+];
+
+const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const CaptionPanel = ({ open, onClose, currentTime }: Props) => {
+  const { captions, setCaptions, captionStyle, setCaptionStyle, totalDuration, media, clips, audioTracks, overlays } = useMedia();
+  const { requestAccess } = useAdGate();
+  const [editingText, setEditingText] = useState("");
+  const [extracting, setExtracting] = useState(false);
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  const [extractProgress, setExtractProgress] = useState(0);
+  const [extractMsg, setExtractMsg] = useState("");
+  const [extractError, setExtractError] = useState<string | null>(null);
+  const [tab, setTab] = useState<"templates" | "stickers" | "style" | "list">("templates");
+  const [selectedCategory, setSelectedCategory] = useState("all");
+  const [stickerCategory, setStickerCategory] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [stickerSearch, setStickerSearch] = useState("");
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [customTemplates, setCustomTemplates] = useState<TextTemplate[]>(() => loadCustomTemplates());
+  const [showSaveCustom, setShowSaveCustom] = useState(false);
+  const [customNameInput, setCustomNameInput] = useState("");
+  const firstInputRef = useRef<HTMLInputElement | null>(null);
+  const srtFileInputRef = useRef<HTMLInputElement | null>(null);
+  const en = getLang() === "en";
+  const [applyPositionToAll, setApplyPositionToAll] = useState(true);
+
+  const activeCaptionAtCurrentTime = captions.find((c) => currentTime >= c.start && currentTime <= c.end) || captions[0];
+  const currentXPercent = activeCaptionAtCurrentTime?.xPercent ?? 50;
+  const currentYPercent = activeCaptionAtCurrentTime?.yPercent ?? (captionStyle.position === "top" ? 8 : captionStyle.position === "center" ? 50 : 88);
+
+  const handleUpdatePositionX = (newX: number) => {
+    const clampedX = Math.round(Math.max(0, Math.min(100, newX)));
+    if (applyPositionToAll || !activeCaptionAtCurrentTime) {
+      setCaptions((prev) => prev.map((c) => ({ ...c, xPercent: clampedX })));
+    } else {
+      setCaptions((prev) => prev.map((c) => (c.id === activeCaptionAtCurrentTime.id ? { ...c, xPercent: clampedX } : c)));
+    }
+  };
+
+  const handleUpdatePositionY = (newY: number) => {
+    const clampedY = Math.round(Math.max(0, Math.min(100, newY)));
+    if (applyPositionToAll || !activeCaptionAtCurrentTime) {
+      setCaptions((prev) => prev.map((c) => ({ ...c, yPercent: clampedY })));
+    } else {
+      setCaptions((prev) => prev.map((c) => (c.id === activeCaptionAtCurrentTime.id ? { ...c, yPercent: clampedY } : c)));
+    }
+  };
+
+  const handleSRTFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate extension
+    const fileName = file.name.toLowerCase();
+    if (!fileName.endsWith(".srt")) {
+      const errMsg = en
+        ? "Invalid file format. Please select a .srt subtitle file."
+        : "نوع الملف غير صالح. يرجى اختيار ملف ترجمة بصيغة .srt فقط.";
+      toast.error(errMsg);
+      e.target.value = "";
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const content = event.target?.result as string;
+        if (!content || !content.trim()) {
+          toast.error(en ? "The SRT file is empty." : "ملف SRT فارغ.");
+          return;
+        }
+
+        const result = parseSRT(content);
+
+        if (result.parsedCount === 0) {
+          toast.error(
+            en
+              ? "Could not parse any valid subtitles from this SRT file."
+              : "لم يتم العثور على أي ترجمات صالحة في ملف SRT هذا."
+          );
+          return;
+        }
+
+        const newCaps: Caption[] = result.captions.map((c) => ({
+          id: uid(),
+          start: c.start,
+          end: c.end,
+          text: c.text,
+          animation: captionStyle.animation,
+        }));
+
+        setCaptions((prev) => [...prev, ...newCaps].sort((a, b) => a.start - b.start));
+        playSfx("success");
+
+        if (result.skippedCount > 0) {
+          toast.success(
+            en
+              ? `Successfully imported ${result.parsedCount} captions (${result.skippedCount} broken blocks skipped).`
+              : `تم استيراد ${result.parsedCount} كابشن بنجاح (تم تخطي ${result.skippedCount} كتل غير صالحة).`
+          );
+        } else {
+          toast.success(
+            en
+              ? `Successfully imported ${result.parsedCount} captions from SRT file!`
+              : `تم استيراد ${result.parsedCount} كابشن بنجاح من ملف SRT!`
+          );
+        }
+
+        // Switch to list tab to inspect imported captions
+        setTab("list");
+        setTimeout(() => {
+          firstInputRef.current?.focus();
+          firstInputRef.current?.select();
+        }, 400);
+      } catch (err: any) {
+        console.error("SRT Parse error:", err);
+        toast.error(en ? "Failed to parse SRT file." : "فشل تحليل ملف SRT.");
+      } finally {
+        e.target.value = "";
+      }
+    };
+
+    reader.onerror = () => {
+      toast.error(en ? "Failed to read the file." : "فشلت قراءة الملف.");
+      e.target.value = "";
+    };
+
+    reader.readAsText(file, "UTF-8");
+  };
+
+  const addSticker = (st: typeof STICKERS_LIST[0]) => {
+    const textToAdd = en ? (st.textEn || st.text) : st.text;
+    const start = currentTime;
+    const end = Math.min(totalDuration || 10, currentTime + 3.0);
+    const cap: Caption = {
+      id: uid(),
+      start,
+      end,
+      text: textToAdd,
+      font: "Cairo",
+      size: st.size || 24,
+      color: st.color || "#ffffff",
+      bg: st.bg || "rgba(0,0,0,0.75)",
+      animation: "pop",
+      bgRadius: st.radius ?? 16,
+      bgPadding: st.bg === "rgba(0,0,0,0.0)" ? 2 : 10,
+      badgeIcon: st.badgeIcon,
+    };
+    setCaptions((prev) => [...prev, cap].sort((a, b) => a.start - b.start));
+    playSfx("success");
+    toast.success(en ? `Sticker added: ${textToAdd}` : `تم إضافة الملصق: ${textToAdd}`);
+  };
+
+  const clearCacheAndRetry = async () => {
+    autoExtract();
+  };
+
+  const getProgressBarColor = (progress: number) => {
+    // From Indigo (79, 70, 229) to Emerald (16, 185, 129)
+    const r = Math.round(79 + (16 - 79) * (progress / 100));
+    const g = Math.round(70 + (185 - 70) * (progress / 100));
+    const b = Math.round(229 + (129 - 229) * (progress / 100));
+    return `rgb(${r}, ${g}, ${b})`;
+  };
+
+  useEffect(() => {
+    if (!open) {
+      setIsCollapsed(false);
+    }
+  }, [open]);
+
+  if (!open) return null;
+
+  const addCaption = () => {
+    if (!editingText.trim()) {
+      toast.error(en ? "Write some text first" : "اكتب نص الكابشن أولاً");
+      return;
+    }
+    const start = currentTime;
+    const end = Math.min(totalDuration, currentTime + 2.5);
+    const cap: Caption = {
+      id: uid(),
+      start,
+      end,
+      text: editingText.trim(),
+      animation: captionStyle.animation,
+    };
+    setCaptions((prev) => [...prev, cap].sort((a, b) => a.start - b.start));
+    setEditingText("");
+    toast.success(en ? "Added" : "تمت الإضافة");
+  };
+
+  const removeCap = (id: string) => setCaptions((prev) => prev.filter((c) => c.id !== id));
+
+  const updateCap = (id: string, patch: Partial<Caption>) =>
+    setCaptions((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+
+  const autoExtract = async () => {
+    // 1. Resolve Audio Source across timeline (Audio track > Video Clip > Overlay > Media item)
+    const resolved = AudioSourceResolver.getInstance().resolve({
+      audioTracks,
+      clips,
+      media,
+      overlays,
+      currentTime,
+    });
+
+    const fallbackMediaItem = media.find((m) => m.type === "video" || (m.type as string) === "audio");
+    const targetSource = resolved?.file || resolved?.url || fallbackMediaItem?.file || fallbackMediaItem?.url;
+
+    if (!targetSource) {
+      toast.error(
+        en
+          ? "No audio or video source found for speech recognition"
+          : "لا يوجد مصدر صوت أو فيديو لاستخراج الكلام منه"
+      );
+      return;
+    }
+
+    setExtractError(null);
+    setExtracting(true);
+    setExtractProgress(10);
+    setExtractMsg(en ? "Preparing audio for speech extraction..." : "تجهيز مقطع الصوت لاستخراج الكلام...");
+
+    try {
+      const mergedItems = await captionService.transcribe(targetSource, {
+        language: captionStyle.language,
+        startTime: resolved?.start || 0,
+        endTime: resolved ? resolved.start + resolved.duration : undefined,
+        onProgress: (p) => {
+          setExtractProgress(p.progress);
+          setExtractMsg(p.message);
+        },
+      });
+
+      setExtractProgress(100);
+
+      if (!mergedItems || mergedItems.length === 0) {
+        toast.info(en ? "No speech detected in media" : "لم يتم العثور على كلام في المقطع");
+        setExtracting(false);
+        setExtractProgress(0);
+        setExtractMsg("");
+        return;
+      }
+
+      const newCaps: Caption[] = mergedItems.map((c) => ({
+        id: uid(),
+        start: Math.max(0, Number(c.start) || 0),
+        end: Math.min(totalDuration || c.end, Number(c.end) || 0),
+        text: String(c.text || "").trim(),
+        confidence: 0.95,
+        animation: captionStyle.animation,
+      }));
+
+      setCaptions((prev) => [...prev, ...newCaps].sort((a, b) => a.start - b.start));
+      playSfx("success");
+      toast.success(
+        en
+          ? `Extracted ${newCaps.length} captions successfully`
+          : `تم استخراج ${newCaps.length} كابشن بنجاح (محلياً)`
+      );
+
+      // Jump to list tab and focus first caption text field automatically for fast editing
+      setTab("list");
+      setTimeout(() => {
+        firstInputRef.current?.focus();
+        firstInputRef.current?.select();
+      }, 450);
+
+      setTimeout(() => {
+        setExtracting(false);
+        setExtractProgress(0);
+        setExtractMsg("");
+      }, 800);
+    } catch (e: any) {
+      console.error("[CaptionPanel] Speech extraction failure:", e);
+      const isMissingModel =
+        e?.code === "model_missing" ||
+        (e?.message && e.message.includes("Caption model is not available on this device"));
+
+      const userDisplayError = isMissingModel
+        ? "Caption model is not available on this device."
+        : e?.message || (en ? "Failed to extract speech" : "فشل استخراج الكلام محلياً");
+
+      setExtractError(userDisplayError);
+      toast.error(userDisplayError, { duration: 8000 });
+      setExtracting(false);
+      setExtractProgress(0);
+      setExtractMsg("");
+    }
+  };
+
+  const regenerateSegment = async (capId: string, start: number, end: number) => {
+    const resolved = AudioSourceResolver.getInstance().resolve({
+      audioTracks,
+      clips,
+      media,
+      overlays,
+      currentTime: start,
+    });
+
+    const fallbackMediaItem = media.find((m) => m.type === "video" || (m.type as string) === "audio");
+    const targetSource = resolved?.file || resolved?.url || fallbackMediaItem?.file || fallbackMediaItem?.url;
+
+    if (!targetSource) {
+      toast.error(en ? "No audio source found to re-transcribe" : "لا يوجد مصدر صوت لإعادة استخراج المقطع منه");
+      return;
+    }
+
+    setRegeneratingId(capId);
+    toast.info(en ? "Re-transcribing segment locally..." : "جارٍ إعادة استخراج المقطع المحدّد محلياً...");
+
+    try {
+      const items = await captionService.transcribe(targetSource, {
+        startTime: start,
+        endTime: end,
+        language: captionStyle.language,
+      });
+
+      if (items && items.length > 0) {
+        const newText = items.map((i: any) => i.text).join(" ").trim();
+        updateCap(capId, { text: newText, confidence: 0.95 });
+        playSfx("success");
+        toast.success(en ? "Segment re-transcribed successfully!" : "تمت إعادة استخراج المقطع بنجاح!");
+      } else {
+        toast.warning(en ? "No speech detected in this segment" : "لم يتم التعرف على كلام في هذا المقطع القصير");
+      }
+    } catch (err: any) {
+      console.error("[CaptionPanel] Segment re-transcription error:", err);
+      const isMissing =
+        err?.code === "model_missing" ||
+        (err?.message && err.message.includes("Caption model is not available on this device"));
+      const msg = isMissing
+        ? "Caption model is not available on this device."
+        : err?.message || (en ? "Failed to re-transcribe segment" : "فشلت إعادة استخراج الجزء المحدد");
+      toast.error(msg);
+    } finally {
+      setRegeneratingId(null);
+    }
+  };
+
+  const autoSyncWithMusic = async () => {
+    if (captions.length === 0) {
+      toast.error(en ? "No captions to sync" : "لا يوجد كابشن للمزامنة");
+      return;
+    }
+
+    const musicTrack = audioTracks.find((a) => a.kind === "music") || audioTracks[0];
+    if (!musicTrack) {
+      toast.error(en ? "Add a music track first to sync beat" : "أضف مقطع موسيقى أولاً لمزامنة الإيقاع");
+      return;
+    }
+
+    toast.info(en ? "Analyzing music beat..." : "جارٍ تحليل إيقاع الموسيقى...");
+    try {
+      const beatData = await analyzeAudioTrack(musicTrack.url);
+      if (!beatData || !beatData.beatTimes.length) {
+        toast.error(en ? "Failed to detect beat rhythm" : "لم يتم العثور على إيقاع واضح في الموسيقى");
+        return;
+      }
+
+      const beats = beatData.beatTimes;
+      let syncCount = 0;
+
+      const syncedCaps = captions.map((c) => {
+        let closestStart = c.start;
+        let minStartDiff = 0.4;
+
+        for (const b of beats) {
+          const diff = Math.abs(b - c.start);
+          if (diff < minStartDiff) {
+            minStartDiff = diff;
+            closestStart = b;
+          }
+        }
+
+        let closestEnd = c.end;
+        let minEndDiff = 0.4;
+        for (const b of beats) {
+          const diff = Math.abs(b - c.end);
+          if (diff < minEndDiff && b > closestStart + 0.3) {
+            minEndDiff = diff;
+            closestEnd = b;
+          }
+        }
+
+        if (closestStart !== c.start || closestEnd !== c.end) {
+          syncCount++;
+        }
+
+        return {
+          ...c,
+          start: closestStart,
+          end: Math.max(closestStart + 0.5, closestEnd),
+        };
+      });
+
+      setCaptions(syncedCaps.sort((a, b) => a.start - b.start));
+      playSfx("success");
+      toast.success(
+        en
+          ? `Synced ${syncCount} captions with BPM: ${Number(beatData.bpm.toFixed(1))}!`
+          : `تمت مزامنة ${syncCount} كابشن مع إيقاع الموسيقى (BPM: ${Number(beatData.bpm.toFixed(1))})!`
+      );
+    } catch (e: any) {
+      console.error("Auto Sync Error:", e);
+      toast.error(en ? "Failed to sync captions with music" : "فشلت مزامنة الكابشن مع الموسيقى");
+    }
+  };
+
+  const applyTemplate = (t: CaptionTemplate, addAsNew: boolean = false) => {
+    setCaptionStyle((prev) => ({
+      ...prev,
+      font: t.font,
+      size: t.size,
+      color: t.color,
+      bg: t.bg,
+      animation: t.animation,
+      strokeColor: t.strokeColor,
+      strokeWidth: t.strokeWidth,
+      shadowColor: t.shadowColor,
+      shadowBlur: t.shadowBlur,
+      letterSpacing: t.letterSpacing,
+      bgRadius: t.bgRadius,
+      bgPadding: t.bgPadding,
+    }));
+
+    if (addAsNew) {
+      const textToAdd = en ? (t.sampleTextEn || t.nameEn || t.name) : (t.sampleTextAr || t.name);
+      const start = currentTime;
+      const end = Math.min(totalDuration || 10, currentTime + 3.0);
+      const cap: Caption = {
+        id: uid(),
+        start,
+        end,
+        text: textToAdd,
+        font: t.font,
+        size: t.size,
+        color: t.color,
+        bg: t.bg,
+        animation: t.animation,
+        strokeColor: t.strokeColor,
+        strokeWidth: t.strokeWidth,
+        shadowColor: t.shadowColor,
+        shadowBlur: t.shadowBlur,
+        letterSpacing: t.letterSpacing,
+        bgRadius: t.bgRadius,
+        bgPadding: t.bgPadding,
+        badgeIcon: t.badgeIcon,
+        presetCategory: t.category,
+      };
+      setCaptions((prev) => [...prev, cap].sort((a, b) => a.start - b.start));
+      playSfx("success");
+      toast.success(en ? `Added "${t.nameEn || t.name}" clip` : `تمت إضافة قالب "${t.name}" للنص`);
+    } else {
+      setCaptions((prev) =>
+        prev.map((c) => ({
+          ...c,
+          font: t.font,
+          size: t.size,
+          color: t.color,
+          bg: t.bg,
+          animation: t.animation,
+          strokeColor: t.strokeColor,
+          strokeWidth: t.strokeWidth,
+          shadowColor: t.shadowColor,
+          shadowBlur: t.shadowBlur,
+          bgRadius: t.bgRadius,
+          bgPadding: t.bgPadding,
+          letterSpacing: t.letterSpacing,
+          badgeIcon: t.badgeIcon,
+        }))
+      );
+      playSfx("click");
+      toast.success(en ? `Applied style to all captions: ${t.nameEn || t.name}` : `تم تطبيق النمط على جميع الكابشنات: ${t.name}`);
+    }
+  };
+
+  const applyNewTextTemplate = (tpl: TextTemplate, addAsNew: boolean = false) => {
+    if (addAsNew) {
+      const textToAdd = en ? (tpl.sampleTextEn || tpl.nameEn || tpl.name) : (tpl.sampleTextAr || tpl.name);
+      const start = currentTime;
+      const end = Math.min(totalDuration || 10, currentTime + ((tpl.timing as any)?.defaultDuration || 3.0));
+      const duration = end - start;
+
+      const baseCap: Partial<Caption> = {
+        id: uid(),
+        start,
+        end,
+        text: textToAdd,
+      };
+
+      const styledCap = applyTemplateToCaption(tpl, baseCap, duration);
+      setCaptions((prev) => [...prev, styledCap as Caption].sort((a, b) => a.start - b.start));
+      playSfx("success");
+      toast.success(en ? `Added "${tpl.nameEn || tpl.name}" clip` : `تمت إضافة كليب "${tpl.name}"`);
+    } else {
+      // Update global captionStyle
+      setCaptionStyle((prev) => ({
+        ...prev,
+        font: tpl.typography.fontFamily,
+        size: tpl.typography.fontSize,
+        color: tpl.fill.color,
+        bg: tpl.background?.enabled ? tpl.background.color : "transparent",
+        bgRadius: tpl.background?.radius,
+        bgPadding: tpl.background?.padding,
+        strokeColor: tpl.stroke?.enabled ? tpl.stroke.color : undefined,
+        strokeWidth: tpl.stroke?.enabled ? tpl.stroke.width : 0,
+        shadowColor: tpl.shadow?.enabled ? tpl.shadow.color : undefined,
+        shadowBlur: tpl.shadow?.enabled ? tpl.shadow.blur : 0,
+        letterSpacing: tpl.typography.letterSpacing,
+        lineHeight: tpl.typography.lineHeight,
+        textTransform: tpl.typography.textTransform,
+        animation: (tpl.entrance?.animation || "fade") as any,
+        badgeIcon: tpl.badgeIcon,
+      } as CaptionStyle));
+
+      // Apply to all existing captions with keyframes and animations
+      setCaptions((prev) =>
+        prev.map((c) => {
+          const dur = Math.max(0.1, c.end - c.start);
+          return applyTemplateToCaption(tpl, c, dur) as Caption;
+        })
+      );
+      playSfx("click");
+      toast.success(en ? `Applied template "${tpl.nameEn || tpl.name}" to all captions` : `تم تطبيق قالب "${tpl.name}" على جميع الكابشنات`);
+    }
+  };
+
+  const handleSaveCustomTemplate = () => {
+    const name = customNameInput.trim() || (en ? `Custom Style ${customTemplates.length + 1}` : `قالب مخصص ${customTemplates.length + 1}`);
+    const newTpl: TextTemplate = {
+      id: `custom_${Date.now()}`,
+      name,
+      nameEn: name,
+      category: "custom" as any,
+      version: 1,
+      typography: {
+        fontFamily: captionStyle.font || "Cairo",
+        fontSize: captionStyle.size || 22,
+        letterSpacing: captionStyle.letterSpacing || 0,
+        lineHeight: captionStyle.lineHeight || 1.3,
+        textTransform: captionStyle.textTransform || "none",
+      },
+      fill: {
+        color: captionStyle.color || "#ffffff",
+      },
+      stroke: {
+        enabled: Boolean(captionStyle.strokeWidth && captionStyle.strokeWidth > 0),
+        color: captionStyle.strokeColor || "#000000",
+        width: captionStyle.strokeWidth || 0,
+      },
+      shadow: {
+        enabled: Boolean(captionStyle.shadowColor),
+        color: captionStyle.shadowColor || "rgba(0,0,0,0.8)",
+        blur: captionStyle.shadowBlur || 4,
+        offsetX: 0,
+        offsetY: 2,
+      },
+      background: {
+        enabled: Boolean(captionStyle.bg && captionStyle.bg !== "transparent" && captionStyle.bg !== "rgba(0,0,0,0)"),
+        color: captionStyle.bg || "rgba(0,0,0,0.8)",
+        radius: captionStyle.bgRadius || 8,
+        padding: captionStyle.bgPadding || 6,
+      },
+      layout: {
+        position: captionStyle.position || "bottom",
+      },
+      entrance: {
+        animation: captionStyle.animation || "fade",
+        duration: 0.35,
+      },
+      sampleTextAr: "نص مخصص جميل ⭐",
+      sampleTextEn: "Custom Styled Text ⭐",
+      isCustom: true,
+    };
+
+    saveCustomTemplate(newTpl);
+    setCustomTemplates(loadCustomTemplates());
+    setSelectedCategory("custom");
+    setShowSaveCustom(false);
+    setCustomNameInput("");
+    toast.success(en ? `Saved "${name}" to My Presets!` : `تم حفظ "${name}" في قوالبي المخصصة!`);
+  };
+
+  const handleDeleteCustomTemplate = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    deleteCustomTemplate(id);
+    setCustomTemplates(loadCustomTemplates());
+    toast.success(en ? "Preset deleted" : "تم حذف القالب المخصص");
+  };
+
+  const allLibraryTemplates: TextTemplate[] = [...customTemplates, ...TEXT_TEMPLATES];
+
+  const filteredNewTemplates = allLibraryTemplates.filter((t) => {
+    const matchesCategory = selectedCategory === "all" || t.category === selectedCategory;
+    const query = searchQuery.trim().toLowerCase();
+    const matchesSearch = !query ||
+      t.name.toLowerCase().includes(query) ||
+      (t.nameEn && t.nameEn.toLowerCase().includes(query)) ||
+      (t.sampleTextAr && t.sampleTextAr.toLowerCase().includes(query)) ||
+      (t.sampleTextEn && t.sampleTextEn.toLowerCase().includes(query)) ||
+      t.typography.fontFamily.toLowerCase().includes(query);
+    return matchesCategory && matchesSearch;
+  });
+
+  const filteredTemplates = TEMPLATES.filter((t) => {
+    const matchesCategory = selectedCategory === "all" || t.category === selectedCategory;
+    const query = searchQuery.trim().toLowerCase();
+    const matchesSearch = !query ||
+      t.name.toLowerCase().includes(query) ||
+      (t.nameEn && t.nameEn.toLowerCase().includes(query)) ||
+      (t.sampleTextAr && t.sampleTextAr.toLowerCase().includes(query)) ||
+      (t.sampleTextEn && t.sampleTextEn.toLowerCase().includes(query)) ||
+      t.font.toLowerCase().includes(query);
+    return matchesCategory && matchesSearch;
+  });
+
+  return (
+    <DraggableLibrarySheet
+      id="caption-panel-root"
+      open={open}
+      onClose={onClose}
+      dir={en ? "ltr" : "rtl"}
+      defaultVh={56}
+      icon={<Type className="w-3.5 h-3.5 text-primary-foreground" />}
+      title={en ? "Captions & Text" : "النصوص والكابشن"}
+      badge={
+        captions.length > 0 ? (
+          <span className="text-[10px] text-primary font-bold font-mono">
+            · {captions.length}
+          </span>
+        ) : null
+      }
+      subHeader={
+        <div className="flex gap-1 bg-secondary/50 p-1 rounded-xl overflow-x-auto no-scrollbar">
+          {([
+            ["templates", en ? "Templates" : "القوالب"],
+            ["motion", en ? "Motion" : "أنيميشن"],
+            ["stickers", en ? "Stickers" : "ملصقات"],
+            ["style", en ? "Style" : "التنسيق"],
+            ["list", en ? `List (${captions.length})` : `النصوص (${captions.length})`],
+          ] as const).map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setTab(id as any)}
+              className={`flex-1 py-1.5 px-2.5 rounded-lg text-[11px] font-bold transition whitespace-nowrap ${
+                tab === id ? "gradient-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      }
+    >
+      {/* AI extract */}
+      {extracting ? (
+        <div className="w-full mb-2 bg-slate-950 border border-slate-800 rounded-xl overflow-hidden relative h-11 flex flex-col items-center justify-center px-4">
+          {/* Animated Background Progress Filler */}
+          <div 
+            className="absolute top-0 bottom-0 left-0 transition-all duration-300 ease-out"
+            style={{ 
+              width: `${extractProgress}%`,
+              backgroundColor: getProgressBarColor(extractProgress),
+              opacity: 0.95
+            }}
+          />
+          {/* Content layer */}
+          <div className="relative z-10 flex items-center justify-between w-full text-white drop-shadow-[0_1.5px_1.5px_rgba(0,0,0,0.8)]">
+            <span className="text-[11px] font-bold text-white/95 font-sans truncate">
+              {extractMsg || (en ? "Extracting speech..." : "جاري استخراج الكلام...")}
+            </span>
+            <div className="flex items-center gap-1.5 font-mono text-xs font-black shrink-0">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-white stroke-[3px]" />
+              <span>{Math.round(extractProgress)}%</span>
+            </div>
+          </div>
+        </div>
+      ) : extractError ? (
+        <div className="w-full mb-2 p-2.5 bg-destructive/15 border border-destructive/30 rounded-xl flex items-center justify-between gap-2 animate-in fade-in duration-200">
+          <p className="text-[11px] font-bold text-destructive truncate">
+            {extractError}
+          </p>
+          <button
+            onClick={autoExtract}
+            className="px-3 py-1.5 rounded-lg bg-destructive text-white text-[11px] font-bold hover:bg-destructive/90 active:scale-95 transition-all flex items-center gap-1 shrink-0 cursor-pointer"
+          >
+            <Sparkles className="w-3 h-3 text-white" />
+            <span>{en ? "Retry" : "إعادة"}</span>
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={autoExtract}
+            className="w-full py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all gradient-primary text-primary-foreground hover:opacity-95 active:scale-[0.99] cursor-pointer glow-primary-sm"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-white shrink-0" />
+            <span className="truncate">
+              {en ? "Auto Captions" : "استخراج تلقائي"}
+            </span>
+          </button>
+
+          <button
+            onClick={() => srtFileInputRef.current?.click()}
+            className="w-full py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all bg-secondary hover:bg-secondary/80 text-foreground border border-border/80 hover:border-primary/50 active:scale-[0.99] cursor-pointer"
+          >
+            <Upload className="w-3.5 h-3.5 text-primary shrink-0" />
+            <span className="truncate">
+              {en ? "Import SRT" : "رفع ملف SRT"}
+            </span>
+          </button>
+
+          <input
+            ref={srtFileInputRef}
+            type="file"
+            accept=".srt"
+            onChange={handleSRTFileUpload}
+            className="hidden"
+          />
+        </div>
+      )}
+
+      {tab === "templates" && (
+        <div className="space-y-3">
+          {/* Top Bar: Search + Save Current Style Button */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="w-3.5 h-3.5 absolute right-3 top-2.5 text-muted-foreground pointer-events-none" />
+              <input
+                type="text"
+                placeholder={en ? "Search templates..." : "بحث في القوالب..."}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-secondary/60 border border-border/80 rounded-xl pr-9 pl-3 py-1.5 text-xs focus:outline-none focus:border-primary text-foreground placeholder:text-muted-foreground/60"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowSaveCustom((s) => !s)}
+              className="flex-shrink-0 px-2.5 py-1.5 rounded-xl bg-primary/15 hover:bg-primary/25 text-primary text-[11px] font-bold border border-primary/30 flex items-center gap-1 transition-all"
+            >
+              <Star className="w-3 h-3 fill-primary/40" />
+              <span>{en ? "Save Preset" : "حفظ كقالب"}</span>
+            </button>
+          </div>
+
+            {/* Inline Save Preset Dialog */}
+            {showSaveCustom && (
+              <div className="p-3 bg-secondary/70 border border-primary/40 rounded-xl space-y-2 animate-in fade-in zoom-in-95 duration-150">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                    <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                    {en ? "Save Current Style as Reusable Template" : "حفظ النمط والخط الحالي كقالب مخصص"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowSaveCustom(false)}
+                    className="w-5 h-5 rounded-md hover:bg-secondary flex items-center justify-center text-muted-foreground"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder={en ? "Enter preset name (e.g. My Glow Viral)..." : "اسم القالب (مثال: نيون احترافي)..."}
+                    value={customNameInput}
+                    onChange={(e) => setCustomNameInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleSaveCustomTemplate();
+                    }}
+                    className="flex-1 bg-background border border-border rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:border-primary text-foreground"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSaveCustomTemplate}
+                    className="px-3 py-1 rounded-lg bg-primary text-primary-foreground font-bold text-xs hover:bg-primary/90 transition-all shadow-xs"
+                  >
+                    {en ? "Save" : "حفظ"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Category pills */}
+            <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-1">
+              {TEMPLATE_CATEGORIES.map((cat) => {
+                const isSelected = selectedCategory === cat.id;
+                const count = cat.id === "all"
+                  ? allLibraryTemplates.length
+                  : allLibraryTemplates.filter((t) => t.category === cat.id).length;
+                return (
+                  <button
+                    key={cat.id}
+                    onClick={() => setSelectedCategory(cat.id)}
+                    className={`flex-shrink-0 px-3 py-1 rounded-full text-[11px] font-bold transition-all flex items-center gap-1.5 ${
+                      isSelected
+                        ? "gradient-primary text-primary-foreground shadow-sm scale-105"
+                        : "bg-secondary/80 text-muted-foreground hover:text-foreground hover:bg-secondary"
+                    }`}
+                  >
+                    <span>{en ? cat.labelEn : cat.labelAr}</span>
+                    {count > 0 && (
+                      <span className={`text-[9px] px-1.5 py-0.2 rounded-full ${isSelected ? "bg-white/25 text-white" : "bg-black/20 text-muted-foreground"}`}>
+                        {count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* CapCut-inspired Preset Cards Grid */}
+            <div className="grid grid-cols-1 gap-2">
+              {filteredNewTemplates.length === 0 ? (
+                <div className="p-8 text-center text-muted-foreground text-xs bg-secondary/20 rounded-xl border border-border/40">
+                  {selectedCategory === "custom"
+                    ? (en ? "No custom presets saved yet. Click 'Save Preset' to save your active text styling!" : "لا توجد قوالب مخصصة محفوظة بعد. انقر على 'حفظ كقالب' لحفظ نمطك الحالي!")
+                    : (en ? "No templates match your search." : "لم يتم العثور على قوالب تطابق بحثك.")}
+                </div>
+              ) : (
+                filteredNewTemplates.map((t) => (
+                  <div
+                    key={t.id}
+                    className="rounded-xl border border-border/70 bg-black/40 p-3 hover:border-primary/60 transition-all flex flex-col gap-2 group relative shadow-sm"
+                  >
+                    {/* Live styled preview banner */}
+                    <div
+                      onClick={() => applyNewTextTemplate(t, false)}
+                      className="w-full h-15 rounded-lg bg-slate-950/85 flex items-center justify-center p-2 relative overflow-hidden border border-white/5 cursor-pointer hover:border-primary/50 transition-all"
+                      title={en ? "Click to apply style to all captions" : "انقر لتطبيق القالب على جميع الكابشنات"}
+                    >
+                      <span
+                        style={{
+                          fontFamily: t.typography.fontFamily,
+                          color: t.fill.color,
+                          background: t.background?.enabled ? t.background.color : "transparent",
+                          fontSize: Math.min(18, t.typography.fontSize),
+                          padding: t.background?.enabled ? `${t.background.padding}px ${t.background.padding * 2}px` : "4px 8px",
+                          borderRadius: t.background?.radius !== undefined ? t.background.radius : 6,
+                          letterSpacing: t.typography.letterSpacing ? `${t.typography.letterSpacing}px` : undefined,
+                          textShadow: t.shadow?.enabled
+                            ? `${t.shadow.offsetX ?? 0}px ${t.shadow.offsetY ?? 2}px ${t.shadow.blur}px ${t.shadow.color}`
+                            : undefined,
+                          WebkitTextStroke: t.stroke?.enabled
+                            ? `${t.stroke.width}px ${t.stroke.color}`
+                            : undefined,
+                        }}
+                        className="truncate max-w-full font-medium"
+                      >
+                        {en ? (t.sampleTextEn || t.nameEn || t.name) : (t.sampleTextAr || t.name)}
+                      </span>
+                    </div>
+
+                    {/* Info & action bar */}
+                    <div className="flex items-center justify-between gap-2 pt-0.5">
+                      <div className="flex flex-col cursor-pointer max-w-[50%]" onClick={() => applyNewTextTemplate(t, false)}>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-xs font-bold text-foreground hover:text-primary transition-colors truncate">
+                            {en ? t.nameEn || t.name : t.name}
+                          </span>
+                          {t.isCustom && (
+                            <span className="text-[9px] bg-amber-500/20 text-amber-400 px-1 rounded font-bold">
+                              {en ? "Custom" : "مخصص"}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground font-mono truncate">
+                          <span>{t.typography.fontFamily}</span>
+                          {t.wordAnimation && (
+                            <span className="text-cyan-400 bg-cyan-400/10 px-1 rounded">
+                              {(t.wordAnimation as any).type}
+                            </span>
+                          )}
+                          {t.characterAnimation && (
+                            <span className="text-purple-400 bg-purple-400/10 px-1 rounded">
+                              {(t.characterAnimation as any).type}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        {t.isCustom && (
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteCustomTemplate(t.id, e)}
+                            className="w-7 h-7 rounded-lg bg-destructive/15 hover:bg-destructive/30 text-destructive flex items-center justify-center transition-all"
+                            title={en ? "Delete preset" : "حذف القالب"}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => applyNewTextTemplate(t, false)}
+                          className="px-2.5 py-1.5 rounded-lg bg-primary/20 hover:bg-primary/30 text-primary text-[10px] font-bold transition-all border border-primary/30"
+                          title={en ? "Apply style and animation to all captions" : "تطبيق النمط والأنيميشن على كل الكابشنات"}
+                        >
+                          {en ? "Apply ✨" : "تطبيق القالب ✨"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => applyNewTextTemplate(t, true)}
+                          className="px-2.5 py-1.5 rounded-lg bg-secondary hover:bg-secondary/80 text-foreground text-[10px] font-bold transition-all flex items-center gap-1 border border-border/60"
+                          title={en ? "Add new caption clip" : "إضافة كليب نصي جديد"}
+                        >
+                          <Plus className="w-3 h-3" />
+                          <span>{en ? "Clip" : "كليب"}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {(tab as string) === "motion" && (
+          <div className="space-y-2.5">
+            <div className="grid grid-cols-1 gap-2">
+              {MOTION_PRESET_TEMPLATES.map((m) => (
+                <div
+                  key={m.id}
+                  className="rounded-xl border border-border/70 bg-black/50 p-3 hover:border-primary/70 transition-all flex flex-col gap-2 relative group"
+                >
+                  <div className="w-full h-14 rounded-lg bg-slate-950 flex items-center justify-center p-2 relative overflow-hidden border border-white/10">
+                    <span
+                      style={{
+                        fontFamily: m.font,
+                        color: m.color,
+                        background: m.bg,
+                        fontSize: m.size - 4,
+                        padding: m.bgRadius ? "4px 10px" : "2px 8px",
+                        borderRadius: m.bgRadius || 8,
+                        textShadow: m.shadowColor ? `0 0 ${m.shadowBlur || 8}px ${m.shadowColor}` : undefined,
+                        WebkitTextStroke: m.strokeWidth ? `${m.strokeWidth}px ${m.strokeColor}` : undefined,
+                      }}
+                      className={`truncate max-w-full font-bold ${animClass(m.animation)}`}
+                    >
+                      {en ? m.sampleEn : m.sampleAr}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 pt-0.5">
+                    <div className="flex flex-col">
+                      <span className="text-xs font-bold text-foreground">{en ? m.nameEn : m.nameAr}</span>
+                      <span className="text-[9px] font-mono text-muted-foreground">{m.animation}</span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => {
+                          setCaptionStyle((s) => ({ ...s, animation: m.animation }));
+                          setCaptions((prev) => prev.map((c) => ({ ...c, animation: m.animation })));
+                          toast.success(en ? `Motion applied: ${m.nameEn}` : `تم تطبيق أنيميشن الحركة: ${m.nameAr}`);
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-secondary hover:bg-secondary/80 text-[10px] font-bold text-foreground transition-all"
+                      >
+                        {en ? "Motion Only" : "الحركة فقط"}
+                      </button>
+                      <button
+                        onClick={() => {
+                          applyTemplate({
+                            id: m.id,
+                            name: m.nameAr,
+                            nameEn: m.nameEn,
+                            font: m.font,
+                            size: m.size,
+                            color: m.color,
+                            bg: m.bg,
+                            animation: m.animation,
+                            strokeColor: m.strokeColor,
+                            strokeWidth: m.strokeWidth,
+                            shadowColor: m.shadowColor,
+                            shadowBlur: m.shadowBlur,
+                            bgRadius: m.bgRadius,
+                            badgeIcon: m.badgeIcon,
+                            sampleTextAr: m.sampleAr,
+                            sampleTextEn: m.sampleEn,
+                          }, false);
+                        }}
+                        className="px-3 py-1 rounded-lg gradient-primary text-primary-foreground text-[10px] font-bold shadow-md hover:scale-105 active:scale-95 transition-all flex items-center gap-1"
+                      >
+                        <span>{en ? "Apply Preset ✨" : "تطبيق القالب ✨"}</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {tab === "stickers" && (
+          <div className="space-y-3">
+            {/* Search bar */}
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 absolute right-3 top-2.5 text-muted-foreground pointer-events-none" />
+              <input
+                type="text"
+                placeholder={en ? "Search stickers..." : "بحث في الملصقات..."}
+                value={stickerSearch}
+                onChange={(e) => setStickerSearch(e.target.value)}
+                className="w-full bg-secondary/60 border border-border/80 rounded-xl pr-9 pl-3 py-1.5 text-xs focus:outline-none focus:border-primary text-foreground placeholder:text-muted-foreground/60"
+              />
+            </div>
+
+            {/* Sticker Categories */}
+            <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-1">
+              {STICKER_CATEGORIES.map((cat) => {
+                const isSelected = stickerCategory === cat.id;
+                return (
+                  <button
+                    key={cat.id}
+                    onClick={() => setStickerCategory(cat.id)}
+                    className={`flex-shrink-0 px-3 py-1 rounded-full text-[11px] font-bold transition-all ${
+                      isSelected
+                        ? "gradient-primary text-primary-foreground shadow-sm scale-105"
+                        : "bg-secondary/80 text-muted-foreground hover:text-foreground hover:bg-secondary"
+                    }`}
+                  >
+                    {en ? cat.labelEn : cat.labelAr}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Stickers Grid */}
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+              {STICKERS_LIST.filter((st) => {
+                const matchesCat = stickerCategory === "all" || st.category === stickerCategory;
+                const query = stickerSearch.trim().toLowerCase();
+                const matchesSearch = !query || st.text.toLowerCase().includes(query) || (st.textEn && st.textEn.toLowerCase().includes(query));
+                return matchesCat && matchesSearch;
+              }).map((st) => (
+                <button
+                  key={st.id}
+                  onClick={() => addSticker(st)}
+                  className="rounded-xl border border-border/70 bg-black/50 p-3 hover:border-primary transition-all flex flex-col items-center justify-center gap-1.5 active:scale-95 group relative hover:bg-primary/10"
+                >
+                  <div
+                    style={{
+                      color: st.color || "#ffffff",
+                      background: st.bg || "transparent",
+                      borderRadius: st.radius || 12,
+                      padding: st.bg !== "rgba(0,0,0,0.0)" ? "4px 8px" : "0px",
+                    }}
+                    className="text-center font-bold text-sm truncate max-w-full drop-shadow-md"
+                  >
+                    {en ? st.textEn || st.text : st.text}
+                  </div>
+                  <span className="text-[9px] text-muted-foreground font-mono opacity-0 group-hover:opacity-100 transition-opacity">
+                    + {en ? "Add" : "إضافة"}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {tab === "style" && (
+          <div className="space-y-3">
+            {/* Font Library & Language Library */}
+            <div className="space-y-4">
+              <div>
+                <label className="text-[10px] text-muted-foreground block mb-2 font-medium">{en ? "Fonts Library" : "مكتبة الخطوط"}</label>
+                <div className="flex gap-2 overflow-x-auto no-scrollbar py-1.5 px-0.5" style={{ scrollSnapType: "x mandatory" }}>
+                  {FONTS.map((f) => {
+                    const isSelected = captionStyle.font === f;
+                    return (
+                      <button
+                        key={f}
+                        onClick={() => {
+                          setCaptionStyle((s) => ({ ...s, font: f }));
+                          setCaptions((prev) => prev.map((c) => ({ ...c, font: f })));
+                        }}
+                        className={`flex-shrink-0 px-4 py-2 rounded-xl border transition-all flex flex-col items-center justify-center min-w-[95px] h-[58px] ${
+                          isSelected 
+                            ? "border-primary bg-primary/10 shadow-sm ring-1 ring-primary/30 scale-[1.03]" 
+                            : "border-border bg-black/40 hover:border-muted-foreground/30"
+                        }`}
+                        style={{ scrollSnapAlign: "start" }}
+                      >
+                        <span style={{ fontFamily: f }} className="text-sm font-bold text-foreground">Aa</span>
+                        <span className="text-[9px] text-muted-foreground mt-1 select-none truncate max-w-full font-sans leading-none">{f}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-muted-foreground mb-2 flex items-center gap-1 font-medium">
+                  <Languages className="w-3.5 h-3.5 text-primary" /> {en ? "Caption Language" : "لغة الكابشن"}
+                </label>
+                <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-1">
+                  {LANGS.map((l) => {
+                    const isSelected = captionStyle.language === l.code;
+                    return (
+                      <button
+                        key={l.code}
+                        onClick={() => setCaptionStyle((s) => ({ ...s, language: l.code }))}
+                        className={`flex-shrink-0 px-3.5 py-1.5 rounded-xl border text-[11px] font-bold transition-all ${
+                          isSelected 
+                            ? "border-primary bg-primary text-primary-foreground shadow-md shadow-primary/20 scale-105" 
+                            : "border-border bg-black/40 text-muted-foreground hover:border-muted-foreground/30"
+                        }`}
+                      >
+                        {l.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Size + Position */}
+            <div>
+              <label className="text-[10px] text-muted-foreground block mb-1">
+                {en ? "Size" : "الحجم"} ({captionStyle.size}px)
+              </label>
+              <input
+                type="range"
+                min={10}
+                max={48}
+                value={captionStyle.size}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  setCaptionStyle((s) => ({ ...s, size: val }));
+                  setCaptions((prev) => prev.map((c) => ({ ...c, size: val })));
+                }}
+                className="w-full accent-primary"
+              />
+            </div>
+
+            {/* Position by Percentage & Precision Placement */}
+            <div className="p-3 rounded-xl border border-primary/30 bg-primary/5 space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-primary flex items-center gap-1.5">
+                  <Sliders className="w-3.5 h-3.5" />
+                  {en ? "Position by Percentage (%)" : "تحريك النص بالنسب المئوية (%)"}
+                </label>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-mono text-primary font-bold bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20">
+                    X: {Math.round(currentXPercent)}% · Y: {Math.round(currentYPercent)}%
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setApplyPositionToAll((v) => !v)}
+                    className={`text-[9px] px-2 py-0.5 rounded-full border font-bold transition-colors ${
+                      applyPositionToAll
+                        ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                        : "bg-secondary text-muted-foreground border-border"
+                    }`}
+                    title={en ? "Apply to all captions or just current" : "تطبيق على جميع النصوص أو النص الحالي فقط"}
+                  >
+                    {applyPositionToAll ? (en ? "All Captions" : "كل النصوص") : (en ? "Current Only" : "الحالي فقط")}
+                  </button>
+                </div>
+              </div>
+
+              {/* Horizontal Position (X%) Slider */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-muted-foreground font-medium flex items-center gap-1">
+                    ↔️ {en ? "Horizontal (X% - Left/Right)" : "الموقع الأفقي (يسار / يمين X%)"}
+                  </span>
+                  <span className="font-mono font-bold text-primary">{Math.round(currentXPercent)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={currentXPercent}
+                  onChange={(e) => handleUpdatePositionX(Number(e.target.value))}
+                  className="w-full accent-primary h-1.5 bg-secondary rounded-lg appearance-none cursor-pointer"
+                />
+                {/* Horizontal Quick Align Buttons */}
+                <div className="grid grid-cols-5 gap-1 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => handleUpdatePositionX(10)}
+                    className={`py-1 px-0.5 rounded text-[9px] font-bold transition-colors border text-center ${
+                      Math.round(currentXPercent) === 10
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-secondary hover:bg-primary/20 text-muted-foreground hover:text-primary border-border/50"
+                    }`}
+                    title="10%"
+                  >
+                    {en ? "Far Left" : "أقصى اليسار"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleUpdatePositionX(25)}
+                    className={`py-1 px-0.5 rounded text-[9px] font-bold transition-colors border text-center ${
+                      Math.round(currentXPercent) === 25
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-secondary hover:bg-primary/20 text-muted-foreground hover:text-primary border-border/50"
+                    }`}
+                    title="25%"
+                  >
+                    {en ? "Left 25%" : "يسار 25%"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleUpdatePositionX(50)}
+                    className={`py-1 px-0.5 rounded text-[9px] font-bold transition-colors border text-center ${
+                      Math.round(currentXPercent) === 50
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-secondary hover:bg-primary/20 text-muted-foreground hover:text-primary border-border/50"
+                    }`}
+                    title="50%"
+                  >
+                    {en ? "Center 50%" : "وسط 50%"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleUpdatePositionX(75)}
+                    className={`py-1 px-0.5 rounded text-[9px] font-bold transition-colors border text-center ${
+                      Math.round(currentXPercent) === 75
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-secondary hover:bg-primary/20 text-muted-foreground hover:text-primary border-border/50"
+                    }`}
+                    title="75%"
+                  >
+                    {en ? "Right 75%" : "يمين 75%"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleUpdatePositionX(90)}
+                    className={`py-1 px-0.5 rounded text-[9px] font-bold transition-colors border text-center ${
+                      Math.round(currentXPercent) === 90
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-secondary hover:bg-primary/20 text-muted-foreground hover:text-primary border-border/50"
+                    }`}
+                    title="90%"
+                  >
+                    {en ? "Far Right" : "أقصى اليمين"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Vertical Position (Y%) Slider */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-muted-foreground font-medium flex items-center gap-1">
+                    ↕️ {en ? "Vertical (Y% - Top/Bottom)" : "الموقع العمودي (أعلى / أسفل Y%)"}
+                  </span>
+                  <span className="font-mono font-bold text-primary">{Math.round(currentYPercent)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={currentYPercent}
+                  onChange={(e) => handleUpdatePositionY(Number(e.target.value))}
+                  className="w-full accent-primary h-1.5 bg-secondary rounded-lg appearance-none cursor-pointer"
+                />
+                {/* Vertical Quick Align Buttons */}
+                <div className="grid grid-cols-3 gap-1 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCaptionStyle((s) => ({ ...s, position: "top" }));
+                      handleUpdatePositionY(10);
+                    }}
+                    className={`py-1 px-1 rounded text-[10px] font-bold transition-colors border text-center ${
+                      Math.round(currentYPercent) === 10
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-secondary hover:bg-primary/20 text-muted-foreground hover:text-primary border-border/50"
+                    }`}
+                  >
+                    {en ? "Top (10%)" : "أعلى (10%)"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCaptionStyle((s) => ({ ...s, position: "center" }));
+                      handleUpdatePositionY(50);
+                    }}
+                    className={`py-1 px-1 rounded text-[10px] font-bold transition-colors border text-center ${
+                      Math.round(currentYPercent) === 50
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-secondary hover:bg-primary/20 text-muted-foreground hover:text-primary border-border/50"
+                    }`}
+                  >
+                    {en ? "Middle (50%)" : "منتصف (50%)"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCaptionStyle((s) => ({ ...s, position: "bottom" }));
+                      handleUpdatePositionY(88);
+                    }}
+                    className={`py-1 px-1 rounded text-[10px] font-bold transition-colors border text-center ${
+                      Math.round(currentYPercent) === 88
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-secondary hover:bg-primary/20 text-muted-foreground hover:text-primary border-border/50"
+                    }`}
+                  >
+                    {en ? "Bottom (88%)" : "أسفل (88%)"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Step Nudge Controls (أزرار التحريك الدقيق خطوة بخطوة) */}
+              <div className="pt-2 border-t border-border/40">
+                <div className="text-[10px] text-muted-foreground mb-1.5 flex items-center justify-between">
+                  <span>{en ? "Precision Step Movement (±2%)" : "تحريك دقيق خطوة بخطوة (±2%)"}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleUpdatePositionX(50);
+                      handleUpdatePositionY(88);
+                    }}
+                    className="text-[9px] text-primary hover:underline font-bold"
+                  >
+                    {en ? "Reset Center" : "إعادة للوسط"}
+                  </button>
+                </div>
+                <div className="flex items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleUpdatePositionX(currentXPercent - 2)}
+                    className="px-3 py-1.5 rounded-lg bg-secondary hover:bg-primary/20 text-foreground font-bold text-xs border border-border transition-all active:scale-95 flex items-center gap-1 shadow-sm"
+                    title={en ? "Move Left 2%" : "تحريك لليسار 2%"}
+                  >
+                    ◀ {en ? "Left -2%" : "يسار 2%"}
+                  </button>
+                  <div className="flex flex-col gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleUpdatePositionY(currentYPercent - 2)}
+                      className="px-2.5 py-0.5 rounded bg-secondary hover:bg-primary/20 text-foreground font-bold text-xs border border-border transition-all active:scale-95 shadow-sm"
+                      title={en ? "Move Up 2%" : "تحريك لأعلى 2%"}
+                    >
+                      ▲
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleUpdatePositionY(currentYPercent + 2)}
+                      className="px-2.5 py-0.5 rounded bg-secondary hover:bg-primary/20 text-foreground font-bold text-xs border border-border transition-all active:scale-95 shadow-sm"
+                      title={en ? "Move Down 2%" : "تحريك لأسفل 2%"}
+                    >
+                      ▼
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleUpdatePositionX(currentXPercent + 2)}
+                    className="px-3 py-1.5 rounded-lg bg-secondary hover:bg-primary/20 text-foreground font-bold text-xs border border-border transition-all active:scale-95 flex items-center gap-1 shadow-sm"
+                    title={en ? "Move Right 2%" : "تحريك لليمين 2%"}
+                  >
+                    {en ? "Right +2%" : "يمين 2%"} ▶
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Text Formatting & Flip Tools */}
+            <div className="p-2.5 rounded-xl border border-amber-500/30 bg-amber-500/5 space-y-2">
+              <label className="text-[10px] font-bold text-amber-400 block flex items-center gap-1">
+                <Sliders className="w-3 h-3 text-amber-400" /> {en ? "Text Alignment & Transform Tools" : "أدوات تنسيق وتقسيم اتجاه النص"}
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {/* 1. Multiline Wrap Toggle */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextVal = !captionStyle.isMultiLine;
+                    setCaptionStyle((s) => ({ ...s, isMultiLine: nextVal }));
+                    setCaptions((prev) => prev.map((c) => ({ ...c, isMultiLine: nextVal })));
+                    playSfx("click");
+                    toast.success(nextVal ? (en ? "Multi-line mode enabled" : "تم تفعيل تقسيم النص لعدة أسطر") : (en ? "Single line mode enabled" : "تم جعل النص سطر واحد"));
+                  }}
+                  className={`py-2 px-2 rounded-xl border text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1 ${
+                    captionStyle.isMultiLine
+                      ? "border-amber-400 bg-amber-400/20 text-amber-300 shadow-md"
+                      : "border-border bg-black/40 text-muted-foreground hover:border-amber-400/50"
+                  }`}
+                >
+                  <WrapText className="w-4 h-4 text-amber-400" />
+                  <span className="text-[10px]">{en ? "Wrap Lines" : "تقسيم الأسطر"}</span>
+                </button>
+
+                {/* 2. Horizontal Flip */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextVal = !captionStyle.flipH;
+                    setCaptionStyle((s) => ({ ...s, flipH: nextVal }));
+                    setCaptions((prev) => prev.map((c) => ({ ...c, flipH: nextVal })));
+                    playSfx("click");
+                    toast.success(en ? "Horizontal flip toggled" : "تم تغيير القلب الأفقي");
+                  }}
+                  className={`py-2 px-2 rounded-xl border text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1 ${
+                    captionStyle.flipH
+                      ? "border-amber-400 bg-amber-400/20 text-amber-300 shadow-md"
+                      : "border-border bg-black/40 text-muted-foreground hover:border-amber-400/50"
+                  }`}
+                >
+                  <FlipHorizontal className="w-4 h-4 text-amber-400" />
+                  <span className="text-[10px]">{en ? "Flip H" : "قلب أفقي"}</span>
+                </button>
+
+                {/* 3. Vertical Flip */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextVal = !captionStyle.flipV;
+                    setCaptionStyle((s) => ({ ...s, flipV: nextVal }));
+                    setCaptions((prev) => prev.map((c) => ({ ...c, flipV: nextVal })));
+                    playSfx("click");
+                    toast.success(en ? "Vertical flip toggled" : "تم تغيير القلب العمودي");
+                  }}
+                  className={`py-2 px-2 rounded-xl border text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1 ${
+                    captionStyle.flipV
+                      ? "border-amber-400 bg-amber-400/20 text-amber-300 shadow-md"
+                      : "border-border bg-black/40 text-muted-foreground hover:border-amber-400/50"
+                  }`}
+                >
+                  <FlipVertical className="w-4 h-4 text-amber-400" />
+                  <span className="text-[10px]">{en ? "Flip V" : "قلب عمودي"}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Text color */}
+            <div>
+              <label className="text-[10px] text-muted-foreground mb-1 flex items-center gap-1">
+                <Palette className="w-3 h-3" /> {en ? "Text Color" : "لون النص"}
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {COLOR_SWATCHES.map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => {
+                      setCaptionStyle((s) => ({ ...s, color: c }));
+                      setCaptions((prev) => prev.map((cap) => ({ ...cap, color: c })));
+                    }}
+                    className={`w-7 h-7 rounded-full border-2 ${
+                      captionStyle.color === c ? "border-primary scale-110" : "border-border"
+                    } transition-transform`}
+                    style={{ background: c }}
+                  />
+                ))}
+                <input
+                  type="color"
+                  value={captionStyle.color}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setCaptionStyle((s) => ({ ...s, color: val }));
+                    setCaptions((prev) => prev.map((cap) => ({ ...cap, color: val })));
+                  }}
+                  className="w-7 h-7 rounded-full bg-transparent border-2 border-border cursor-pointer"
+                />
+              </div>
+            </div>
+
+            {/* Background */}
+            <div className="space-y-2">
+              <label className="text-[10px] text-muted-foreground block mb-1">{en ? "Background Color & Radius" : "الخلفية وحواف الإطار"}</label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {BG_SWATCHES.map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => {
+                      setCaptionStyle((s) => ({ ...s, bg: c }));
+                      setCaptions((prev) => prev.map((cap) => ({ ...cap, bg: c })));
+                    }}
+                    className={`w-7 h-7 rounded-md border-2 ${
+                      captionStyle.bg === c ? "border-primary scale-110" : "border-border"
+                    } transition-transform relative overflow-hidden`}
+                    style={{
+                      background:
+                        c === "rgba(0,0,0,0)"
+                          ? "repeating-conic-gradient(#666 0% 25%, #aaa 0% 50%) 50% / 8px 8px"
+                          : c,
+                    }}
+                  />
+                ))}
+              </div>
+
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] text-muted-foreground">{en ? "Corner Radius:" : "انحناء الحواف:"}</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={24}
+                  value={captionStyle.bgRadius ?? 8}
+                  onChange={(e) => {
+                    const rad = Number(e.target.value);
+                    setCaptionStyle((s) => ({ ...s, bgRadius: rad }));
+                    setCaptions((prev) => prev.map((cap) => ({ ...cap, bgRadius: rad })));
+                  }}
+                  className="flex-1 accent-primary"
+                />
+                <span className="text-[10px] font-mono text-muted-foreground">{captionStyle.bgRadius ?? 8}px</span>
+              </div>
+            </div>
+
+            {/* Text Stroke / Outline */}
+            <div className="p-2.5 rounded-xl border border-border/60 bg-secondary/30 space-y-2">
+              <label className="text-[10px] font-bold text-foreground block">
+                {en ? "Text Stroke & Outline" : "إطار وتحديد النص (Stroke)"}
+              </label>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={captionStyle.strokeColor || "#000000"}
+                    onChange={(e) => {
+                      const col = e.target.value;
+                      setCaptionStyle((s) => ({ ...s, strokeColor: col }));
+                      setCaptions((prev) => prev.map((cap) => ({ ...cap, strokeColor: col })));
+                    }}
+                    className="w-7 h-7 rounded-lg bg-transparent border border-border cursor-pointer"
+                  />
+                  <span className="text-[10px] text-muted-foreground font-mono">{captionStyle.strokeColor || "#000000"}</span>
+                </div>
+                <div className="flex-1">
+                  <input
+                    type="range"
+                    min={0}
+                    max={6}
+                    step={0.5}
+                    value={captionStyle.strokeWidth || 0}
+                    onChange={(e) => {
+                      const w = Number(e.target.value);
+                      setCaptionStyle((s) => ({ ...s, strokeWidth: w }));
+                      setCaptions((prev) => prev.map((cap) => ({ ...cap, strokeWidth: w })));
+                    }}
+                    className="w-full accent-primary"
+                  />
+                </div>
+                <span className="text-[10px] font-mono text-muted-foreground">{captionStyle.strokeWidth || 0}px</span>
+              </div>
+            </div>
+
+            {/* Shadow & Glow */}
+            <div className="p-2.5 rounded-xl border border-border/60 bg-secondary/30 space-y-2">
+              <label className="text-[10px] font-bold text-foreground block">
+                {en ? "Shadow & Glow Effect" : "توهج وظل النص (Glow & Shadow)"}
+              </label>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={captionStyle.shadowColor || "#000000"}
+                    onChange={(e) => {
+                      const col = e.target.value;
+                      setCaptionStyle((s) => ({ ...s, shadowColor: col }));
+                      setCaptions((prev) => prev.map((cap) => ({ ...cap, shadowColor: col })));
+                    }}
+                    className="w-7 h-7 rounded-lg bg-transparent border border-border cursor-pointer"
+                  />
+                </div>
+                <div className="flex-1">
+                  <input
+                    type="range"
+                    min={0}
+                    max={20}
+                    value={captionStyle.shadowBlur || 4}
+                    onChange={(e) => {
+                      const b = Number(e.target.value);
+                      setCaptionStyle((s) => ({ ...s, shadowBlur: b }));
+                      setCaptions((prev) => prev.map((cap) => ({ ...cap, shadowBlur: b })));
+                    }}
+                    className="w-full accent-primary"
+                  />
+                </div>
+                <span className="text-[10px] font-mono text-muted-foreground">{captionStyle.shadowBlur || 4}px</span>
+              </div>
+            </div>
+
+            {/* Animation Library */}
+            <div>
+              <label className="text-[10px] text-muted-foreground block mb-2 font-medium">{en ? "Entrance Animation" : "حركة ظهور الكابشن"}</label>
+              <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-1">
+                {ANIMATIONS.map((a) => {
+                  const isSelected = captionStyle.animation === a.id;
+                  return (
+                    <button
+                      key={a.id}
+                      onClick={() => {
+                        setCaptionStyle((s) => ({ ...s, animation: a.id }));
+                        setCaptions((prev) => prev.map((cap) => ({ ...cap, animation: a.id })));
+                      }}
+                      className={`flex-shrink-0 px-3.5 py-1.5 rounded-xl border text-[11px] font-bold transition-all ${
+                        isSelected
+                          ? "border-primary bg-primary text-primary-foreground shadow-md shadow-primary/20 scale-105"
+                          : "border-border bg-black/40 text-muted-foreground hover:border-muted-foreground/30"
+                      }`}
+                    >
+                      {en ? a.labelEn : a.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Apply to all captions */}
+            <button
+              onClick={() => {
+                setCaptions((prev) =>
+                  prev.map((c) => ({
+                    ...c,
+                    font: captionStyle.font,
+                    size: captionStyle.size,
+                    color: captionStyle.color,
+                    bg: captionStyle.bg,
+                    animation: captionStyle.animation,
+                    strokeColor: captionStyle.strokeColor,
+                    strokeWidth: captionStyle.strokeWidth,
+                    shadowColor: captionStyle.shadowColor,
+                    shadowBlur: captionStyle.shadowBlur,
+                    bgRadius: captionStyle.bgRadius,
+                    bgPadding: captionStyle.bgPadding,
+                    letterSpacing: captionStyle.letterSpacing,
+                    lineHeight: captionStyle.lineHeight,
+                    textTransform: captionStyle.textTransform,
+                    badgeIcon: captionStyle.badgeIcon,
+                    yPercent: captionStyle.position === "top" ? 8 : captionStyle.position === "center" ? 50 : 88,
+                    xPercent: 50,
+                  }))
+                );
+                toast.success(en ? "Styling & position applied to all captions" : "تم تطبيق التنسيق والموقع على جميع الكابشنات 🎯");
+              }}
+              className="w-full py-2.5 rounded-xl gradient-primary text-primary-foreground text-xs font-bold shadow-md hover:opacity-95 transition-all flex items-center justify-center gap-1.5"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              <span>{en ? "Apply styling & position to all captions" : "تطبيق التنسيق والموقع على جميع الكابشنات"}</span>
+            </button>
+          </div>
+        )}
+
+        {tab === "list" && (
+          <>
+            <div className="flex gap-2 mb-3">
+              <input
+                type="text"
+                value={editingText}
+                onChange={(e) => setEditingText(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addCaption()}
+                placeholder={en ? `New text at ${currentTime.toFixed(1)}s` : `نص جديد عند ${currentTime.toFixed(1)}s`}
+                className="flex-1 bg-secondary text-foreground text-xs rounded-lg px-3 py-2 border border-border"
+              />
+              <button onClick={addCaption} className="px-3 rounded-lg gradient-primary text-primary-foreground">
+                <Plus className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {captions.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-6 px-4 bg-secondary/30 rounded-xl border border-dashed border-border/80 text-center gap-2">
+                  <p className="text-[11px] text-muted-foreground">
+                    {en
+                      ? "No captions added yet. Add text manually, auto-extract speech with AI, or upload an SRT file."
+                      : "لا يوجد كابشن حتى الآن. أضف نصاً يدوياً، أو استخرج الكلام تلقائياً بالذكاء الاصطناعي، أو ارفع ملف SRT."}
+                  </p>
+                  <button
+                    onClick={() => srtFileInputRef.current?.click()}
+                    className="px-3.5 py-1.5 rounded-xl bg-secondary hover:bg-secondary/80 border border-border/80 text-xs font-bold text-foreground flex items-center gap-1.5 active:scale-95 transition-all shadow-sm"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-primary" />
+                    <span>{en ? "Upload .SRT File" : "رفع ملف .SRT"}</span>
+                  </button>
+                </div>
+              ) : (
+                captions.map((c, idx) => {
+                  const isLowConfidence = c.confidence !== undefined && c.confidence < 0.75;
+                  const isRegenerating = regeneratingId === c.id;
+
+                  return (
+                    <div
+                      key={c.id}
+                      className={`flex items-center gap-1.5 bg-secondary/70 hover:bg-secondary/90 rounded-xl p-2 border transition-all ${
+                        isLowConfidence
+                          ? "border-amber-500/60 bg-amber-500/10 dark:bg-amber-950/20 shadow-sm"
+                          : "border-border/60 hover:border-border"
+                      }`}
+                    >
+                      <input
+                        type="number"
+                        step={0.1}
+                        value={c.start.toFixed(1)}
+                        onChange={(e) => updateCap(c.id, { start: Number(e.target.value) })}
+                        className="w-12 bg-background text-foreground text-[10px] rounded-lg px-1.5 py-1 font-mono text-center border border-border/50"
+                        title={en ? "Start time (s)" : "وقت البداية (ثواني)"}
+                      />
+                      <span className="text-[10px] text-muted-foreground font-mono">-</span>
+                      <input
+                        type="number"
+                        step={0.1}
+                        value={c.end.toFixed(1)}
+                        onChange={(e) => updateCap(c.id, { end: Number(e.target.value) })}
+                        className="w-12 bg-background text-foreground text-[10px] rounded-lg px-1.5 py-1 font-mono text-center border border-border/50"
+                        title={en ? "End time (s)" : "وقت النهاية (ثواني)"}
+                      />
+
+                      <div className="relative flex-1 flex items-center">
+                        <input
+                          ref={idx === 0 ? firstInputRef : undefined}
+                          type="text"
+                          value={c.text}
+                          onChange={(e) => updateCap(c.id, { text: e.target.value })}
+                          className={`w-full bg-background text-foreground text-xs rounded-lg px-2.5 py-1.5 border transition-all ${
+                            isLowConfidence
+                              ? "border-amber-500/70 focus:border-amber-400 focus:ring-1 focus:ring-amber-400/40 font-medium pr-14"
+                              : "border-border/60 focus:border-primary"
+                          }`}
+                        />
+                        {/* Confidence Indicator Badge */}
+                        {c.confidence !== undefined && (
+                          <div
+                            className="absolute left-2 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-none"
+                            dir="ltr"
+                          >
+                            {isLowConfidence ? (
+                              <span
+                                className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-500 border border-amber-500/40 text-[9px] font-bold"
+                                title={en ? "Low confidence transcription - double check text" : "درجة ثقة منخفضة - يُفضل المراجعة اليدوية"}
+                              >
+                                <AlertTriangle className="w-3 h-3 text-amber-500" />
+                                <span>{Math.round(c.confidence * 100)}%</span>
+                              </span>
+                            ) : (
+                              <span
+                                className="flex items-center gap-0.5 px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-500 border border-emerald-500/30 text-[9px] font-bold opacity-75"
+                                title={en ? "High confidence transcription" : "دقة وثقة عالية"}
+                              >
+                                <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Regenerate Segment Only Button */}
+                      <button
+                        onClick={() => regenerateSegment(c.id, c.start, c.end)}
+                        disabled={isRegenerating || extracting}
+                        className="p-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-all active:scale-90 disabled:opacity-50"
+                        title={en ? "Re-transcribe this segment only" : "إعادة استخراج هذا المقطع فقط"}
+                      >
+                        {isRegenerating ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                        ) : (
+                          <RotateCw className="w-3.5 h-3.5 text-primary" />
+                        )}
+                      </button>
+
+                      {/* Delete Button */}
+                      <button
+                        onClick={() => removeCap(c.id)}
+                        className="p-1.5 rounded-lg bg-destructive/10 hover:bg-destructive/20 text-destructive border border-destructive/20 transition-all active:scale-90"
+                        title={en ? "Delete caption" : "حذف الكابشن"}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </>
+        )}
+    </DraggableLibrarySheet>
+  );
+};
+
+export default CaptionPanel;

@@ -1,175 +1,155 @@
 /**
- * ImagePostprocessor: High-resolution mask refinement, Guided Filter, and Color Decontamination.
- * 
- * Complies with requirement 4:
- * - Upscales mask to original resolution (up to 4096px longest edge).
- * - Runs Guided Filter using the original image as guide to recover sharp edges.
- * - Applies color decontamination to remove background color bleeding along edges.
- * - Forbids keeping 256x256 simple bilinear masks.
+ * ImagePostprocessor
+ * Postprocesses neural network outputs:
+ * - Neural Alpha Matting & Guided Filter Edge Refinement (hair / clothing contours)
+ * - Morphological Mask Cleanup (island removal & hole filling)
+ * - Edge De-fringing / Color Decontamination for clean compositing
+ * - Interactive User Mask Editing (AI Mask + User Add - User Remove)
+ * - Tile Merging with Seamless Boundary Blending
+ * - Multi-Format High-Performance Canvas & Blob Encoding
  */
 
-export interface GuidedFilterOptions {
-  radius?: number; // Filter box radius (default 8)
-  eps?: number;    // Regularization parameter (default 1e-4)
+import { ImageMemoryManager } from "./ImageMemoryManager";
+import { ImageTile } from "./ImagePreprocessor";
+
+export interface MaskRefinementOptions {
+  edgeRefinement?: boolean;
+  featherRadius?: number;
+  threshold?: number;
+  softAlpha?: boolean;
+  removeIslands?: boolean;
+  fillHoles?: boolean;
+  decontaminateColor?: boolean;
 }
 
 export class ImagePostprocessor {
-  /**
-   * Fast 1D horizontal moving-sum box filter
-   */
-  private static boxFilterH(src: Float32Array, dst: Float32Array, width: number, height: number, r: number): void {
-    const invCount = 1 / (2 * r + 1);
-    for (let y = 0; y < height; y++) {
-      const rowOffset = y * width;
-      let sum = 0;
+  private static instance: ImagePostprocessor;
+  private memoryManager = ImageMemoryManager.getInstance();
 
-      // Initialize window with border replication
-      for (let x = -r; x <= r; x++) {
-        const clampedX = Math.max(0, Math.min(width - 1, x));
-        sum += src[rowOffset + clampedX];
-      }
+  private constructor() {}
 
-      for (let x = 0; x < width; x++) {
-        dst[rowOffset + x] = sum * invCount;
-        const leftX = Math.max(0, x - r);
-        const rightX = Math.min(width - 1, x + r + 1);
-        sum += src[rowOffset + rightX] - src[rowOffset + leftX];
-      }
+  public static getInstance(): ImagePostprocessor {
+    if (!ImagePostprocessor.instance) {
+      ImagePostprocessor.instance = new ImagePostprocessor();
     }
+    return ImagePostprocessor.instance;
   }
 
   /**
-   * Fast 1D vertical moving-sum box filter
+   * Apply neural mask to source image with edge refinement, hair matting, and color decontamination
    */
-  private static boxFilterV(src: Float32Array, dst: Float32Array, width: number, height: number, r: number): void {
-    const invCount = 1 / (2 * r + 1);
-    for (let x = 0; x < width; x++) {
-      let sum = 0;
+  public applyMaskToImage(
+    sourceImageData: ImageData,
+    rawMaskData: Float32Array | Uint8Array | Uint8ClampedArray,
+    maskWidth: number,
+    maskHeight: number,
+    options?: MaskRefinementOptions
+  ): ImageData {
+    const targetW = sourceImageData.width;
+    const targetH = sourceImageData.height;
+    const outData = new ImageData(
+      new Uint8ClampedArray(sourceImageData.data),
+      targetW,
+      targetH
+    );
 
-      // Initialize window with border replication
-      for (let y = -r; y <= r; y++) {
-        const clampedY = Math.max(0, Math.min(height - 1, y));
-        sum += src[clampedY * width + x];
+    // 1. Resample raw neural mask to target dimensions
+    let mask = this.resampleMask(
+      rawMaskData,
+      maskWidth,
+      maskHeight,
+      targetW,
+      targetH
+    );
+
+    // 2. Morphological Cleanup (island removal + hole filling)
+    if (options?.removeIslands === true || options?.fillHoles === true) {
+      mask = this.cleanupMaskMorphology(mask, targetW, targetH);
+    }
+
+    // 3. Guided Filter / Edge Refinement for hair & clothing boundaries
+    if (options?.edgeRefinement !== false) {
+      mask = this.fastGuidedFilter(outData.data, mask, targetW, targetH, 3, 0.01);
+    }
+
+    // 4. Feathering
+    const feather = options?.featherRadius ?? 1;
+    if (feather > 0) {
+      mask = this.boxBlur1D(mask, targetW, targetH, feather);
+    }
+
+    const threshold = options?.threshold ?? 0.05;
+    const softAlpha = options?.softAlpha !== false;
+    const totalPixels = targetW * targetH;
+
+    // 5. Apply Alpha Channel
+    for (let i = 0; i < totalPixels; i++) {
+      const pxIndex = i * 4;
+      const maskVal = mask[i];
+
+      if (softAlpha) {
+        let alpha = maskVal;
+        if (alpha < threshold) {
+          alpha = 0;
+        } else if (alpha > 0.95) {
+          alpha = 1.0;
+        } else {
+          // Smoothstep curve for natural edge gradient
+          const t = (alpha - threshold) / (0.95 - threshold);
+          alpha = t * t * (3 - 2 * t);
+        }
+        outData.data[pxIndex + 3] = Math.round(alpha * 255);
+      } else {
+        outData.data[pxIndex + 3] = maskVal >= threshold ? 255 : 0;
       }
-
-      for (let y = 0; y < height; y++) {
-        dst[y * width + x] = sum * invCount;
-        const topY = Math.max(0, y - r);
-        const bottomY = Math.min(height - 1, y + r + 1);
-        sum += src[bottomY * width + x] - src[topY * width + x];
-      }
     }
+
+    // 6. Optional Edge De-fringing (Color Decontamination) to remove background color bleed
+    if (options?.decontaminateColor !== false) {
+      this.decontaminateEdges(outData, mask, targetW, targetH);
+    }
+
+    return outData;
   }
 
   /**
-   * Separable 2D Box Filter: O(N) independent of radius
+   * Resample 2D mask to target resolution using bilinear interpolation
    */
-  public static boxFilter(src: Float32Array, width: number, height: number, radius: number): Float32Array {
-    const temp = new Float32Array(width * height);
-    const result = new Float32Array(width * height);
-    ImagePostprocessor.boxFilterH(src, temp, width, height, radius);
-    ImagePostprocessor.boxFilterV(temp, result, width, height, radius);
-    return result;
-  }
-
-  /**
-   * Guided Filter: Uses high-resolution original image as guide to transfer sharp details to mask.
-   * 
-   * @param guideLuma Normalized luminance (0.0 to 1.0) of original high-res image [width * height]
-   * @param coarseMask Coarse mask scaled to [width * height], values 0.0 to 1.0
-   * @param width Width of the high-res target image
-   * @param height Height of the high-res target image
-   * @param options Guided filter options (radius and eps)
-   */
-  public static guidedFilter(
-    guideLuma: Float32Array,
-    coarseMask: Float32Array,
-    width: number,
-    height: number,
-    options?: GuidedFilterOptions
-  ): Float32Array {
-    const r = Math.max(2, options?.radius ?? 8);
-    const eps = Math.max(1e-6, options?.eps ?? 1e-4);
-    const n = width * height;
-
-    // 1. Mean of I (guide) and p (coarse mask)
-    const meanI = ImagePostprocessor.boxFilter(guideLuma, width, height, r);
-    const meanP = ImagePostprocessor.boxFilter(coarseMask, width, height, r);
-
-    // 2. Correlation of I*I and I*p
-    const II = new Float32Array(n);
-    const Ip = new Float32Array(n);
-    for (let i = 0; i < n; i++) {
-      II[i] = guideLuma[i] * guideLuma[i];
-      Ip[i] = guideLuma[i] * coarseMask[i];
-    }
-    const corrI = ImagePostprocessor.boxFilter(II, width, height, r);
-    const corrIp = ImagePostprocessor.boxFilter(Ip, width, height, r);
-
-    // 3. Variance and Covariance
-    // a = cov / (var + eps)
-    // b = meanP - a * meanI
-    const a = new Float32Array(n);
-    const b = new Float32Array(n);
-    for (let i = 0; i < n; i++) {
-      const varI = Math.max(0, corrI[i] - meanI[i] * meanI[i]);
-      const covIp = corrIp[i] - meanI[i] * meanP[i];
-      const aVal = covIp / (varI + eps);
-      a[i] = aVal;
-      b[i] = meanP[i] - aVal * meanI[i];
-    }
-
-    // 4. Mean of a and b
-    const meanA = ImagePostprocessor.boxFilter(a, width, height, r);
-    const meanB = ImagePostprocessor.boxFilter(b, width, height, r);
-
-    // 5. Final output q = meanA * guideLuma + meanB (clamped to [0, 1])
-    const q = new Float32Array(n);
-    for (let i = 0; i < n; i++) {
-      const val = meanA[i] * guideLuma[i] + meanB[i];
-      q[i] = val < 0 ? 0 : val > 1 ? 1 : val;
-    }
-
-    return q;
-  }
-
-  /**
-   * Bilinear upscale of a low-res mask (e.g. 256x256) to target dimensions (e.g. 4000x3000)
-   */
-  public static upscaleMaskBilinear(
-    lowResMask: Float32Array,
+  public resampleMask(
+    rawMask: Float32Array | Uint8Array | Uint8ClampedArray,
     srcW: number,
     srcH: number,
     dstW: number,
     dstH: number
   ): Float32Array {
+    const isFloat = rawMask instanceof Float32Array;
     const output = new Float32Array(dstW * dstH);
+
     const scaleX = (srcW - 1) / Math.max(1, dstW - 1);
     const scaleY = (srcH - 1) / Math.max(1, dstH - 1);
 
     for (let y = 0; y < dstH; y++) {
       const srcY = y * scaleY;
       const y0 = Math.floor(srcY);
-      const y1 = Math.min(srcH - 1, y0 + 1);
+      const y1 = Math.min(y0 + 1, srcH - 1);
       const dy = srcY - y0;
-      const rowOffsetDst = y * dstW;
-      const rowOffsetSrc0 = y0 * srcW;
-      const rowOffsetSrc1 = y1 * srcW;
 
       for (let x = 0; x < dstW; x++) {
         const srcX = x * scaleX;
         const x0 = Math.floor(srcX);
-        const x1 = Math.min(srcW - 1, x0 + 1);
+        const x1 = Math.min(x0 + 1, srcW - 1);
         const dx = srcX - x0;
 
-        const p00 = lowResMask[rowOffsetSrc0 + x0];
-        const p10 = lowResMask[rowOffsetSrc0 + x1];
-        const p01 = lowResMask[rowOffsetSrc1 + x0];
-        const p11 = lowResMask[rowOffsetSrc1 + x1];
+        const val00 = isFloat ? (rawMask[y0 * srcW + x0] as number) : (rawMask[y0 * srcW + x0] as number) / 255.0;
+        const val10 = isFloat ? (rawMask[y0 * srcW + x1] as number) : (rawMask[y0 * srcW + x1] as number) / 255.0;
+        const val01 = isFloat ? (rawMask[y1 * srcW + x0] as number) : (rawMask[y1 * srcW + x0] as number) / 255.0;
+        const val11 = isFloat ? (rawMask[y1 * srcW + x1] as number) : (rawMask[y1 * srcW + x1] as number) / 255.0;
 
-        const top = p00 + (p10 - p00) * dx;
-        const bottom = p01 + (p11 - p01) * dx;
-        output[rowOffsetDst + x] = top + (bottom - top) * dy;
+        const top = val00 * (1 - dx) + val10 * dx;
+        const bottom = val01 * (1 - dx) + val11 * dx;
+        const interpolated = top * (1 - dy) + bottom * dy;
+
+        output[y * dstW + x] = Math.max(0, Math.min(1, interpolated));
       }
     }
 
@@ -177,869 +157,342 @@ export class ImagePostprocessor {
   }
 
   /**
-   * Color Decontamination:
-   * Eliminates edge background bleed (color fringing on hair/edges) by projecting
-   * true foreground colors into translucent transition pixels.
-   * 
-   * @param rgba Original RGBA Uint8ClampedArray of image
-   * @param mask Float32Array alpha mask [0..1]
-   * @param width Image width
-   * @param height Image height
+   * Fast Guided Filter for natural hair/fur boundary edge preservation
    */
-  public static decontaminate(
-    rgba: Uint8ClampedArray,
-    mask: Float32Array,
-    width: number,
-    height: number
-  ): Uint8ClampedArray {
-    const result = new Uint8ClampedArray(rgba);
-    const n = width * height;
-
-    // Detect transition / edge pixels where alpha is between 0.05 and 0.95
-    // For these pixels, search a small neighborhood (3x3 or 5x5) for high-confidence foreground pixels (alpha >= 0.95)
-    // and blend their RGB color to cancel out background color bleeding.
-    const searchR = 3;
-
-    for (let y = 0; y < height; y++) {
-      const rowOffset = y * width;
-      for (let x = 0; x < width; x++) {
-        const idx = rowOffset + x;
-        const alpha = mask[idx];
-
-        // Only decontaminate transition edge pixels
-        if (alpha > 0.05 && alpha < 0.95) {
-          let sumR = 0;
-          let sumG = 0;
-          let sumB = 0;
-          let weightSum = 0;
-
-          const yMin = Math.max(0, y - searchR);
-          const yMax = Math.min(height - 1, y + searchR);
-          const xMin = Math.max(0, x - searchR);
-          const xMax = Math.min(width - 1, x + searchR);
-
-          for (let ny = yMin; ny <= yMax; ny++) {
-            const nRow = ny * width;
-            for (let nx = xMin; nx <= xMax; nx++) {
-              const nIdx = nRow + nx;
-              const nAlpha = mask[nIdx];
-              if (nAlpha >= 0.90) {
-                const distSq = (nx - x) * (nx - x) + (ny - y) * (ny - y);
-                const w = 1 / (1 + distSq);
-                const p = nIdx * 4;
-                sumR += rgba[p] * w;
-                sumG += rgba[p + 1] * w;
-                sumB += rgba[p + 2] * w;
-                weightSum += w;
-              }
-            }
-          }
-
-          const pIdx = idx * 4;
-          if (weightSum > 0) {
-            // Found nearby pure foreground color
-            const fgR = sumR / weightSum;
-            const fgG = sumG / weightSum;
-            const fgB = sumB / weightSum;
-
-            // Blend observed color towards foreground color based on softness
-            const factor = 1 - alpha; // more weight to correction when alpha is lower
-            result[pIdx] = Math.round(rgba[pIdx] * alpha + fgR * factor);
-            result[pIdx + 1] = Math.round(rgba[pIdx + 1] * alpha + fgG * factor);
-            result[pIdx + 2] = Math.round(rgba[pIdx + 2] * alpha + fgB * factor);
-          }
-          // Set alpha channel directly in RGBA array
-          result[pIdx + 3] = Math.round(alpha * 255);
-        } else if (alpha <= 0.05) {
-          result[idx * 4 + 3] = 0;
-        } else {
-          result[idx * 4 + 3] = 255;
-        }
-      }
-    }
-
-    return result;
-  }
-
-  /**
-   * Extract luminance buffer from RGBA for the guided filter
-   */
-  public static extractLuminance(rgba: Uint8ClampedArray, width: number, height: number): Float32Array {
-    const n = width * height;
-    const luma = new Float32Array(n);
-    for (let i = 0; i < n; i++) {
-      const p = i * 4;
-      // Standard Rec. 709 luminance weights
-      luma[i] = (0.2126 * rgba[p] + 0.7152 * rgba[p + 1] + 0.0722 * rgba[p + 2]) / 255.0;
-    }
-    return luma;
-  }
-
-  /**
-   * Morphological Mask Dilation (separable 1D max filter O(N))
-   * Expands the mask outwards by radiusPx pixels (0 to 16px)
-   */
-  public static dilateMask(mask: Float32Array, width: number, height: number, radiusPx: number): Float32Array {
-    if (radiusPx <= 0) return new Float32Array(mask);
-
-    const r = Math.min(32, Math.round(radiusPx));
-    const temp = new Float32Array(width * height);
-    const result = new Float32Array(width * height);
-
-    // Horizontal dilation
-    for (let y = 0; y < height; y++) {
-      const row = y * width;
-      for (let x = 0; x < width; x++) {
-        let maxVal = 0;
-        const xMin = Math.max(0, x - r);
-        const xMax = Math.min(width - 1, x + r);
-        for (let ix = xMin; ix <= xMax; ix++) {
-          const v = mask[row + ix];
-          if (v > maxVal) maxVal = v;
-          if (maxVal >= 1.0) break;
-        }
-        temp[row + x] = maxVal;
-      }
-    }
-
-    // Vertical dilation
-    for (let x = 0; x < width; x++) {
-      for (let y = 0; y < height; y++) {
-        let maxVal = 0;
-        const yMin = Math.max(0, y - r);
-        const yMax = Math.min(height - 1, y + r);
-        for (let iy = yMin; iy <= yMax; iy++) {
-          const v = temp[iy * width + x];
-          if (v > maxVal) maxVal = v;
-          if (maxVal >= 1.0) break;
-        }
-        result[y * width + x] = maxVal;
-      }
-    }
-
-    return result;
-  }
-
-  /**
-   * Mask Feathering (soft edge transition)
-   */
-  public static featherMask(mask: Float32Array, width: number, height: number, radiusPx = 2): Float32Array {
-    if (radiusPx <= 0) return new Float32Array(mask);
-    return ImagePostprocessor.boxFilter(mask, width, height, radiusPx);
-  }
-
-  /**
-   * Compute Bounding Box ROI of masked connected components + context padding
-   * Context padding: >= 64px or 50% of the mask dimension on each side
-   */
-  public static computeMaskROI(
-    mask: Float32Array,
+  public fastGuidedFilter(
+    guideRgba: Uint8ClampedArray,
+    inputMask: Float32Array,
     width: number,
     height: number,
-    minPadding = 64,
-    relativePadding = 0.5
-  ): { x: number; y: number; w: number; h: number; hasMask: boolean } {
-    let minX = width;
-    let maxX = -1;
-    let minY = height;
-    let maxY = -1;
-
-    for (let y = 0; y < height; y++) {
-      const row = y * width;
-      for (let x = 0; x < width; x++) {
-        if (mask[row + x] > 0.05) {
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
-          if (y < minY) minY = y;
-          if (y > maxY) maxY = y;
-        }
-      }
-    }
-
-    if (maxX === -1) {
-      return { x: 0, y: 0, w: 0, h: 0, hasMask: false };
-    }
-
-    const maskW = maxX - minX + 1;
-    const maskH = maxY - minY + 1;
-
-    const padX = Math.max(minPadding, Math.round(maskW * relativePadding));
-    const padY = Math.max(minPadding, Math.round(maskH * relativePadding));
-
-    const x = Math.max(0, minX - padX);
-    const y = Math.max(0, minY - padY);
-    const w = Math.min(width - x, maxX + padX - x + 1);
-    const h = Math.min(height - y, maxY + padY - y + 1);
-
-    return { x, y, w, h, hasMask: true };
-  }
-
-  /**
-   * Crop an ROI sub-rectangle from full-resolution RGBA image
-   */
-  public static cropROI(
-    rgba: Uint8ClampedArray,
-    fullW: number,
-    fullH: number,
-    roi: { x: number; y: number; w: number; h: number }
-  ): Uint8ClampedArray {
-    const cropped = new Uint8ClampedArray(roi.w * roi.h * 4);
-    for (let y = 0; y < roi.h; y++) {
-      const srcRow = (roi.y + y) * fullW * 4;
-      const dstRow = y * roi.w * 4;
-      const srcStart = srcRow + roi.x * 4;
-      cropped.set(rgba.subarray(srcStart, srcStart + roi.w * 4), dstRow);
-    }
-    return cropped;
-  }
-
-  /**
-   * Crop an ROI sub-rectangle from full-resolution Float32Array mask
-   */
-  public static cropMaskROI(
-    mask: Float32Array,
-    fullW: number,
-    fullH: number,
-    roi: { x: number; y: number; w: number; h: number }
+    radius = 3,
+    eps = 0.01
   ): Float32Array {
-    const cropped = new Float32Array(roi.w * roi.h);
-    for (let y = 0; y < roi.h; y++) {
-      const srcRow = (roi.y + y) * fullW;
-      const dstRow = y * roi.w;
-      const srcStart = srcRow + roi.x;
-      cropped.set(mask.subarray(srcStart, srcStart + roi.w), dstRow);
+    const total = width * height;
+    const guideGray = new Float32Array(total);
+
+    for (let i = 0; i < total; i++) {
+      const p = i * 4;
+      guideGray[i] = (guideRgba[p] * 0.299 + guideRgba[p + 1] * 0.587 + guideRgba[p + 2] * 0.114) / 255.0;
     }
-    return cropped;
+
+    const meanI = this.boxBlur1D(guideGray, width, height, radius);
+    const meanP = this.boxBlur1D(inputMask, width, height, radius);
+
+    const Ip = new Float32Array(total);
+    const II = new Float32Array(total);
+    for (let i = 0; i < total; i++) {
+      Ip[i] = guideGray[i] * inputMask[i];
+      II[i] = guideGray[i] * guideGray[i];
+    }
+    const meanIp = this.boxBlur1D(Ip, width, height, radius);
+    const meanII = this.boxBlur1D(II, width, height, radius);
+
+    const a = new Float32Array(total);
+    const b = new Float32Array(total);
+    for (let i = 0; i < total; i++) {
+      const covIp = meanIp[i] - meanI[i] * meanP[i];
+      const varI = meanII[i] - meanI[i] * meanI[i];
+      a[i] = covIp / (varI + eps);
+      b[i] = meanP[i] - a[i] * meanI[i];
+    }
+
+    const meanA = this.boxBlur1D(a, width, height, radius);
+    const meanB = this.boxBlur1D(b, width, height, radius);
+
+    const output = new Float32Array(total);
+    for (let i = 0; i < total; i++) {
+      output[i] = Math.max(0, Math.min(1, meanA[i] * guideGray[i] + meanB[i]));
+    }
+
+    return output;
   }
 
   /**
-   * Split large ROI into overlapping sub-windows (e.g. 512x512 with 64px overlap)
+   * Morphological Cleanup: small island removal & small hole closing
    */
-  public static splitIntoOverlappingWindows(
-    roiW: number,
-    roiH: number,
-    windowSize = 512,
-    overlap = 64
-  ): Array<{ x: number; y: number; w: number; h: number }> {
-    if (roiW <= windowSize && roiH <= windowSize) {
-      return [{ x: 0, y: 0, w: roiW, h: roiH }];
-    }
-
-    const step = windowSize - overlap;
-    const windows: Array<{ x: number; y: number; w: number; h: number }> = [];
-
-    for (let y = 0; y < roiH; y += step) {
-      const winH = Math.min(windowSize, roiH - y);
-      const startY = winH < windowSize && y > 0 ? Math.max(0, roiH - windowSize) : y;
-
-      for (let x = 0; x < roiW; x += step) {
-        const winW = Math.min(windowSize, roiW - x);
-        const startX = winW < windowSize && x > 0 ? Math.max(0, roiW - windowSize) : x;
-
-        windows.push({
-          x: startX,
-          y: startY,
-          w: Math.min(windowSize, roiW - startX),
-          h: Math.min(windowSize, roiH - startY)
-        });
-
-        if (startX + windowSize >= roiW) break;
-      }
-      if (startY + windowSize >= roiH) break;
-    }
-
-    return windows;
-  }
-
-  /**
-   * Paste inpainted ROI back onto original image with BYTE-FOR-BYTE identity
-   * for every pixel outside the mask (alpha === 0).
-   */
-  public static pasteInpaintedROI(
-    originalRgba: Uint8ClampedArray,
-    inpaintedROI: Uint8ClampedArray,
-    roi: { x: number; y: number; w: number; h: number },
-    fullMask: Float32Array,
+  public cleanupMaskMorphology(
+    mask: Float32Array,
     width: number,
     height: number
-  ): Uint8ClampedArray {
-    // Clone original buffer (Strict Memory budget: max 2 full-res image copies)
-    const result = new Uint8ClampedArray(originalRgba);
+  ): Float32Array {
+    const total = width * height;
+    const cleaned = new Float32Array(mask);
 
-    for (let ry = 0; ry < roi.h; ry++) {
-      const gy = roi.y + ry;
-      if (gy >= height) continue;
-      const gRow = gy * width;
-      const rRow = ry * roi.w;
+    // Apply a 3x3 min-max morphological opening / closing filter
+    for (let y = 1; y < height - 1; y++) {
+      const row = y * width;
+      for (let x = 1; x < width - 1; x++) {
+        const center = mask[row + x];
+        
+        let sumNeighbors = 0;
+        sumNeighbors += mask[row - width + x - 1] > 0.5 ? 1 : 0;
+        sumNeighbors += mask[row - width + x] > 0.5 ? 1 : 0;
+        sumNeighbors += mask[row - width + x + 1] > 0.5 ? 1 : 0;
+        sumNeighbors += mask[row + x - 1] > 0.5 ? 1 : 0;
+        sumNeighbors += mask[row + x + 1] > 0.5 ? 1 : 0;
+        sumNeighbors += mask[row + width + x - 1] > 0.5 ? 1 : 0;
+        sumNeighbors += mask[row + width + x] > 0.5 ? 1 : 0;
+        sumNeighbors += mask[row + width + x + 1] > 0.5 ? 1 : 0;
 
-      for (let rx = 0; rx < roi.w; rx++) {
-        const gx = roi.x + rx;
-        if (gx >= width) continue;
-
-        const maskIdx = gRow + gx;
-        const alpha = fullMask[maskIdx];
-
-        // CRITICAL CONSTRAINT: Byte-exact equality for alpha == 0
-        if (alpha > 0) {
-          const gP = maskIdx * 4;
-          const rP = (rRow + rx) * 4;
-
-          if (alpha >= 0.999) {
-            result[gP] = inpaintedROI[rP];
-            result[gP + 1] = inpaintedROI[rP + 1];
-            result[gP + 2] = inpaintedROI[rP + 2];
-            result[gP + 3] = originalRgba[gP + 3];
-          } else {
-            // Smooth feather blend on mask boundaries
-            const invAlpha = 1.0 - alpha;
-            result[gP] = Math.round(originalRgba[gP] * invAlpha + inpaintedROI[rP] * alpha);
-            result[gP + 1] = Math.round(originalRgba[gP + 1] * invAlpha + inpaintedROI[rP + 1] * alpha);
-            result[gP + 2] = Math.round(originalRgba[gP + 2] * invAlpha + inpaintedROI[rP + 2] * alpha);
-            result[gP + 3] = originalRgba[gP + 3];
-          }
+        if (center > 0.5 && sumNeighbors < 2) {
+          // Isolated single pixel noise -> remove
+          cleaned[row + x] = 0;
+        } else if (center <= 0.5 && sumNeighbors >= 7) {
+          // Isolated single pixel hole inside foreground -> fill
+          cleaned[row + x] = 1.0;
+        } else {
+          cleaned[row + x] = center;
         }
       }
     }
 
-    return result;
+    return cleaned;
   }
 
   /**
-   * True Push-Pull Multiresolution Pyramid Inpainting (Fallback without download)
-   * 
-   * Replaces faulty local averaging:
-   * 1. Pull phase: Builds Gaussian image & confidence pyramid (down to 1x1)
-   *    so holes of ANY arbitrary size are guaranteed to be filled from broad context.
-   * 2. Push phase: Propagates filled values from coarse levels back into missing pixels.
-   * 3. Noise/Grain matching: Analyzes surrounding texture variance and synthesizes
-   *    matching camera sensor grain for natural appearance.
+   * Edge De-fringing / Color Decontamination:
+   * Neutralizes background color spill on semi-transparent transition boundary pixels.
    */
-  public static pushPullInpaint(
-    rgba: Uint8ClampedArray,
+  public decontaminateEdges(
+    imageData: ImageData,
     mask: Float32Array,
     width: number,
-    height: number,
-    seed = 42
-  ): Uint8ClampedArray {
-    const output = new Uint8ClampedArray(rgba);
-    const n = width * height;
+    height: number
+  ): void {
+    const data = imageData.data;
+    const total = width * height;
 
-    // Build pyramid structures
-    interface PyramidLevel {
-      w: number;
-      h: number;
-      r: Float32Array;
-      g: Float32Array;
-      b: Float32Array;
-      weight: Float32Array;
-    }
-
-    const pyramid: PyramidLevel[] = [];
-
-    // Level 0: Original data with confidence = 0 for masked pixels, 1 for context
-    const l0R = new Float32Array(n);
-    const l0G = new Float32Array(n);
-    const l0B = new Float32Array(n);
-    const l0W = new Float32Array(n);
-
-    // Measure local boundary grain variance in surrounding context
-    let contextVarR = 0;
-    let contextVarG = 0;
-    let contextVarB = 0;
-    let contextSamples = 0;
-
-    for (let i = 0; i < n; i++) {
-      const p = i * 4;
-      const m = mask[i];
-      const isHole = m > 0.05;
-
-      l0R[i] = rgba[p];
-      l0G[i] = rgba[p + 1];
-      l0B[i] = rgba[p + 2];
-      l0W[i] = isHole ? 0.0 : 1.0;
-    }
-
-    // Estimate boundary texture standard deviation
     for (let y = 1; y < height - 1; y++) {
       const row = y * width;
       for (let x = 1; x < width - 1; x++) {
         const idx = row + x;
-        if (l0W[idx] > 0.5) {
-          // Check if adjacent to mask hole
-          if (
-            l0W[idx - 1] < 0.5 ||
-            l0W[idx + 1] < 0.5 ||
-            l0W[idx - width] < 0.5 ||
-            l0W[idx + width] < 0.5
-          ) {
-            const dr = l0R[idx] - l0R[idx - 1];
-            const dg = l0G[idx] - l0G[idx - 1];
-            const db = l0B[idx] - l0B[idx - 1];
-            contextVarR += dr * dr;
-            contextVarG += dg * dg;
-            contextVarB += db * db;
-            contextSamples++;
-          }
-        }
-      }
-    }
+        const alpha = mask[idx];
 
-    const grainStdR = contextSamples > 0 ? Math.min(18, Math.sqrt(contextVarR / contextSamples) * 0.7) : 3;
-    const grainStdG = contextSamples > 0 ? Math.min(18, Math.sqrt(contextVarG / contextSamples) * 0.7) : 3;
-    const grainStdB = contextSamples > 0 ? Math.min(18, Math.sqrt(contextVarB / contextSamples) * 0.7) : 3;
+        // Only process semi-transparent transition zone (edges)
+        if (alpha > 0.05 && alpha < 0.92) {
+          const px = idx * 4;
 
-    pyramid.push({ w: width, h: height, r: l0R, g: l0G, b: l0B, weight: l0W });
+          // Look around 3x3 window for solid foreground pixels
+          let fgR = 0;
+          let fgG = 0;
+          let fgB = 0;
+          let fgCount = 0;
 
-    // === PULL PHASE (Fine to Coarse) ===
-    let curLevel = pyramid[0];
-    while (curLevel.w > 1 || curLevel.h > 1) {
-      const nextW = Math.max(1, Math.floor(curLevel.w / 2));
-      const nextH = Math.max(1, Math.floor(curLevel.h / 2));
-      const nextN = nextW * nextH;
-
-      const nextR = new Float32Array(nextN);
-      const nextG = new Float32Array(nextN);
-      const nextB = new Float32Array(nextN);
-      const nextWgt = new Float32Array(nextN);
-
-      for (let ny = 0; ny < nextH; ny++) {
-        const sy0 = ny * 2;
-        const sy1 = Math.min(curLevel.h - 1, sy0 + 1);
-
-        for (let nx = 0; nx < nextW; nx++) {
-          const sx0 = nx * 2;
-          const sx1 = Math.min(curLevel.w - 1, sx0 + 1);
-
-          let sumR = 0, sumG = 0, sumB = 0, sumW = 0;
-          const childCoords = [
-            sy0 * curLevel.w + sx0,
-            sy0 * curLevel.w + sx1,
-            sy1 * curLevel.w + sx0,
-            sy1 * curLevel.w + sx1
-          ];
-
-          for (const cIdx of childCoords) {
-            const w = curLevel.weight[cIdx];
-            if (w > 0) {
-              sumR += curLevel.r[cIdx] * w;
-              sumG += curLevel.g[cIdx] * w;
-              sumB += curLevel.b[cIdx] * w;
-              sumW += w;
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              const nIdx = (y + dy) * width + (x + dx);
+              if (mask[nIdx] >= 0.9) {
+                const nPx = nIdx * 4;
+                fgR += data[nPx];
+                fgG += data[nPx + 1];
+                fgB += data[nPx + 2];
+                fgCount++;
+              }
             }
           }
 
-          const outIdx = ny * nextW + nx;
-          if (sumW > 0) {
-            nextR[outIdx] = sumR / sumW;
-            nextG[outIdx] = sumG / sumW;
-            nextB[outIdx] = sumB / sumW;
-            nextWgt[outIdx] = Math.min(1.0, sumW / 4.0);
-          } else {
-            nextR[outIdx] = 0;
-            nextG[outIdx] = 0;
-            nextB[outIdx] = 0;
-            nextWgt[outIdx] = 0;
-          }
-        }
-      }
+          if (fgCount > 0) {
+            const avgR = fgR / fgCount;
+            const avgG = fgG / fgCount;
+            const avgB = fgB / fgCount;
 
-      curLevel = { w: nextW, h: nextH, r: nextR, g: nextG, b: nextB, weight: nextWgt };
-      pyramid.push(curLevel);
-    }
-
-    // === PUSH PHASE (Coarse to Fine) ===
-    // If top of pyramid still has 0 weight (unlikely unless whole image is masked), fill with neutral gray
-    const top = pyramid[pyramid.length - 1];
-    if (top.weight[0] === 0) {
-      top.r[0] = 128;
-      top.g[0] = 128;
-      top.b[0] = 128;
-      top.weight[0] = 1.0;
-    }
-
-    for (let l = pyramid.length - 1; l > 0; l--) {
-      const parent = pyramid[l];
-      const child = pyramid[l - 1];
-
-      for (let cy = 0; cy < child.h; cy++) {
-        const py = Math.min(parent.h - 1, Math.floor(cy / 2));
-        const cRow = cy * child.w;
-        const pRow = py * parent.w;
-
-        for (let cx = 0; cx < child.w; cx++) {
-          const px = Math.min(parent.w - 1, Math.floor(cx / 2));
-          const cIdx = cRow + cx;
-          const pIdx = pRow + px;
-
-          const childW = child.weight[cIdx];
-          if (childW < 1.0) {
-            // Push color from parent level
-            const parentR = parent.r[pIdx];
-            const parentG = parent.g[pIdx];
-            const parentB = parent.b[pIdx];
-
-            child.r[cIdx] = child.r[cIdx] * childW + parentR * (1.0 - childW);
-            child.g[cIdx] = child.g[cIdx] * childW + parentG * (1.0 - childW);
-            child.b[cIdx] = child.b[cIdx] * childW + parentB * (1.0 - childW);
-            child.weight[cIdx] = 1.0; // Marked filled
+            // Blend edge color towards the nearest solid foreground color
+            const blendFactor = 1.0 - alpha;
+            data[px] = Math.round(data[px] * alpha + avgR * blendFactor);
+            data[px + 1] = Math.round(data[px + 1] * alpha + avgG * blendFactor);
+            data[px + 2] = Math.round(data[px + 2] * alpha + avgB * blendFactor);
           }
         }
       }
     }
-
-    // Fast PRNG for reproducible grain synthesis
-    const lcg = (x: number, y: number, s: number) => {
-      let h = (x * 374761393 + y * 668265263 + s * 1442695040888963407) | 0;
-      h = Math.imul(h ^ (h >>> 13), 1274126177);
-      return ((h ^ (h >>> 16)) & 0xffff) / 65535.0 - 0.5; // [-0.5, 0.5]
-    };
-
-    // Populate output buffer with filled colors and matched grain
-    const filledR = pyramid[0].r;
-    const filledG = pyramid[0].g;
-    const filledB = pyramid[0].b;
-
-    for (let i = 0; i < n; i++) {
-      const m = mask[i];
-      if (m > 0.001) {
-        const p = i * 4;
-        const x = i % width;
-        const y = Math.floor(i / width);
-
-        // Add subtle sensor grain matching surrounding variance
-        const noise = lcg(x, y, seed);
-        const rVal = Math.max(0, Math.min(255, Math.round(filledR[i] + noise * grainStdR * 2.0)));
-        const gVal = Math.max(0, Math.min(255, Math.round(filledG[i] + noise * grainStdG * 2.0)));
-        const bVal = Math.max(0, Math.min(255, Math.round(filledB[i] + noise * grainStdB * 2.0)));
-
-        output[p] = rVal;
-        output[p + 1] = gVal;
-        output[p + 2] = bVal;
-      }
-    }
-
-    return output;
   }
 
   /**
-   * Calculate outpainting expansion steps.
-   * Per requirement (3): Each step expands by at most 25% of the longest dimension per side.
-   * Large expansions (>50%) trigger a quality warning.
+   * Combine AI Mask with user manual Add & Remove layers
+   * Formula: Final = clamp(AI_Mask + User_Add - User_Remove, 0, 1)
    */
-  public static calculateExpansionSteps(
-    origW: number,
-    origH: number,
-    targetW: number,
-    targetH: number,
-    targetOriginX: number,
-    targetOriginY: number
-  ): {
-    numSteps: number;
-    shouldWarn: boolean;
-    totalExpansionFraction: number;
-    steps: Array<{
-      stepIndex: number;
-      curW: number;
-      curH: number;
-      originX: number;
-      originY: number;
-      padLeft: number;
-      padTop: number;
-      padRight: number;
-      padBottom: number;
-    }>;
-  } {
-    const padLeft = Math.max(0, targetOriginX);
-    const padTop = Math.max(0, targetOriginY);
-    const padRight = Math.max(0, targetW - (targetOriginX + origW));
-    const padBottom = Math.max(0, targetH - (targetOriginY + origH));
+  public combineMasks(
+    aiMask: Float32Array,
+    userAddMask: Float32Array | null,
+    userRemoveMask: Float32Array | null,
+    width: number,
+    height: number
+  ): Float32Array {
+    const total = width * height;
+    const finalMask = new Float32Array(total);
 
-    const longestOrig = Math.max(origW, origH);
-    const maxHorizontalPad = padLeft + padRight;
-    const maxVerticalPad = padTop + padBottom;
-    const maxTotalExpansion = Math.max(maxHorizontalPad, maxVerticalPad);
-
-    const totalExpansionFraction = maxTotalExpansion / Math.max(1, longestOrig);
-    const shouldWarn = totalExpansionFraction > 0.5;
-
-    // Max expansion per step is 25% of longest dimension
-    const maxStepPx = Math.max(16, Math.floor(0.25 * longestOrig));
-    const maxSingleSide = Math.max(padLeft, padTop, padRight, padBottom);
-    const numSteps = Math.max(1, Math.ceil(maxSingleSide / maxStepPx));
-
-    const steps = [];
-    let prevL = 0, prevT = 0, prevR = 0, prevB = 0;
-
-    for (let s = 1; s <= numSteps; s++) {
-      const frac = s / numSteps;
-      const curL = Math.round(padLeft * frac);
-      const curT = Math.round(padTop * frac);
-      const curR = Math.round(padRight * frac);
-      const curB = Math.round(padBottom * frac);
-
-      const curW = origW + curL + curR;
-      const curH = origH + curT + curB;
-
-      steps.push({
-        stepIndex: s - 1,
-        curW,
-        curH,
-        originX: curL,
-        originY: curT,
-        padLeft: curL - prevL,
-        padTop: curT - prevT,
-        padRight: curR - prevR,
-        padBottom: curB - prevB
-      });
-
-      prevL = curL;
-      prevT = curT;
-      prevR = curR;
-      prevB = curB;
+    for (let i = 0; i < total; i++) {
+      let val = aiMask[i];
+      if (userAddMask) {
+        val = Math.max(val, userAddMask[i]);
+      }
+      if (userRemoveMask) {
+        val = Math.min(val, 1.0 - userRemoveMask[i]);
+      }
+      finalMask[i] = Math.max(0, Math.min(1, val));
     }
 
-    return {
-      numSteps,
-      shouldWarn,
-      totalExpansionFraction,
-      steps
-    };
+    return finalMask;
   }
 
   /**
-   * Mirror coordinate reflection helper
+   * Fast Separable Box Blur
    */
-  public static mirrorCoordinate(coord: number, max: number): number {
-    if (max <= 1) return 0;
-    let c = coord;
-    while (c < 0 || c >= max) {
-      if (c < 0) {
-        c = -c;
-      } else if (c >= max) {
-        c = 2 * (max - 1) - c;
-      }
-    }
-    return Math.max(0, Math.min(max - 1, c));
-  }
+  public boxBlur1D(
+    src: Float32Array,
+    w: number,
+    h: number,
+    radius: number
+  ): Float32Array {
+    if (radius <= 0) return src;
+    const temp = new Float32Array(src.length);
+    const out = new Float32Array(src.length);
 
-  /**
-   * Initial Instant Non-Intelligent Outpaint Fill:
-   * Edge Mirroring + Gradual Blur increasing with distance from original image edge.
-   * Requirement 4(b): Instant preview & fast fallback without model download.
-   */
-  public static createMirrorBlurExpandedCanvas(
-    origRgba: Uint8ClampedArray,
-    origW: number,
-    origH: number,
-    targetW: number,
-    targetH: number,
-    originX: number,
-    originY: number
-  ): Uint8ClampedArray {
-    const result = new Uint8ClampedArray(targetW * targetH * 4);
-
-    // 1. First pass: Edge Mirror Reflection across boundaries
-    for (let ty = 0; ty < targetH; ty++) {
-      const tRow = ty * targetW;
-      const isInsideY = ty >= originY && ty < originY + origH;
-
-      for (let tx = 0; tx < targetW; tx++) {
-        const isInsideX = tx >= originX && tx < originX + origW;
-        const targetIdx = (tRow + tx) * 4;
-
-        if (isInsideX && isInsideY) {
-          // Inside original rectangle: STRICT BYTE-FOR-BYTE COPY
-          const origX = tx - originX;
-          const origY = ty - originY;
-          const origIdx = (origY * origW + origX) * 4;
-          result[targetIdx] = origRgba[origIdx];
-          result[targetIdx + 1] = origRgba[origIdx + 1];
-          result[targetIdx + 2] = origRgba[origIdx + 2];
-          result[targetIdx + 3] = origRgba[origIdx + 3];
-        } else {
-          // Outside: Mirror reflection from nearest boundary
-          const relX = tx - originX;
-          const relY = ty - originY;
-          const mx = ImagePostprocessor.mirrorCoordinate(relX, origW);
-          const my = ImagePostprocessor.mirrorCoordinate(relY, origH);
-          const origIdx = (my * origW + mx) * 4;
-
-          result[targetIdx] = origRgba[origIdx];
-          result[targetIdx + 1] = origRgba[origIdx + 1];
-          result[targetIdx + 2] = origRgba[origIdx + 2];
-          result[targetIdx + 3] = 255;
-        }
-      }
-    }
-
-    // 2. Second pass: Gradual blurring increasing with distance from the original border
-    // Create temporary copy for reading
-    const temp = new Uint8ClampedArray(result);
-
-    for (let ty = 0; ty < targetH; ty++) {
-      const isInsideY = ty >= originY && ty < originY + origH;
-      const tRow = ty * targetW;
-
-      for (let tx = 0; tx < targetW; tx++) {
-        const isInsideX = tx >= originX && tx < originX + origW;
-
-        // Skip original image pixels to strictly preserve byte identity
-        if (isInsideX && isInsideY) continue;
-
-        // Calculate distance from nearest original edge
-        let dx = 0;
-        if (tx < originX) dx = originX - tx;
-        else if (tx >= originX + origW) dx = tx - (originX + origW - 1);
-
-        let dy = 0;
-        if (ty < originY) dy = originY - ty;
-        else if (ty >= originY + origH) dy = ty - (originY + origH - 1);
-
-        const dist = Math.hypot(dx, dy);
-        // Blur radius scales with distance from 2px up to 32px
-        const blurRadius = Math.min(32, Math.max(2, Math.floor(dist * 0.18)));
-
-        let sumR = 0, sumG = 0, sumB = 0, count = 0;
-        const bMinY = Math.max(0, ty - blurRadius);
-        const bMaxY = Math.min(targetH - 1, ty + blurRadius);
-        const bMinX = Math.max(0, tx - blurRadius);
-        const bMaxX = Math.min(targetW - 1, tx + blurRadius);
-
-        // Subsample kernel for speed O(1) sampling
-        const step = Math.max(1, Math.floor(blurRadius / 3));
-        for (let sy = bMinY; sy <= bMaxY; sy += step) {
-          const sRow = sy * targetW;
-          for (let sx = bMinX; sx <= bMaxX; sx += step) {
-            const sIdx = (sRow + sx) * 4;
-            sumR += temp[sIdx];
-            sumG += temp[sIdx + 1];
-            sumB += temp[sIdx + 2];
+    // Horizontal pass
+    for (let y = 0; y < h; y++) {
+      const rowOffset = y * w;
+      for (let x = 0; x < w; x++) {
+        let sum = 0;
+        let count = 0;
+        for (let k = -radius; k <= radius; k++) {
+          const nx = x + k;
+          if (nx >= 0 && nx < w) {
+            sum += src[rowOffset + nx];
             count++;
           }
         }
-
-        const targetIdx = (tRow + tx) * 4;
-        result[targetIdx] = Math.round(sumR / count);
-        result[targetIdx + 1] = Math.round(sumG / count);
-        result[targetIdx + 2] = Math.round(sumB / count);
-        result[targetIdx + 3] = 255;
+        temp[rowOffset + x] = sum / count;
       }
     }
 
-    return result;
+    // Vertical pass
+    for (let x = 0; x < w; x++) {
+      for (let y = 0; y < h; y++) {
+        let sum = 0;
+        let count = 0;
+        for (let k = -radius; k <= radius; k++) {
+          const ny = y + k;
+          if (ny >= 0 && ny < h) {
+            sum += temp[ny * w + x];
+            count++;
+          }
+        }
+        out[y * w + x] = sum / count;
+      }
+    }
+
+    return out;
   }
 
   /**
-   * Create Outpaint Mask:
-   * Requirement 4(c): Mask = new expanded area + 16px overlap into the original image.
-   * Inside the inner core (>16px inside original): mask is 0.0.
+   * Merge processed tiles into unified full-resolution output canvas
    */
-  public static createOutpaintMask(
-    targetW: number,
-    targetH: number,
-    originX: number,
-    originY: number,
-    origW: number,
-    origH: number,
-    overlapPx = 16
-  ): Float32Array {
-    const mask = new Float32Array(targetW * targetH);
+  public mergeTiles(
+    tiles: Array<{
+      tile: ImageTile;
+      processedCanvas: HTMLCanvasElement | OffscreenCanvas;
+    }>,
+    targetWidth: number,
+    targetHeight: number,
+    scaleFactor = 1
+  ): HTMLCanvasElement | OffscreenCanvas {
+    const finalW = targetWidth * scaleFactor;
+    const finalH = targetHeight * scaleFactor;
 
-    const innerMinX = originX + overlapPx;
-    const innerMaxX = originX + origW - overlapPx;
-    const innerMinY = originY + overlapPx;
-    const innerMaxY = originY + origH - overlapPx;
+    const outCanvas = this.memoryManager.createCanvas(finalW, finalH);
+    const outCtx = outCanvas.getContext("2d") as
+      | CanvasRenderingContext2D
+      | OffscreenCanvasRenderingContext2D;
 
-    for (let y = 0; y < targetH; y++) {
-      const row = y * targetW;
-      for (let x = 0; x < targetW; x++) {
-        // Outside the original bounds: 100% masked
-        const isOutsideOriginal = x < originX || x >= originX + origW || y < originY || y >= originY + origH;
-        if (isOutsideOriginal) {
-          mask[row + x] = 1.0;
-        } else {
-          // Inside original bounds: check overlap zone
-          const isInsideCore = x >= innerMinX && x < innerMaxX && y >= innerMinY && y < innerMaxY;
-          if (isInsideCore) {
-            mask[row + x] = 0.0;
-          } else {
-            // Overlap transition zone: calculate distance into overlap
-            const distFromEdge = Math.min(
-              x - originX,
-              originX + origW - 1 - x,
-              y - originY,
-              originY + origH - 1 - y
-            );
-            // Linear ramp from 1.0 at outer edge to 0.0 at 16px inside
-            mask[row + x] = Math.max(0, Math.min(1.0, 1.0 - distFromEdge / overlapPx));
-          }
-        }
-      }
+    if (!outCtx) {
+      throw new Error("[ImagePostprocessor] Failed to obtain merge canvas context");
     }
 
-    return mask;
+    for (const { tile, processedCanvas } of tiles) {
+      const destX = tile.x * scaleFactor;
+      const destY = tile.y * scaleFactor;
+      const destW = tile.width * scaleFactor;
+      const destH = tile.height * scaleFactor;
+
+      const srcCropX = tile.padLeft * scaleFactor;
+      const srcCropY = tile.padTop * scaleFactor;
+      const srcCropW = destW;
+      const srcCropH = destH;
+
+      outCtx.drawImage(
+        processedCanvas as any,
+        srcCropX,
+        srcCropY,
+        srcCropW,
+        srcCropH,
+        destX,
+        destY,
+        destW,
+        destH
+      );
+    }
+
+    return outCanvas;
   }
 
   /**
-   * Composite Outpainted Step:
-   * Pastes generated region with feathered gradient (8-16px) into overlap zone.
-   * Central core of original image is STRICTLY PRESERVED BYTE-FOR-BYTE.
+   * Encode canvas or ImageData into Data URL / Blob
    */
-  public static compositeOutpaintStep(
-    baseExpandedRgba: Uint8ClampedArray,
-    inpaintedRgba: Uint8ClampedArray,
-    origRgba: Uint8ClampedArray,
-    targetW: number,
-    targetH: number,
-    originX: number,
-    origW: number,
-    origH: number,
-    originY: number,
-    outpaintMask: Float32Array
-  ): Uint8ClampedArray {
-    const result = new Uint8ClampedArray(baseExpandedRgba);
+  public async encodeCanvas(
+    canvasOrImageData: HTMLCanvasElement | OffscreenCanvas | ImageData,
+    format: "image/png" | "image/jpeg" | "image/webp" = "image/png",
+    quality = 0.95
+  ): Promise<{ dataUrl: string; blob?: Blob }> {
+    let canvas: HTMLCanvasElement | OffscreenCanvas;
+    let shouldDispose = false;
 
-    for (let y = 0; y < targetH; y++) {
-      const row = y * targetW;
-      const isYInsideOrig = y >= originY && y < originY + origH;
-
-      for (let x = 0; x < targetW; x++) {
-        const isXInsideOrig = x >= originX && x < originX + origW;
-        const idx = row + x;
-        const p = idx * 4;
-        const m = outpaintMask[idx];
-
-        if (isXInsideOrig && isYInsideOrig) {
-          const origX = x - originX;
-          const origY = y - originY;
-          const origP = (origY * origW + origX) * 4;
-
-          if (m <= 0.001) {
-            // Inner Core: STRICT BYTE-FOR-BYTE ORIGINAL IDENTITY
-            result[p] = origRgba[origP];
-            result[p + 1] = origRgba[origP + 1];
-            result[p + 2] = origRgba[origP + 2];
-            result[p + 3] = origRgba[origP + 3];
-          } else {
-            // Overlap feather blend (8-16px)
-            const alpha = m;
-            const invAlpha = 1.0 - alpha;
-            result[p] = Math.round(origRgba[origP] * invAlpha + inpaintedRgba[p] * alpha);
-            result[p + 1] = Math.round(origRgba[origP + 1] * invAlpha + inpaintedRgba[p + 1] * alpha);
-            result[p + 2] = Math.round(origRgba[origP + 2] * invAlpha + inpaintedRgba[p + 2] * alpha);
-            result[p + 3] = origRgba[origP + 3];
-          }
-        } else {
-          // Expanded new region
-          result[p] = inpaintedRgba[p];
-          result[p + 1] = inpaintedRgba[p + 1];
-          result[p + 2] = inpaintedRgba[p + 2];
-          result[p + 3] = 255;
-        }
-      }
+    if (canvasOrImageData instanceof ImageData) {
+      canvas = this.memoryManager.createCanvas(
+        canvasOrImageData.width,
+        canvasOrImageData.height
+      );
+      const ctx = canvas.getContext("2d") as
+        | CanvasRenderingContext2D
+        | OffscreenCanvasRenderingContext2D;
+      ctx.putImageData(canvasOrImageData, 0, 0);
+      shouldDispose = true;
+    } else {
+      canvas = canvasOrImageData;
     }
 
-    return result;
+    try {
+      if ("convertToBlob" in canvas && typeof (canvas as any).convertToBlob === "function") {
+        const blob = await (canvas as any).convertToBlob({ type: format, quality });
+        const dataUrl = await this.blobToDataUrl(blob);
+        return { dataUrl, blob };
+      }
+
+      if ("toDataURL" in canvas && typeof (canvas as any).toDataURL === "function") {
+        const dataUrl = (canvas as HTMLCanvasElement).toDataURL(format, quality);
+        let blob: Blob | undefined;
+        try {
+          const res = await fetch(dataUrl);
+          blob = await res.blob();
+        } catch {
+          // Ignore
+        }
+        return { dataUrl, blob };
+      }
+
+      throw new Error("[ImagePostprocessor] Canvas encoding is not supported in current context");
+    } finally {
+      if (shouldDispose) {
+        this.memoryManager.disposeCanvas(canvas);
+      }
+    }
+  }
+
+  private blobToDataUrl(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
   }
 }
-

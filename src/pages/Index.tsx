@@ -1,0 +1,606 @@
+import React, { useEffect, useState, lazy, Suspense } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import BottomNav from "@/components/BottomNav";
+import { useMedia } from "@/context/MediaContext";
+import { isRTL, t } from "@/lib/i18n";
+import { Camera as CameraIcon, Image as ImageIcon, Video, X, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import MediaPicker from "@/components/MediaPicker";
+import { applyThemeToDOM } from "@/lib/theme";
+import { safeStorage } from "@/lib/safeStorage";
+import AuthScreen from "@/components/AuthScreen";
+import { VireonLogo } from "@/components/VireonLogo";
+import { Capacitor } from "@capacitor/core";
+import { Browser } from "@capacitor/browser";
+import { App as CapApp } from "@capacitor/app";
+
+// Helper function to safely handle dynamic imports with automatic retry/reload if module fetch fails
+function lazyWithRetry<T extends React.ComponentType<any>>(
+  componentImport: () => Promise<{ default: T }>
+) {
+  return lazy(async () => {
+    try {
+      const module = await componentImport();
+      window.sessionStorage.setItem("vireon:chunk_retry", "0");
+      return module;
+    } catch (error) {
+      const retryCount = parseInt(window.sessionStorage.getItem("vireon:chunk_retry") || "0", 10);
+      if (retryCount < 2) {
+        window.sessionStorage.setItem("vireon:chunk_retry", String(retryCount + 1));
+        window.location.reload();
+      }
+      return componentImport();
+    }
+  });
+}
+
+const HomeScreen = lazyWithRetry(() => import("@/components/HomeScreen"));
+const TemplatesScreen = lazyWithRetry(() => import("@/components/TemplatesScreen"));
+const CameraScreen = lazyWithRetry(() => import("@/components/CameraScreen"));
+const PhotoEditorScreen = lazyWithRetry(() => import("@/components/PhotoEditorScreen"));
+const ProjectsScreen = lazyWithRetry(() => import("@/components/ProjectsScreen"));
+const SettingsScreen = lazyWithRetry(() => import("@/components/SettingsScreen"));
+const AIStudioScreen = lazyWithRetry(() => import("@/components/AIStudioScreen"));
+const EditorScreen = lazyWithRetry(() => import("@/components/EditorScreen"));
+const TemplateUseScreen = lazyWithRetry(() => import("@/components/TemplateUseScreen"));
+const SmartTemplateQuickEditor = lazyWithRetry(() => import("@/components/SmartTemplateQuickEditor"));
+
+const ScreenLoader = () => (
+  <div className="min-h-[100dvh] w-full flex flex-col items-center justify-center bg-background text-foreground animate-pulse">
+    <VireonLogo className="w-12 h-12 mb-3 drop-shadow-lg" />
+    <span className="text-xs font-semibold tracking-wider text-muted-foreground">Vireon AI Studio</span>
+  </div>
+);
+
+const Index = () => {
+  const [activeTab, setActiveTab] = useState("home");
+  const [showEditor, setShowEditor] = useState(false);
+  const [showPlusMenu, setShowPlusMenu] = useState(false);
+  const [showPhotoEditor, setShowPhotoEditor] = useState(false);
+  const [activeTemplateObj, setActiveTemplateObj] = useState<any | null>(null);
+  const [activeTemplateId, setActiveTemplateId] = useState<string | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tplId = params.get("templateId") || params.get("template");
+    if (tplId) {
+      window.sessionStorage.setItem("vireon:pending_template_id", tplId);
+      return tplId;
+    }
+    return window.sessionStorage.getItem("vireon:pending_template_id") || null;
+  });
+  const [activeSmartTemplate, setActiveSmartTemplate] = useState<any | null>(null);
+  const { media, clips, newProject, addFiles } = useMedia();
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tplId = params.get("templateId") || params.get("template");
+    if (tplId) {
+      window.sessionStorage.setItem("vireon:pending_template_id", tplId);
+      setActiveTemplateId(tplId);
+    }
+  }, []);
+
+  const [session, setSession] = useState<any>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [isGuest, setIsGuest] = useState(() => safeStorage.getItem("vireon:guest") === "1");
+  const [exitOverlay, setExitOverlay] = useState(false);
+  const [lastBackClick, setLastBackClick] = useState(0);
+
+  useEffect(() => {
+    if (!window.history.state) window.history.replaceState({ isHome: true }, "");
+  }, []);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      if (showEditor) {
+        setShowEditor(false);
+        applyThemeToDOM((safeStorage.getItem("vireon:theme") as "dark" | "light" | "auto") || "dark");
+        return;
+      }
+
+      if (showPhotoEditor) {
+        setShowPhotoEditor(false);
+        return;
+      }
+
+      if (showPlusMenu) {
+        setShowPlusMenu(false);
+        return;
+      }
+
+      if (activeTab !== "home") {
+        setActiveTab("home");
+        window.history.pushState({ isHome: true }, "");
+        return;
+      }
+
+      const now = Date.now();
+      if (now - lastBackClick < 2000) {
+        try {
+          window.close();
+        } catch {
+          // ignore
+        }
+        setExitOverlay(true);
+      } else {
+        setLastBackClick(now);
+        window.history.pushState({ isHome: true }, "");
+        toast(isRTL() ? "اضغط تراجع مرة أخرى للخروج من التطبيق ⬥" : "Press back again to exit the application ⬥");
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [showEditor, showPhotoEditor, showPlusMenu, activeTab, lastBackClick]);
+
+  useEffect(() => {
+    const saved = (safeStorage.getItem("vireon:theme") as "dark" | "light" | "auto") || "dark";
+    applyThemeToDOM(saved);
+
+    // Only prefetch on web platform; native/Capacitor assets are already bundled locally.
+    // Limit prefetching to common destinations (Editor and Projects/Gallery).
+    // Defer heavy templates, camera, and photo editors until explicitly accessed.
+    if (!Capacitor.isNativePlatform()) {
+      const prefetchScreens = () => {
+        import("@/components/EditorScreen").catch(() => {});
+        import("@/components/ProjectsScreen").catch(() => {});
+      };
+
+      if ("requestIdleCallback" in window) {
+        window.requestIdleCallback(prefetchScreens);
+      } else {
+        setTimeout(prefetchScreens, 200);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      applyThemeToDOM(showEditor ? "dark" : ((safeStorage.getItem("vireon:theme") as "dark" | "light" | "auto") || "dark"));
+    } catch {
+      // ignore theme errors
+    }
+  }, [showEditor]);
+
+  useEffect(() => {
+    let active = true;
+    let unsubscribe = () => {};
+
+    const handleNativeDeepLinkUrl = async (rawDeepLinkUrl: string, source: "appUrlOpen" | "getLaunchUrl") => {
+      if (!rawDeepLinkUrl || (!rawDeepLinkUrl.includes("auth-callback") && !rawDeepLinkUrl.startsWith("vireon://"))) {
+        return;
+      }
+
+      try {
+        await Browser.close();
+      } catch (e) {
+        // ignore
+      }
+
+      let code: string | null = null;
+      let accessToken: string | null = null;
+      let refreshToken: string | null = null;
+
+      try {
+        const normalizedUrl = rawDeepLinkUrl.replace("vireon://", "https://vireon.ai/");
+        const urlObj = new URL(normalizedUrl);
+        code = urlObj.searchParams.get("code");
+        accessToken = urlObj.searchParams.get("access_token");
+        refreshToken = urlObj.searchParams.get("refresh_token");
+
+        if (!code && !accessToken && urlObj.hash) {
+          const hashStr = urlObj.hash.startsWith("#") ? urlObj.hash.slice(1) : urlObj.hash;
+          const hashParams = new URLSearchParams(hashStr);
+          code = hashParams.get("code");
+          accessToken = hashParams.get("accessToken");
+          refreshToken = hashParams.get("refreshToken");
+        }
+      } catch (e) {
+        console.error("URL parsing failed for deep link:", rawDeepLinkUrl, e);
+      }
+
+      if (code) {
+        try {
+          const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+          if (!error && data.session && active) {
+            setSession(data.session);
+            setAuthChecked(true);
+            toast.success(isRTL() ? "تم تسجيل الدخول بنجاح!" : "Logged in successfully!");
+          } else if (error) {
+            toast.error(error.message);
+          }
+        } catch (err) {
+          console.error("exchangeCodeForSession exception:", err);
+        }
+      } else if (accessToken && refreshToken) {
+        try {
+          const { data, error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          if (!error && data.session && active) {
+            setSession(data.session);
+            setAuthChecked(true);
+            toast.success(isRTL() ? "تم تسجيل الدخول بنجاح!" : "Logged in successfully!");
+          } else if (error) {
+            toast.error(error.message);
+          }
+        } catch (err) {
+          console.error("setSession exception:", err);
+        }
+      }
+    };
+
+    let nativeDeepLinkSub: any;
+    if (Capacitor.isNativePlatform()) {
+      CapApp.addListener("appUrlOpen", async (event) => {
+        handleNativeDeepLinkUrl(event.url, "appUrlOpen");
+      }).then((sub) => {
+        nativeDeepLinkSub = sub;
+      });
+
+      CapApp.getLaunchUrl().then((launchUrl) => {
+        if (launchUrl?.url) {
+          handleNativeDeepLinkUrl(launchUrl.url, "getLaunchUrl");
+        }
+      });
+    }
+
+    const clearOAuthQueryParams = () => {
+      const url = new URL(window.location.href);
+      const keys = ["code", "state", "error", "error_description", "error_code"];
+      let changed = false;
+      for (const key of keys) {
+        if (url.searchParams.has(key)) {
+          url.searchParams.delete(key);
+          changed = true;
+        }
+      }
+      if (changed) window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    };
+
+    const completeOAuthIfPresent = async () => {
+      const searchParams = new URLSearchParams(window.location.search);
+      const hashStr = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
+      const hashParams = new URLSearchParams(hashStr);
+
+      const code = searchParams.get("code") || hashParams.get("code");
+      const accessToken = searchParams.get("access_token") || hashParams.get("access_token");
+      const refreshToken = searchParams.get("refresh_token") || hashParams.get("refresh_token");
+
+      if (!code && !(accessToken && refreshToken)) return;
+
+      try {
+        if (code) {
+          const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+          if (error) throw error;
+          if (active && data.session) setSession(data.session);
+        } else if (accessToken && refreshToken) {
+          const { data, error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          if (error) throw error;
+          if (active && data.session) setSession(data.session);
+        }
+      } catch (error) {
+        console.warn("Supabase OAuth code exchange failed:", error);
+      } finally {
+        clearOAuthQueryParams();
+        if (active) setAuthChecked(true);
+      }
+    };
+
+    const timeoutId = window.setTimeout(() => {
+      if (active) setAuthChecked(true);
+    }, 5000);
+
+    completeOAuthIfPresent().finally(() => {
+      try {
+        const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+          if (!active) return;
+          setSession(nextSession);
+          setAuthChecked(true);
+          window.clearTimeout(timeoutId);
+        });
+        unsubscribe = () => data.subscription.unsubscribe();
+      } catch (error) {
+        if (active) setAuthChecked(true);
+      }
+
+      supabase.auth.getSession().then(({ data: { session: nextSession } }) => {
+        if (!active) return;
+        setSession(nextSession);
+        setAuthChecked(true);
+        window.clearTimeout(timeoutId);
+      });
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
+      if (nativeDeepLinkSub?.remove) nativeDeepLinkSub.remove();
+      window.clearTimeout(timeoutId);
+    };
+  }, []);
+
+  const handleOpenEditor = () => {
+    toast.info(isRTL() ? "جارٍ فتح المحرر..." : "Opening editor...");
+    window.history.pushState({ isEditor: true }, "");
+    setShowEditor(true);
+  };
+
+  const handleStartEditorKeep = () => {
+    window.history.pushState({ isEditor: true }, "");
+    setShowEditor(true);
+  };
+
+  const handleGuestLogin = () => {
+    safeStorage.setItem("vireon:guest", "1");
+    setIsGuest(true);
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    safeStorage.removeItem("vireon:guest");
+    setSession(null);
+    setIsGuest(false);
+  };
+
+  const handlePlusClick = () => {
+    window.history.pushState({ isPlusMenu: true }, "");
+    setShowPlusMenu(true);
+  };
+
+  if (exitOverlay) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-zinc-950 text-white p-6 animate-fade-in">
+        <VireonLogo className="w-16 h-16 mb-6 shadow-xl shadow-primary/20" />
+        <h1 className="text-xl font-heading font-extrabold text-foreground mb-2 text-center">
+          {isRTL() ? "تم الخروج بنجاح" : "Successfully Exited"}
+        </h1>
+        <p className="text-sm text-zinc-400 text-center max-w-xs leading-relaxed">
+          {isRTL() ? "نشكرك على استخدام تطبيقنا." : "Thank you for using our app."}
+        </p>
+        <button
+          onClick={() => {
+            setExitOverlay(false);
+            window.history.pushState({ isHome: true }, "");
+          }}
+          className="mt-8 px-5 py-2.5 rounded-xl bg-zinc-800 text-sm font-semibold hover:bg-zinc-700 transition-colors"
+        >
+          {isRTL() ? "العودة للتطبيق" : "Re-enter Application"}
+        </button>
+      </div>
+    );
+  }
+
+  if (!authChecked) {
+    return (
+      <div className="min-h-[100dvh] flex items-center justify-center bg-background flex-col gap-3">
+        <VireonLogo className="w-14 h-14 animate-pulse" />
+        <div className="animate-pulse text-primary font-heading font-bold text-lg">Vireon AI Studio</div>
+      </div>
+    );
+  }
+
+  if (!session && !isGuest) {
+    return (
+      <AuthScreen
+        onGuestLogin={handleGuestLogin}
+        onLoginSuccess={() => {
+          supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
+            setSession(currentSession);
+            setAuthChecked(true);
+          });
+        }}
+      />
+    );
+  }
+
+  if (showEditor) {
+    return (
+      <div className="dark">
+        <Suspense fallback={<ScreenLoader />}>
+          <EditorScreen
+            onBack={() => {
+              if (window.history.state?.isEditor) {
+                window.history.back();
+              } else {
+                setShowEditor(false);
+                applyThemeToDOM((safeStorage.getItem("vireon:theme") as "dark" | "light" | "auto") || "dark");
+              }
+            }}
+          />
+        </Suspense>
+      </div>
+    );
+  }
+
+  if (activeSmartTemplate) {
+    return (
+      <div className="dark">
+        <Suspense fallback={<ScreenLoader />}>
+          <SmartTemplateQuickEditor
+            initialTemplate={activeSmartTemplate}
+            onBack={() => setActiveSmartTemplate(null)}
+            onOpenFullEditor={() => {
+              setActiveSmartTemplate(null);
+              handleOpenEditor();
+            }}
+          />
+        </Suspense>
+      </div>
+    );
+  }
+
+  if (activeTemplateObj || activeTemplateId) {
+    return (
+      <div className="dark">
+        <Suspense fallback={<ScreenLoader />}>
+          <TemplateUseScreen
+            templateObj={activeTemplateObj}
+            templateId={activeTemplateId || undefined}
+            onBack={() => {
+              setActiveTemplateObj(null);
+              setActiveTemplateId(null);
+              window.sessionStorage.removeItem("vireon:pending_template_id");
+              const url = new URL(window.location.href);
+              url.searchParams.delete("templateId");
+              url.searchParams.delete("template");
+              window.history.replaceState({}, "", url.toString());
+            }}
+          />
+        </Suspense>
+      </div>
+    );
+  }
+
+  if (activeTab === "camera") {
+    return (
+      <div className="dark">
+        <Suspense fallback={<ScreenLoader />}>
+          <CameraScreen
+            onClose={() => setActiveTab("home")}
+            onCaptured={async (file) => {
+              newProject();
+              await addFiles([file]);
+              handleOpenEditor();
+            }}
+          />
+        </Suspense>
+      </div>
+    );
+  }
+
+  if (showPhotoEditor) {
+    return (
+      <Suspense fallback={<ScreenLoader />}>
+        <PhotoEditorScreen
+          onClose={() => {
+            if (window.history.state?.isPhotoEditor) {
+              window.history.back();
+            } else {
+              setShowPhotoEditor(false);
+            }
+          }}
+        />
+      </Suspense>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-background select-none" dir={isRTL() ? "rtl" : "ltr"}>
+      <Suspense fallback={<ScreenLoader />}>
+        {activeTab === "home" && (
+          <HomeScreen
+            onNavigate={setActiveTab}
+            onStartEditor={handleOpenEditor}
+            onOpenPhotoEditor={() => setShowPhotoEditor(true)}
+            session={session}
+            isGuest={isGuest}
+            onLogout={handleLogout}
+            newProject={newProject}
+          />
+        )}
+        {activeTab === "aistudio" && (
+          <AIStudioScreen
+            onBack={() => setActiveTab("home")}
+            onOpenPhotoEditor={() => setShowPhotoEditor(true)}
+            onOpenVideoEditor={async (mediaUrl?: string) => {
+              if (mediaUrl) {
+                try {
+                  const resp = await fetch(mediaUrl);
+                  const blob = await resp.blob();
+                  const isVideo = blob.type.startsWith("video/") || mediaUrl.includes(".mp4") || mediaUrl.includes(".webm");
+                  const isWebm = blob.type.includes("webm") || mediaUrl.includes(".webm");
+                  const ext = isVideo ? (isWebm ? "webm" : "mp4") : "png";
+                  const fileName = isVideo ? `vieron-ai-video-${Date.now()}.${ext}` : `vieron-image-${Date.now()}.${ext}`;
+
+                  const file = new File([blob], fileName, { type: blob.type || (isVideo ? "video/mp4" : "image/png") });
+                  newProject();
+                  await addFiles([file]);
+                  handleOpenEditor();
+                  return;
+                } catch (e) {
+                  console.warn("Failed to load AI media into editor:", e);
+                }
+              }
+              handleOpenEditor();
+            }}
+          />
+        )}
+        {activeTab === "templates" && (
+          <TemplatesScreen
+            onStartEditor={handleOpenEditor}
+            onSelectPublishedTemplate={(tpl) => setActiveTemplateObj(tpl)}
+            onSelectSmartTemplateQuick={(tpl) => setActiveSmartTemplate(tpl)}
+          />
+        )}
+        {activeTab === "projects" && <ProjectsScreen onStartEditor={handleStartEditorKeep} />}
+        {activeTab === "settings" && <SettingsScreen session={session} isGuest={isGuest} onLogout={handleLogout} />}
+      </Suspense>
+
+      <BottomNav active={activeTab} onNavigate={setActiveTab} onPlusClick={handlePlusClick} />
+
+      {showPlusMenu && (
+        <div className="fixed inset-0 z-[55] bg-black/60 flex items-end" onClick={() => setShowPlusMenu(false)}>
+          <div
+            className="w-full glass border-t border-border rounded-t-3xl p-5 pb-8 animate-in slide-in-from-bottom duration-200"
+            dir={isRTL() ? "rtl" : "ltr"}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-heading font-bold text-foreground">{t("plus.title")}</h2>
+              <button onClick={() => setShowPlusMenu(false)} className="p-1.5 rounded-lg hover:bg-secondary">
+                <X className="w-5 h-5 text-muted-foreground" />
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <MediaPicker
+                accept="both"
+                multiple={true}
+                onBeforePick={() => {
+                  setShowPlusMenu(false);
+                  newProject();
+                }}
+                onPicked={handleOpenEditor}
+                className="flex flex-col items-center gap-2 p-5 rounded-2xl bg-secondary hover:bg-secondary/70 transition-colors w-full"
+              >
+                <div className="w-14 h-14 rounded-2xl bg-primary/15 flex items-center justify-center">
+                  <Video className="w-7 h-7 text-primary" />
+                </div>
+                <span className="text-sm font-medium text-foreground">{t("home.newVideo")}</span>
+              </MediaPicker>
+              <button
+                onClick={() => {
+                  setShowPlusMenu(false);
+                  setShowPhotoEditor(true);
+                }}
+                className="flex flex-col items-center gap-2 p-3.5 rounded-2xl bg-secondary hover:bg-secondary/70 transition-colors"
+              >
+                <div className="w-14 h-14 rounded-2xl bg-accent/15 flex items-center justify-center">
+                  <ImageIcon className="w-7 h-7 text-accent" />
+                </div>
+                <span className="text-xs font-bold text-foreground line-clamp-1">{t("plus.photoEditor")}</span>
+              </button>
+              <button
+                onClick={() => {
+                  setShowPlusMenu(false);
+                  setActiveTab("camera");
+                }}
+                className="flex flex-col items-center gap-2 p-3.5 rounded-2xl bg-secondary hover:bg-secondary/70 transition-colors"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-primary/15 flex items-center justify-center">
+                  <CameraIcon className="w-6 h-6 text-primary" />
+                </div>
+                <span className="text-xs font-bold text-foreground line-clamp-1">{t("plus.camera")}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default Index;

@@ -1,14 +1,39 @@
-import { ImageWorkerManager } from './ImageWorkerManager';
-import { ImageInferenceEngine } from './ImageInferenceEngine';
-import { ModelStore } from '../models/ModelStore';
+/**
+ * ImageAIEngine
+ * The Central Coordinator for All Local Image AI Tools.
+ * Unified architecture: Capability Detection, Model Management, Preprocessing,
+ * Neural Inference, Postprocessing, Memory Safety, and Output Verification.
+ */
+
+import {
+  ImageAITaskType,
+  ImageAIOptions,
+  ImageAIResult,
+  ImageCapabilityProfile,
+  FaceDetectionResult,
+} from "./types";
+import { ImageCapabilityDetector } from "./ImageCapabilityDetector";
+import { ImageModelManager, OFFICIAL_MODEL_MANIFESTS } from "./ImageModelManager";
+import { ImageInferenceEngine } from "./ImageInferenceEngine";
+import { ImageWorkerManager } from "./ImageWorkerManager";
+import { ImageMemoryManager } from "./ImageMemoryManager";
+import { aiService } from "@/services/ai";
 
 export class ImageAIEngine {
-  private static instance: ImageAIEngine | null = null;
-  private workerManager = ImageWorkerManager.getInstance();
-  private localEngine = ImageInferenceEngine.getInstance();
-  private modelStore = ModelStore.getInstance();
+  private static instance: ImageAIEngine;
+  private capabilityDetector: ImageCapabilityDetector;
+  private modelManager: ImageModelManager;
+  private inferenceEngine: ImageInferenceEngine;
+  private workerManager: ImageWorkerManager;
+  private memoryManager: ImageMemoryManager;
 
-  private constructor() {}
+  private constructor() {
+    this.capabilityDetector = ImageCapabilityDetector.getInstance();
+    this.modelManager = ImageModelManager.getInstance();
+    this.inferenceEngine = ImageInferenceEngine.getInstance();
+    this.workerManager = ImageWorkerManager.getInstance();
+    this.memoryManager = ImageMemoryManager.getInstance();
+  }
 
   public static getInstance(): ImageAIEngine {
     if (!ImageAIEngine.instance) {
@@ -18,101 +43,320 @@ export class ImageAIEngine {
   }
 
   /**
-   * Expand image boundaries purely locally via Web Worker (primary) or local fallback
-   * Per requirement 2: imageAIEngine.expandImage(...)
+   * Get device hardware capability profile (RAM, WebGPU, WASM SIMD, Threads, Tier)
    */
-  public async expandImage(
-    imageSource: ImageBitmap | ImageData | HTMLCanvasElement,
-    targetW: number,
-    targetH: number,
-    originX?: number,
-    originY?: number,
-    options?: {
-      modelMode?: 'migan-512' | 'push-pull' | 'fast-preview';
-      seed?: number;
-      signal?: AbortSignal;
-      onProgress?: (stage: string, percent: number) => void;
+  public async getCapabilities(forceRefresh = false): Promise<ImageCapabilityProfile> {
+    return this.capabilityDetector.detect(forceRefresh);
+  }
+
+  /**
+   * 1. AI Background Removal
+   * - Central Router: AIService (Capability detection -> Native Google ML Kit OR Web MediaPipe fallback)
+   */
+  public async removeBackground(
+    imageInput: string | Blob | File,
+    options?: ImageAIOptions
+  ): Promise<ImageAIResult> {
+    const startTime = Date.now();
+    const taskId = `rembg_${Date.now()}`;
+
+    options?.onProgress?.({
+      taskId,
+      taskType: "remove-background",
+      stage: "preparing",
+      progress: 0.1,
+      message: "Routing task through AIService router...",
+    });
+
+    try {
+      const segRes = await aiService.removeBackground(imageInput, {
+        refineEdges: options?.edgeRefinement,
+        edgeFeather: options?.featherRadius,
+        signal: options?.signal,
+        onProgress: (prog, stage) => {
+          options?.onProgress?.({
+            taskId,
+            taskType: "remove-background",
+            stage: "inference",
+            progress: prog,
+            message: stage,
+          });
+        },
+      });
+
+      const outputDataUrl = segRes.outputDataUrl || segRes.imageDataUrl || segRes.outputUri || "";
+
+      const totalMs = Date.now() - startTime;
+      const inferenceMs = segRes.processingTimeMs || totalMs;
+      const capability = await this.capabilityDetector.detect();
+
+      return {
+        success: segRes.success,
+        outputDataUrl,
+        mimeType: "image/png",
+        width: segRes.width,
+        height: segRes.height,
+        originalWidth: segRes.width,
+        originalHeight: segRes.height,
+        taskType: "remove-background",
+        engineName: segRes.engine || "MediaPipe Vision Segmenter",
+        executionProvider: (segRes.accelerator as any) || capability.preferredProvider,
+        executionTimeMs: totalMs,
+        timings: {
+          inferenceMs,
+          totalMs,
+        },
+        metrics: {
+          deviceTier: capability.deviceTier,
+          isLocal: true,
+          hasAlphaChannel: true,
+        },
+      };
+    } catch (err: any) {
+      if (options?.signal?.aborted) {
+        throw new Error("Background removal cancelled");
+      }
+      throw err;
     }
-  ) {
-    const origW = imageSource.width;
-    const origH = imageSource.height;
-    const ox = originX ?? Math.round((targetW - origW) / 2);
-    const oy = originY ?? Math.round((targetH - origH) / 2);
+  }
 
-    if (typeof ImageBitmap !== 'undefined' && imageSource instanceof ImageBitmap) {
-      try {
-        const res = await this.workerManager.expandImage(
-          imageSource,
-          origW,
-          origH,
-          targetW,
-          targetH,
-          ox,
-          oy,
-          options
-        );
+  /**
+   * 2. Classical Facial Detail Restoration & Enhancement
+   */
+  public async enhanceFace(
+    imageInput: string | Blob | File,
+    options?: ImageAIOptions
+  ): Promise<ImageAIResult> {
+    let inputUrl = "";
+    let isTempUrl = false;
 
-        if (res.foregroundBitmap && res.width && res.height) {
-          const canvas = new OffscreenCanvas(res.width, res.height);
-          const ctx = canvas.getContext('2d') as OffscreenCanvasRenderingContext2D;
-          ctx.drawImage(res.foregroundBitmap, 0, 0);
-          const imgData = ctx.getImageData(0, 0, res.width, res.height);
+    if (typeof imageInput === "string") {
+      inputUrl = imageInput;
+    } else {
+      inputUrl = this.memoryManager.createTrackedUrl(imageInput);
+      isTempUrl = true;
+    }
 
-          return {
-            outputBitmap: res.foregroundBitmap,
-            outputRgba: imgData.data,
-            width: res.width,
-            height: res.height,
-            timing: res.timing || {
-              downloadMs: 0,
-              loadMs: 5,
-              inferenceMs: 80,
-              compositeMs: 25,
-              totalMs: 110,
-              outputWidth: res.width,
-              outputHeight: res.height
-            },
-            modelUsed: res.modelUsed || 'Worker Outpainter'
-          };
-        }
-      } catch (err: unknown) {
-        if ((err as Error)?.name === 'AbortError') {
-          throw err;
-        }
-        console.warn('Worker expandImage failed, falling back to local engine:', err);
+    try {
+      return await this.workerManager.execute(
+        "face-enhance",
+        inputUrl,
+        undefined,
+        options
+      );
+    } finally {
+      if (isTempUrl) {
+        this.memoryManager.revokeUrl(inputUrl);
       }
     }
-
-    return await this.localEngine.expandImage(
-      imageSource,
-      targetW,
-      targetH,
-      ox,
-      oy,
-      options
-    );
   }
 
-  public async removeObject(
-    imageSource: ImageBitmap | ImageData | HTMLCanvasElement,
-    mask: Float32Array,
-    options?: {
-      modelMode?: 'migan-512' | 'push-pull';
-      dilatePx?: number;
-      featherPx?: number;
-      seed?: number;
-      onProgress?: (stage: string, percent: number) => void;
+  /**
+   * 4. AI Image Denoise, Dynamic Range & Detail Enhancement
+   */
+  public async enhanceImage(
+    imageInput: string | Blob | File,
+    options?: ImageAIOptions
+  ): Promise<ImageAIResult> {
+    let inputUrl = "";
+    let isTempUrl = false;
+
+    if (typeof imageInput === "string") {
+      inputUrl = imageInput;
+    } else {
+      inputUrl = this.memoryManager.createTrackedUrl(imageInput);
+      isTempUrl = true;
     }
-  ) {
-    return await this.localEngine.removeObject(imageSource, mask, options);
+
+    try {
+      return await this.workerManager.execute(
+        "enhance",
+        inputUrl,
+        undefined,
+        options
+      );
+    } finally {
+      if (isTempUrl) {
+        this.memoryManager.revokeUrl(inputUrl);
+      }
+    }
   }
 
-  public async removeBackground(
-    imageSource: ImageBitmap | ImageData | HTMLCanvasElement,
-    preferredModel?: 'auto' | 'mediapipe-selfie' | 'u2netp-general',
-    onProgress?: (stage: string, percent: number) => void
-  ) {
-    return await this.localEngine.removeBackground(imageSource, preferredModel);
+  /**
+   * 5. AI Object Removal (Inpainting on user brush mask)
+   */
+  public async removeObject(
+    imageInput: string | Blob | File,
+    maskInput: string | Blob | File,
+    options?: ImageAIOptions
+  ): Promise<ImageAIResult> {
+    let inputUrl = "";
+    let maskUrl = "";
+    let isTempInput = false;
+    let isTempMask = false;
+
+    if (typeof imageInput === "string") {
+      inputUrl = imageInput;
+    } else {
+      inputUrl = this.memoryManager.createTrackedUrl(imageInput);
+      isTempInput = true;
+    }
+
+    if (typeof maskInput === "string") {
+      maskUrl = maskInput;
+    } else {
+      maskUrl = this.memoryManager.createTrackedUrl(maskInput);
+      isTempMask = true;
+    }
+
+    try {
+      return await this.workerManager.execute(
+        "object-remove",
+        inputUrl,
+        maskUrl,
+        options
+      );
+    } finally {
+      if (isTempInput) this.memoryManager.revokeUrl(inputUrl);
+      if (isTempMask) this.memoryManager.revokeUrl(maskUrl);
+    }
+  }
+
+  /**
+   * 6. Classical Image Upscaling (2x / 4x)
+   */
+  public async upscaleImage(
+    imageInput: string | Blob | File,
+    scale: 2 | 4 = 2,
+    options?: ImageAIOptions
+  ): Promise<ImageAIResult> {
+    const startTime = Date.now();
+    let inputUrl = "";
+    let isTempUrl = false;
+
+    if (typeof imageInput === "string") {
+      inputUrl = imageInput;
+    } else {
+      inputUrl = this.memoryManager.createTrackedUrl(imageInput);
+      isTempUrl = true;
+    }
+
+    try {
+      const { imageUpscalerService } = await import("@/services/ai/ImageUpscalerService");
+      const upRes = await imageUpscalerService.upscaleImage(inputUrl, {
+        scale,
+        denoiseStrength: options?.denoiseIntensity,
+        sharpenStrength: options?.detailSharpen,
+        format: options?.format || "image/png",
+        quality: options?.quality,
+        signal: options?.signal,
+        onProgress: (p) => {
+          options?.onProgress?.({
+            taskId: `upscale_${Date.now()}`,
+            taskType: "upscale",
+            stage: p.stage as any,
+            progress: p.percent / 100,
+            message: p.message,
+          });
+        },
+      });
+
+      return {
+        success: upRes.success,
+        outputDataUrl: upRes.outputDataUrl,
+        outputBlob: upRes.outputBlob,
+        mimeType: options?.format || "image/png",
+        width: upRes.width,
+        height: upRes.height,
+        originalWidth: upRes.originalWidth,
+        originalHeight: upRes.originalHeight,
+        taskType: "upscale",
+        engineName: upRes.engine,
+        executionProvider: "wasm",
+        executionTimeMs: upRes.timings.totalMs || Date.now() - startTime,
+        timings: {
+          modelLoadMs: 0,
+          preprocessMs: upRes.timings.preprocessMs,
+          inferenceMs: upRes.timings.inferenceMs,
+          postprocessMs: upRes.timings.postprocessMs,
+          totalMs: upRes.timings.totalMs,
+        },
+        metrics: {
+          deviceTier: "high",
+          isLocal: true,
+          hasAlphaChannel: false,
+        },
+      };
+    } finally {
+      if (isTempUrl) {
+        this.memoryManager.revokeUrl(inputUrl);
+      }
+    }
+  }
+
+  /**
+   * Detect faces in image via AIService router (Native ML Kit on Android, MediaPipe BlazeFace on Web)
+   */
+  public async detectFaces(
+    imageInput: string | Blob | File,
+    options?: { signal?: AbortSignal }
+  ): Promise<FaceDetectionResult> {
+    try {
+      const res = await aiService.detectFaces(imageInput, options);
+      return {
+        facesFound: res.facesCount,
+        boxes: res.faces.map((f) => ({
+          x: f.box.x,
+          y: f.box.y,
+          width: f.box.width,
+          height: f.box.height,
+          confidence: f.confidence ?? 0.95,
+        })),
+        imageWidth: 0,
+        imageHeight: 0,
+      };
+    } catch {
+      return this.inferenceEngine.detectFaces(imageInput);
+    }
+  }
+
+  /**
+   * Preload AI model weights for a specific task
+   */
+  public async preloadModel(
+    taskType: ImageAITaskType,
+    onProgress?: (prog: any) => void
+  ): Promise<void> {
+    switch (taskType) {
+      case "remove-background":
+        await this.modelManager.getModelBinary(
+          OFFICIAL_MODEL_MANIFESTS["mediapipe-selfie-segmenter"],
+          onProgress
+        );
+        break;
+      case "face-enhance":
+        await this.modelManager.getModelBinary(
+          OFFICIAL_MODEL_MANIFESTS["mediapipe-face-detector"],
+          onProgress
+        );
+        break;
+    }
+  }
+
+  /**
+   * Clear persistent local model cache and free memory
+   */
+  public async clearCache(): Promise<void> {
+    await this.modelManager.clearAll();
+    this.memoryManager.purgeAll();
+  }
+
+  /**
+   * Dispose engine and terminate active background workers
+   */
+  public dispose(): void {
+    this.workerManager.terminate();
+    this.memoryManager.purgeAll();
   }
 }
 

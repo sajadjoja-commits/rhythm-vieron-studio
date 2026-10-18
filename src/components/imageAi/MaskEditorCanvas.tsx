@@ -1,1048 +1,893 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { AIService } from '../../services/ai/AIService';
-import { ImagePostprocessor } from '../../ai/image/ImagePostprocessor';
-import { ModelStore } from '../../ai/models/ModelStore';
-import { MODEL_CATALOG } from '../../ai/models/models.catalog';
-import { ModelDownloadDialog } from './ModelDownloadDialog';
-import { DownloadProgress } from '../../ai/models/ModelStore';
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   Brush,
   Eraser,
-  Wand2,
+  Sparkles,
   Undo2,
   Redo2,
   RotateCcw,
-  Sparkles,
-  Download,
   Eye,
-  EyeOff,
   Sliders,
-  SplitSquareVertical,
-  Maximize2,
   ZoomIn,
   ZoomOut,
-  RefreshCw,
-  Plus,
-  Minus,
-  Cloud,
+  Maximize,
+  Palette,
+  Image as ImageIcon,
   Check,
-  CheckCircle2,
-  Trash2,
   Layers,
-  Zap,
-  HelpCircle,
-  AlertTriangle
-} from 'lucide-react';
+  Wand2,
+} from "lucide-react";
+import { ImagePostprocessor } from "@/ai/image/ImagePostprocessor";
+import { t } from "@/lib/i18n";
+import { computeLetterboxRect } from "@/ai/image/coordinateTransform";
 
-export type SelectionTool = 'brush' | 'eraser' | 'lasso' | 'magic-touch';
+export type MaskBrushMode = "add" | "remove" | "smooth" | "hair";
+export type BgPreviewType = "transparent" | "white" | "black" | "custom-color" | "custom-image";
 
-interface Props {
-  originalImage: HTMLImageElement | ImageBitmap;
-  onClose?: () => void;
-  onApplyNewVersion?: (newBitmap: ImageBitmap) => void;
+interface MaskEditorCanvasProps {
+  originalImageUrl: string;
+  initialMaskDataUrl?: string;
+  onMaskUpdated: (updatedResultDataUrl: string) => void;
+  className?: string;
 }
 
-export const MaskEditorCanvas: React.FC<Props> = ({
-  originalImage,
-  onClose,
-  onApplyNewVersion
+export const MaskEditorCanvas: React.FC<MaskEditorCanvasProps> = ({
+  originalImageUrl,
+  initialMaskDataUrl,
+  onMaskUpdated,
+  className = "",
 }) => {
+  const [brushMode, setBrushMode] = useState<MaskBrushMode>("add");
+  const [brushSize, setBrushSize] = useState<number>(32);
+  const [featherAmount, setFeatherAmount] = useState<number>(20); // 0 - 100
+  const [viewMode, setViewMode] = useState<"cutout" | "mask" | "original">("cutout");
+  const [bgPreview, setBgPreview] = useState<BgPreviewType>("transparent");
+  const [customBgColor, setCustomBgColor] = useState<string>("#3b82f6");
+  const [customBgImageUrl, setCustomBgImageUrl] = useState<string | null>(null);
+
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [zoom, setZoom] = useState<number>(1);
+  const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStart, setPanStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  const [cursorPos, setCursorPos] = useState<{ x: number; y: number; visible: boolean }>({
+    x: 0,
+    y: 0,
+    visible: false,
+  });
+
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
+  const sourceImageRef = useRef<HTMLImageElement | null>(null);
+  const customBgImageRef = useRef<HTMLImageElement | null>(null);
+  const currentMaskCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const aiService = AIService.getInstance();
-  const modelStore = ModelStore.getInstance();
+  // History stack for Undo / Redo
+  const historyRef = useRef<ImageData[]>([]);
+  const historyIndexRef = useRef<number>(-1);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
 
-  const width = originalImage.width;
-  const height = originalImage.height;
+  const [displayedRect, setDisplayedRect] = useState<{ width: number; height: number }>({
+    width: 0,
+    height: 0,
+  });
 
-  // Image buffers in memory: strict budget of max 2 full-res image copies
-  const origRgbaRef = useRef<Uint8ClampedArray | null>(null);
-  const [currentRgba, setCurrentRgba] = useState<Uint8ClampedArray | null>(null);
-
-  // Versions stack (commits made by "تطبيق")
-  const [versionsStack, setVersionsStack] = useState<Uint8ClampedArray[]>([]);
-  const [currentVersionIdx, setCurrentVersionIdx] = useState(0);
-
-  // Mask state & undo/redo history for selection mask
-  const [mask, setMask] = useState<Float32Array>(() => new Float32Array(width * height));
-  const [maskHistory, setMaskHistory] = useState<Float32Array[]>([]);
-  const [maskHistoryIdx, setMaskHistoryIdx] = useState(-1);
-
-  // Selection tools
-  const [activeTool, setActiveTool] = useState<SelectionTool>('brush');
-  const [brushRadius, setBrushRadius] = useState(24);
-  const [brushHardness, setBrushHardness] = useState(0.8);
-  const [magicTouchPolarity, setMagicTouchPolarity] = useState<'positive' | 'negative'>('positive');
-  const [dilatePx, setDilatePx] = useState(6); // 0-16px, default 6px
-  const [showMaskOverlay, setShowMaskOverlay] = useState(true);
-
-  // Drawing state
-  const [isDrawing, setIsDrawing] = useState(false);
-  const currentPathRef = useRef<Array<{ x: number; y: number }>>([]);
-
-  // Inpainting engine & parameters
-  const [modelMode, setModelMode] = useState<'migan-512' | 'push-pull'>('push-pull');
-  const [seed, setSeed] = useState(42);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [progressStage, setProgressStage] = useState('');
-  const [progressPercent, setProgressPercent] = useState(0);
-
-  // Last inpainting result timing
-  const [timing, setTiming] = useState<{
-    inferenceMs: number;
-    compositeMs: number;
-    totalMs: number;
-    modelUsed: string;
-    roiBox?: { x: number; y: number; w: number; h: number };
-  } | null>(null);
-
-  // View state
-  const [zoom, setZoom] = useState(1);
-  const [showSplit, setShowSplit] = useState(false);
-  const [splitPos, setSplitPos] = useState(50);
-
-  // Download dialog state for MI-GAN
-  const [showDownloadModal, setShowDownloadModal] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
-  const [isDownloading, setIsDownloading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  // Cloud Image Edit availability check (Req 5)
-  const isCloudServiceAvailable = typeof (window as unknown as { cloudImageEdit?: unknown }).cloudImageEdit !== 'undefined';
-
-  // Initialize RGBA buffer
+  // Calculate exact image rectangle within container using ResizeObserver
   useEffect(() => {
-    const offCanvas = document.createElement('canvas');
-    offCanvas.width = width;
-    offCanvas.height = height;
-    const ctx = offCanvas.getContext('2d', { willReadFrequently: true })!;
-    ctx.drawImage(originalImage as CanvasImageSource, 0, 0, width, height);
-    const initialRgba = ctx.getImageData(0, 0, width, height).data;
+    const container = containerRef.current;
+    if (!container) return;
 
-    origRgbaRef.current = initialRgba;
-    setCurrentRgba(new Uint8ClampedArray(initialRgba));
-    setVersionsStack([new Uint8ClampedArray(initialRgba)]);
-    setCurrentVersionIdx(0);
-
-    // Initial mask
-    const initialMask = new Float32Array(width * height);
-    setMask(initialMask);
-    setMaskHistory([initialMask]);
-    setMaskHistoryIdx(0);
-  }, [originalImage, width, height]);
-
-  // Push new mask into history
-  const pushMaskState = useCallback((newMask: Float32Array) => {
-    setMask(newMask);
-    setMaskHistory((prev) => {
-      const next = prev.slice(0, maskHistoryIdx + 1);
-      next.push(newMask);
-      if (next.length > 25) next.shift();
-      return next;
-    });
-    setMaskHistoryIdx((prev) => Math.min(24, prev + 1));
-  }, [maskHistoryIdx]);
-
-  // Mask Undo / Redo
-  const handleMaskUndo = () => {
-    if (maskHistoryIdx > 0) {
-      const prevIdx = maskHistoryIdx - 1;
-      setMaskHistoryIdx(prevIdx);
-      setMask(maskHistory[prevIdx]);
-    }
-  };
-
-  const handleMaskRedo = () => {
-    if (maskHistoryIdx < maskHistory.length - 1) {
-      const nextIdx = maskHistoryIdx + 1;
-      setMaskHistoryIdx(nextIdx);
-      setMask(maskHistory[nextIdx]);
-    }
-  };
-
-  // Convert client coordinates to native image pixels
-  const clientToImageCoords = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const canvas = overlayCanvasRef.current;
-    if (!canvas) return { x: 0, y: 0, normX: 0, normY: 0 };
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = width / rect.width;
-    const scaleY = height / rect.height;
-    const clientX = e.clientX - rect.left;
-    const clientY = e.clientY - rect.top;
-
-    return {
-      x: Math.max(0, Math.min(width - 1, Math.round(clientX * scaleX))),
-      y: Math.max(0, Math.min(height - 1, Math.round(clientY * scaleY))),
-      normX: Math.max(0, Math.min(1, clientX / rect.width)),
-      normY: Math.max(0, Math.min(1, clientY / rect.height))
+    const updateRect = () => {
+      const srcImg = sourceImageRef.current;
+      if (!srcImg || srcImg.naturalWidth === 0 || srcImg.naturalHeight === 0) return;
+      const rect = computeLetterboxRect(
+        container.clientWidth,
+        container.clientHeight,
+        srcImg.naturalWidth,
+        srcImg.naturalHeight
+      );
+      setDisplayedRect({ width: rect.width, height: rect.height });
     };
-  };
 
-  // Redraw Main Image Canvas
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !currentRgba) return;
-    const ctx = canvas.getContext('2d');
+    updateRect();
+    const ro = new ResizeObserver(() => updateRect());
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [originalImageUrl]);
+
+  const postprocessor = ImagePostprocessor.getInstance();
+
+  const updateHistoryButtons = useCallback(() => {
+    setCanUndo(historyIndexRef.current > 0);
+    setCanRedo(historyIndexRef.current < historyRef.current.length - 1);
+  }, []);
+
+  const pushHistory = useCallback((imageData: ImageData) => {
+    const newHistory = historyRef.current.slice(0, historyIndexRef.current + 1);
+    newHistory.push(new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height));
+    if (newHistory.length > 25) {
+      newHistory.shift();
+    }
+    historyRef.current = newHistory;
+    historyIndexRef.current = newHistory.length - 1;
+    updateHistoryButtons();
+  }, [updateHistoryButtons]);
+
+  // Render composite onto display canvas
+  const renderComposite = useCallback(() => {
+    const displayCanvas = canvasRef.current;
+    const srcImg = sourceImageRef.current;
+    const maskCanvas = currentMaskCanvasRef.current;
+    if (!displayCanvas || !srcImg || !maskCanvas) return;
+
+    displayCanvas.width = srcImg.width;
+    displayCanvas.height = srcImg.height;
+    const ctx = displayCanvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) return;
 
-    canvas.width = width;
-    canvas.height = height;
+    ctx.clearRect(0, 0, displayCanvas.width, displayCanvas.height);
 
-    if (showSplit && origRgbaRef.current) {
-      // Split Before/After
-      const splitX = Math.round((width * splitPos) / 100);
-      const splitImg = new Uint8ClampedArray(currentRgba);
-
-      // Copy left side from original
-      for (let y = 0; y < height; y++) {
-        const row = y * width * 4;
-        splitImg.set(origRgbaRef.current.subarray(row, row + splitX * 4), row);
-      }
-
-      const imgData = new ImageData(splitImg as unknown as Uint8ClampedArray<ArrayBuffer>, width, height);
-      ctx.putImageData(imgData, 0, 0);
-
-      // Divider line
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(splitX, 0);
-      ctx.lineTo(splitX, height);
-      ctx.stroke();
-    } else {
-      const imgData = new ImageData(currentRgba as unknown as Uint8ClampedArray<ArrayBuffer>, width, height);
-      ctx.putImageData(imgData, 0, 0);
-    }
-  }, [currentRgba, width, height, showSplit, splitPos]);
-
-  // Redraw Mask Overlay Canvas
-  useEffect(() => {
-    const overlay = overlayCanvasRef.current;
-    if (!overlay) return;
-    const ctx = overlay.getContext('2d');
-    if (!ctx) return;
-
-    overlay.width = width;
-    overlay.height = height;
-    ctx.clearRect(0, 0, width, height);
-
-    if (!showMaskOverlay) return;
-
-    // Render semi-transparent selection mask (Rubylith red overlay)
-    const overlayImgData = ctx.createImageData(width, height);
-    const data = overlayImgData.data;
-
-    for (let i = 0; i < width * height; i++) {
-      const m = mask[i];
-      if (m > 0.01) {
-        const p = i * 4;
-        data[p] = 239;     // Red
-        data[p + 1] = 68;  // Green
-        data[p + 2] = 68;  // Blue
-        data[p + 3] = Math.round(m * 140); // 55% max alpha
-      }
-    }
-
-    ctx.putImageData(overlayImgData, 0, 0);
-  }, [mask, width, height, showMaskOverlay]);
-
-  // Pointer event handlers for drawing
-  const handlePointerDown = async (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const coords = clientToImageCoords(e);
-
-    if (activeTool === 'magic-touch') {
-      try {
-        setIsProcessing(true);
-        setProgressStage('جاري عزل الكائن بالنقر (Interactive Segmenter)...');
-        setProgressPercent(40);
-
-        const touchRes = await aiService.segmentObjectAtPoint(
-          canvasRef.current!,
-          coords.normX,
-          coords.normY
-        );
-
-        if (touchRes && touchRes.mask) {
-          const upscaled = ImagePostprocessor.upscaleMaskBilinear(
-            touchRes.mask,
-            touchRes.width,
-            touchRes.height,
-            width,
-            height
-          );
-
-          const updated = new Float32Array(mask);
-          for (let i = 0; i < width * height; i++) {
-            const v = upscaled[i];
-            if (v > 0.3) {
-              if (magicTouchPolarity === 'positive') {
-                updated[i] = Math.max(updated[i], v);
-              } else {
-                updated[i] = Math.max(0, updated[i] - v);
-              }
-            }
-          }
-          pushMaskState(updated);
-        }
-      } catch (err) {
-        console.warn('Magic touch failed:', err);
-      } finally {
-        setIsProcessing(false);
-      }
+    if (viewMode === "original") {
+      ctx.drawImage(srcImg, 0, 0);
       return;
     }
 
-    setIsDrawing(true);
-    currentPathRef.current = [{ x: coords.x, y: coords.y }];
-    e.currentTarget.setPointerCapture(e.pointerId);
+    if (viewMode === "mask") {
+      ctx.drawImage(maskCanvas, 0, 0);
+      return;
+    }
 
-    if (activeTool === 'brush' || activeTool === 'eraser') {
-      applyBrushAtPoint(coords.x, coords.y, activeTool === 'brush', false);
+    // Cutout Mode: Render Background layer first if chosen
+    if (bgPreview === "white") {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, displayCanvas.width, displayCanvas.height);
+    } else if (bgPreview === "black") {
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, 0, displayCanvas.width, displayCanvas.height);
+    } else if (bgPreview === "custom-color") {
+      ctx.fillStyle = customBgColor;
+      ctx.fillRect(0, 0, displayCanvas.width, displayCanvas.height);
+    } else if (bgPreview === "custom-image" && customBgImageRef.current) {
+      ctx.drawImage(customBgImageRef.current, 0, 0, displayCanvas.width, displayCanvas.height);
+    }
+
+    // Prepare Cutout Foreground
+    const tempCanvas = document.createElement("canvas");
+    tempCanvas.width = srcImg.width;
+    tempCanvas.height = srcImg.height;
+    const tempCtx = tempCanvas.getContext("2d");
+    if (!tempCtx) return;
+
+    tempCtx.drawImage(srcImg, 0, 0);
+    tempCtx.globalCompositeOperation = "destination-in";
+    tempCtx.drawImage(maskCanvas, 0, 0);
+
+    ctx.drawImage(tempCanvas, 0, 0);
+  }, [viewMode, bgPreview, customBgColor]);
+
+  // Initialize Canvas & Image
+  useEffect(() => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      sourceImageRef.current = img;
+      const w = img.width;
+      const h = img.height;
+
+      const maskCanvas = document.createElement("canvas");
+      maskCanvas.width = w;
+      maskCanvas.height = h;
+      const maskCtx = maskCanvas.getContext("2d", { willReadFrequently: true });
+      if (!maskCtx) return;
+
+      if (initialMaskDataUrl) {
+        const maskImg = new Image();
+        maskImg.crossOrigin = "anonymous";
+        maskImg.onload = () => {
+          // If initial mask is an RGBA cutout, extract its alpha channel to build mask
+          maskCtx.drawImage(maskImg, 0, 0, w, h);
+          const cutoutData = maskCtx.getImageData(0, 0, w, h);
+          const alphaMaskData = maskCtx.createImageData(w, h);
+          for (let i = 0; i < cutoutData.data.length; i += 4) {
+            const alpha = cutoutData.data[i + 3];
+            alphaMaskData.data[i] = alpha;
+            alphaMaskData.data[i + 1] = alpha;
+            alphaMaskData.data[i + 2] = alpha;
+            alphaMaskData.data[i + 3] = 255;
+          }
+          maskCtx.putImageData(alphaMaskData, 0, 0);
+          currentMaskCanvasRef.current = maskCanvas;
+          pushHistory(alphaMaskData);
+          renderComposite();
+        };
+        maskImg.src = initialMaskDataUrl;
+      } else {
+        // Solid white mask (everything visible)
+        maskCtx.fillStyle = "#ffffff";
+        maskCtx.fillRect(0, 0, w, h);
+        currentMaskCanvasRef.current = maskCanvas;
+        const initialData = maskCtx.getImageData(0, 0, w, h);
+        pushHistory(initialData);
+        renderComposite();
+      }
+    };
+    img.src = originalImageUrl;
+  }, [originalImageUrl, initialMaskDataUrl, pushHistory, renderComposite]);
+
+  // Load custom background image
+  useEffect(() => {
+    if (!customBgImageUrl) {
+      customBgImageRef.current = null;
+      renderComposite();
+      return;
+    }
+    const bgImg = new Image();
+    bgImg.crossOrigin = "anonymous";
+    bgImg.onload = () => {
+      customBgImageRef.current = bgImg;
+      renderComposite();
+    };
+    bgImg.src = customBgImageUrl;
+  }, [customBgImageUrl, renderComposite]);
+
+  useEffect(() => {
+    renderComposite();
+  }, [viewMode, bgPreview, customBgColor, renderComposite]);
+
+  const emitUpdatedResult = useCallback(() => {
+    const srcImg = sourceImageRef.current;
+    const maskCanvas = currentMaskCanvasRef.current;
+    if (!srcImg || !maskCanvas) return;
+
+    const exportCanvas = document.createElement("canvas");
+    exportCanvas.width = srcImg.width;
+    exportCanvas.height = srcImg.height;
+    const expCtx = exportCanvas.getContext("2d");
+    if (!expCtx) return;
+
+    // Output transparent RGBA PNG
+    expCtx.drawImage(srcImg, 0, 0);
+    expCtx.globalCompositeOperation = "destination-in";
+    expCtx.drawImage(maskCanvas, 0, 0);
+
+    const resultDataUrl = exportCanvas.toDataURL("image/png");
+    onMaskUpdated(resultDataUrl);
+  }, [onMaskUpdated]);
+
+  // Apply Full Edge Smoothing
+  const handleAutoSmoothEdges = () => {
+    const maskCanvas = currentMaskCanvasRef.current;
+    if (!maskCanvas) return;
+    const ctx = maskCanvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return;
+
+    const w = maskCanvas.width;
+    const h = maskCanvas.height;
+    const imgData = ctx.getImageData(0, 0, w, h);
+    const rawMask = new Float32Array(w * h);
+
+    for (let i = 0; i < rawMask.length; i++) {
+      rawMask[i] = imgData.data[i * 4] / 255.0;
+    }
+
+    // Box blur radius computed from featherAmount (0-100 -> 1-5px)
+    const blurRadius = Math.max(1, Math.round((featherAmount / 100) * 4));
+    const smoothed = postprocessor.boxBlur1D(rawMask, w, h, blurRadius);
+
+    for (let i = 0; i < rawMask.length; i++) {
+      const v = Math.round(smoothed[i] * 255);
+      imgData.data[i * 4] = v;
+      imgData.data[i * 4 + 1] = v;
+      imgData.data[i * 4 + 2] = v;
+      imgData.data[i * 4 + 3] = 255;
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+    pushHistory(imgData);
+    renderComposite();
+    emitUpdatedResult();
+  };
+
+  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
+  const activePointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchStartDistRef = useRef<number | null>(null);
+
+  // Stroke Drawing Operations with continuous rounded lines
+  const drawStroke = useCallback(
+    (clientX: number, clientY: number, prevClientX?: number, prevClientY?: number) => {
+      const displayCanvas = canvasRef.current;
+      const maskCanvas = currentMaskCanvasRef.current;
+      if (!displayCanvas || !maskCanvas) return;
+
+      const rect = displayCanvas.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+      const scaleX = maskCanvas.width / rect.width;
+      const scaleY = maskCanvas.height / rect.height;
+
+      const x = (clientX - rect.left) * scaleX;
+      const y = (clientY - rect.top) * scaleY;
+
+      const fromX = prevClientX !== undefined ? (prevClientX - rect.left) * scaleX : x;
+      const fromY = prevClientY !== undefined ? (prevClientY - rect.top) * scaleY : y;
+
+      const maskCtx = maskCanvas.getContext("2d", { willReadFrequently: true });
+      if (!maskCtx) return;
+
+      const strokeWidth = brushSize * scaleX;
+
+      maskCtx.save();
+      maskCtx.lineCap = "round";
+      maskCtx.lineJoin = "round";
+      maskCtx.lineWidth = strokeWidth;
+
+      if (brushMode === "add") {
+        maskCtx.strokeStyle = "#ffffff";
+        maskCtx.fillStyle = "#ffffff";
+        maskCtx.beginPath();
+        maskCtx.moveTo(fromX, fromY);
+        maskCtx.lineTo(x, y);
+        maskCtx.stroke();
+        maskCtx.beginPath();
+        maskCtx.arc(x, y, strokeWidth / 2, 0, Math.PI * 2);
+        maskCtx.fill();
+      } else if (brushMode === "remove") {
+        maskCtx.strokeStyle = "#000000";
+        maskCtx.fillStyle = "#000000";
+        maskCtx.beginPath();
+        maskCtx.moveTo(fromX, fromY);
+        maskCtx.lineTo(x, y);
+        maskCtx.stroke();
+        maskCtx.beginPath();
+        maskCtx.arc(x, y, strokeWidth / 2, 0, Math.PI * 2);
+        maskCtx.fill();
+      } else if (brushMode === "smooth" || brushMode === "hair") {
+        const strokeRadius = Math.round(strokeWidth / 2);
+        const cropX = Math.max(0, Math.floor(x - strokeRadius));
+        const cropY = Math.max(0, Math.floor(y - strokeRadius));
+        const cropW = Math.min(maskCanvas.width - cropX, strokeRadius * 2);
+        const cropH = Math.min(maskCanvas.height - cropY, strokeRadius * 2);
+
+        if (cropW > 0 && cropH > 0) {
+          const regionData = maskCtx.getImageData(cropX, cropY, cropW, cropH);
+          const rawMask = new Float32Array(cropW * cropH);
+          for (let i = 0; i < rawMask.length; i++) {
+            rawMask[i] = regionData.data[i * 4] / 255.0;
+          }
+
+          const blurRadius = brushMode === "hair" ? 2 : Math.max(1, Math.round((featherAmount / 100) * 5));
+          const blurred = postprocessor.boxBlur1D(rawMask, cropW, cropH, blurRadius);
+
+          for (let i = 0; i < rawMask.length; i++) {
+            const v = Math.round(blurred[i] * 255);
+            regionData.data[i * 4] = v;
+            regionData.data[i * 4 + 1] = v;
+            regionData.data[i * 4 + 2] = v;
+            regionData.data[i * 4 + 3] = 255;
+          }
+          maskCtx.putImageData(regionData, cropX, cropY);
+        }
+      }
+      maskCtx.restore();
+
+      renderComposite();
+    },
+    [brushMode, brushSize, featherAmount, postprocessor, renderComposite]
+  );
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (e.button === 1 || e.shiftKey) {
+      setIsPanning(true);
+      setPanStart({ x: e.clientX - panOffset.x, y: e.clientY - panOffset.y });
+      return;
+    }
+
+    if (activePointersRef.current.size === 1) {
+      setIsDrawing(true);
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      lastPointRef.current = { x: e.clientX, y: e.clientY };
+      drawStroke(e.clientX, e.clientY, e.clientX, e.clientY);
+    } else if (activePointersRef.current.size === 2) {
+      setIsDrawing(false);
+      lastPointRef.current = null;
+      const pts = Array.from(activePointersRef.current.values());
+      pinchStartDistRef.current = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
     }
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isDrawing) return;
-    const coords = clientToImageCoords(e);
-    currentPathRef.current.push({ x: coords.x, y: coords.y });
-
-    if (activeTool === 'brush' || activeTool === 'eraser') {
-      applyBrushAtPoint(coords.x, coords.y, activeTool === 'brush', false);
-    } else if (activeTool === 'lasso') {
-      // Draw live polygon preview
-      const overlay = overlayCanvasRef.current;
-      if (!overlay) return;
-      const ctx = overlay.getContext('2d');
-      if (!ctx) return;
-
-      ctx.save();
-      ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      const pts = currentPathRef.current;
-      if (pts.length > 0) {
-        ctx.moveTo(pts[0].x, pts[0].y);
-        for (let i = 1; i < pts.length; i++) {
-          ctx.lineTo(pts[i].x, pts[i].y);
-        }
-      }
-      ctx.stroke();
-      ctx.restore();
+    if (activePointersRef.current.has(e.pointerId)) {
+      activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     }
+
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (rect) {
+      setCursorPos({
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top - 40, // elevated cursor ring above finger
+        visible: true,
+      });
+    }
+
+    if (activePointersRef.current.size === 2 && pinchStartDistRef.current) {
+      const pts = Array.from(activePointersRef.current.values());
+      const currentDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      const factor = currentDist / pinchStartDistRef.current;
+      setZoom((z) => Math.min(4, Math.max(1, z * factor)));
+      pinchStartDistRef.current = currentDist;
+      return;
+    }
+
+    if (isPanning) {
+      setPanOffset({ x: e.clientX - panStart.x, y: e.clientY - panStart.y });
+      return;
+    }
+
+    if (!isDrawing || !lastPointRef.current) return;
+    drawStroke(e.clientX, e.clientY, lastPointRef.current.x, lastPointRef.current.y);
+    lastPointRef.current = { x: e.clientX, y: e.clientY };
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    activePointersRef.current.delete(e.pointerId);
+    if (isPanning) {
+      setIsPanning(false);
+      return;
+    }
     if (!isDrawing) return;
     setIsDrawing(false);
+    lastPointRef.current = null;
     try {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    } catch {
-      // Ignore
-    }
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {}
 
-    if (activeTool === 'brush' || activeTool === 'eraser') {
-      pushMaskState(new Float32Array(mask));
-    } else if (activeTool === 'lasso') {
-      // Fill closed polygon
-      fillLassoPolygon();
+    const maskCanvas = currentMaskCanvasRef.current;
+    if (maskCanvas) {
+      const maskCtx = maskCanvas.getContext("2d", { willReadFrequently: true });
+      if (maskCtx) {
+        pushHistory(maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height));
+      }
     }
-
-    currentPathRef.current = [];
+    emitUpdatedResult();
   };
 
-  // Brush stamping
-  const applyBrushAtPoint = (cx: number, cy: number, isAdd: boolean, commit = false) => {
-    const updated = new Float32Array(mask);
-    const r = brushRadius;
-    const rSq = r * r;
-    const innerRSq = rSq * Math.max(0, brushHardness * brushHardness);
-    const targetVal = isAdd ? 1.0 : 0.0;
-
-    const xMin = Math.max(0, Math.floor(cx - r));
-    const xMax = Math.min(width - 1, Math.ceil(cx + r));
-    const yMin = Math.max(0, Math.floor(cy - r));
-    const yMax = Math.min(height - 1, Math.ceil(cy + r));
-
-    for (let y = yMin; y <= yMax; y++) {
-      const row = y * width;
-      for (let x = xMin; x <= xMax; x++) {
-        const dSq = (x - cx) * (x - cx) + (y - cy) * (y - cy);
-        if (dSq <= rSq) {
-          const idx = row + x;
-          let strength = 1.0;
-          if (dSq > innerRSq && rSq > innerRSq) {
-            strength = 1.0 - (dSq - innerRSq) / (rSq - innerRSq);
-          }
-          const cur = updated[idx];
-          updated[idx] = cur + (targetVal - cur) * strength;
+  const handleUndo = () => {
+    if (historyIndexRef.current > 0) {
+      historyIndexRef.current--;
+      const maskCanvas = currentMaskCanvasRef.current;
+      if (maskCanvas) {
+        const maskCtx = maskCanvas.getContext("2d");
+        if (maskCtx) {
+          maskCtx.putImageData(historyRef.current[historyIndexRef.current], 0, 0);
+          renderComposite();
+          emitUpdatedResult();
         }
       }
-    }
-
-    if (commit) {
-      pushMaskState(updated);
-    } else {
-      setMask(updated);
+      updateHistoryButtons();
     }
   };
 
-  // Fill closed freehand lasso
-  const fillLassoPolygon = () => {
-    const pts = currentPathRef.current;
-    if (pts.length < 3) return;
-
-    // Use offscreen 2D canvas to render polygon mask
-    const off = document.createElement('canvas');
-    off.width = width;
-    off.height = height;
-    const ctx = off.getContext('2d')!;
-
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length; i++) {
-      ctx.lineTo(pts[i].x, pts[i].y);
-    }
-    ctx.closePath();
-    ctx.fill();
-
-    const data = ctx.getImageData(0, 0, width, height).data;
-    const updated = new Float32Array(mask);
-
-    for (let i = 0; i < width * height; i++) {
-      if (data[i * 4 + 3] > 128) {
-        updated[i] = 1.0;
-      }
-    }
-
-    pushMaskState(updated);
-  };
-
-  // Invert Selection
-  const handleInvertMask = () => {
-    const updated = new Float32Array(width * height);
-    for (let i = 0; i < width * height; i++) {
-      updated[i] = 1.0 - mask[i];
-    }
-    pushMaskState(updated);
-  };
-
-  // Clear Selection
-  const handleClearMask = () => {
-    pushMaskState(new Float32Array(width * height));
-  };
-
-  // Trigger Object Inpainting Execution (Worker-based)
-  const handleRunInpaint = async (newSeed?: number) => {
-    if (!currentRgba) return;
-    const runSeed = newSeed !== undefined ? newSeed : seed;
-
-    // Check if MI-GAN model is selected and needs downloading
-    if (modelMode === 'migan-512') {
-      const isCached = await modelStore.isModelCached('migan-512');
-      if (!isCached) {
-        setShowDownloadModal(true);
-        return;
-      }
-    }
-
-    setIsProcessing(true);
-    setProgressStage('تجهيز المعالجة داخل Web Worker...');
-    setProgressPercent(10);
-
-    try {
-      // Create ImageBitmap from current canvas
-      const canvas = canvasRef.current!;
-      const bitmap = await createImageBitmap(canvas);
-
-      const result = await aiService.removeObject(bitmap, mask, {
-        modelMode,
-        dilatePx,
-        featherPx: 2,
-        seed: runSeed,
-        onProgress: (stage, percent) => {
-          setProgressStage(stage);
-          setProgressPercent(percent);
+  const handleRedo = () => {
+    if (historyIndexRef.current < historyRef.current.length - 1) {
+      historyIndexRef.current++;
+      const maskCanvas = currentMaskCanvasRef.current;
+      if (maskCanvas) {
+        const maskCtx = maskCanvas.getContext("2d");
+        if (maskCtx) {
+          maskCtx.putImageData(historyRef.current[historyIndexRef.current], 0, 0);
+          renderComposite();
+          emitUpdatedResult();
         }
-      });
-
-      if (result.outputRgba) {
-        setCurrentRgba(result.outputRgba);
-        setTiming({
-          inferenceMs: result.timing.inferenceMs,
-          compositeMs: result.timing.compositeMs,
-          totalMs: result.timing.totalMs,
-          modelUsed: result.modelUsed,
-          roiBox: (result as unknown as { roiBox?: { x: number; y: number; w: number; h: number } }).roiBox
-        });
-
-        // Automatically clear mask after successful inpaint so user sees clean result
-        pushMaskState(new Float32Array(width * height));
       }
-    } catch (err: unknown) {
-      console.error('Inpainting error:', err);
-      setErrorMessage(`حدث خطأ أثناء إزالة العنصر: ${(err as Error)?.message}`);
-    } finally {
-      setIsProcessing(false);
+      updateHistoryButtons();
     }
   };
 
-  // "إعادة" (Re-run with new seed)
-  const handleRerun = () => {
-    const nextSeed = Math.floor(Math.random() * 100000);
-    setSeed(nextSeed);
-    handleRunInpaint(nextSeed);
-  };
-
-  // "تطبيق" (Commit new version to versions stack)
-  const handleApplyCommit = async () => {
-    if (!currentRgba) return;
-    const newStack = versionsStack.slice(0, currentVersionIdx + 1);
-    newStack.push(new Uint8ClampedArray(currentRgba));
-    setVersionsStack(newStack);
-    setCurrentVersionIdx(newStack.length - 1);
-
-    if (onApplyNewVersion && canvasRef.current) {
-      const bmp = await createImageBitmap(canvasRef.current);
-      onApplyNewVersion(bmp);
+  const handleResetMask = () => {
+    if (historyRef.current.length > 0) {
+      historyIndexRef.current = 0;
+      const maskCanvas = currentMaskCanvasRef.current;
+      if (maskCanvas) {
+        const maskCtx = maskCanvas.getContext("2d");
+        if (maskCtx) {
+          maskCtx.putImageData(historyRef.current[0], 0, 0);
+          renderComposite();
+          emitUpdatedResult();
+        }
+      }
+      updateHistoryButtons();
     }
   };
 
-  // Versions Undo / Redo
-  const handleVersionUndo = () => {
-    if (currentVersionIdx > 0) {
-      const prev = currentVersionIdx - 1;
-      setCurrentVersionIdx(prev);
-      setCurrentRgba(new Uint8ClampedArray(versionsStack[prev]));
+  const handleBgImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const url = URL.createObjectURL(file);
+      setCustomBgImageUrl(url);
+      setBgPreview("custom-image");
     }
   };
 
-  const handleVersionRedo = () => {
-    if (currentVersionIdx < versionsStack.length - 1) {
-      const next = currentVersionIdx + 1;
-      setCurrentVersionIdx(next);
-      setCurrentRgba(new Uint8ClampedArray(versionsStack[next]));
-    }
+  const checkerboardStyle: React.CSSProperties = {
+    backgroundImage: `
+      linear-gradient(45deg, #1e293b 25%, transparent 25%),
+      linear-gradient(-45deg, #1e293b 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #1e293b 75%),
+      linear-gradient(-45deg, transparent 75%, #1e293b 75%)
+    `,
+    backgroundSize: "20px 20px",
+    backgroundPosition: "0 0, 0 10px, 10px -10px, -10px 0px",
+    backgroundColor: "#0f172a",
   };
-
-  // Export full resolution image
-  const handleExport = (format: 'png' | 'jpeg' | 'webp') => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) return;
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `vireon_inpainted_${width}x${height}.${format === 'jpeg' ? 'jpg' : format}`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 2000);
-      },
-      format === 'png' ? 'image/png' : format === 'webp' ? 'image/webp' : 'image/jpeg',
-      0.96
-    );
-  };
-
-  const hasMask = mask.some((v) => v > 0.1);
 
   return (
-    <div className="space-y-4 max-w-6xl mx-auto w-full">
-      {/* Top Bar: Navigation, Versions & Export */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-neutral-900 border border-neutral-800 rounded-2xl p-4">
-        <div className="flex items-center gap-2">
-          {onClose && (
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-neutral-800 hover:bg-neutral-800 text-xs text-neutral-300 font-medium transition-colors cursor-pointer"
-            >
-              <span>العودة لعزل الخلفية</span>
-            </button>
-          )}
-
-          {/* Versions Stack Undo/Redo */}
-          <div className="flex items-center gap-1 bg-neutral-950/70 border border-neutral-800 rounded-xl p-1 text-xs">
-            <button
-              onClick={handleVersionUndo}
-              disabled={currentVersionIdx <= 0}
-              className="p-1.5 text-neutral-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed rounded"
-              title="تراجع عن آخر تعديل تم تطبيقه"
-            >
-              <Undo2 className="w-3.5 h-3.5" />
-            </button>
-            <span className="font-mono text-neutral-400 px-1 text-[11px]">
-              نسخة {currentVersionIdx + 1}/{versionsStack.length}
-            </span>
-            <button
-              onClick={handleVersionRedo}
-              disabled={currentVersionIdx >= versionsStack.length - 1}
-              className="p-1.5 text-neutral-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed rounded"
-              title="إعادة تطبيق التعديل"
-            >
-              <Redo2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
+    <div className={`flex flex-col gap-2.5 ${className}`}>
+      {/* Editor Main Control Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-xl bg-slate-900/90 border border-slate-800 backdrop-blur-md">
+        {/* Brush Modes: Restore / Erase / Smooth / Hair */}
+        <div className="flex items-center gap-1 bg-slate-950/80 p-1 rounded-lg border border-slate-800">
+          <button
+            type="button"
+            onClick={() => setBrushMode("add")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+              brushMode === "add"
+                ? "bg-emerald-600 text-white shadow-md shadow-emerald-900/40"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+            title="إعادة واستعادة الجزء (Restore / Add)"
+          >
+            <Brush className="w-3.5 h-3.5" />
+            <span>استعادة</span>
+          </button>
 
           <button
             type="button"
-            onClick={() => setShowSplit(!showSplit)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition-colors cursor-pointer ${
-              showSplit
-                ? 'bg-indigo-600 border-indigo-500 text-white'
-                : 'border-neutral-800 hover:bg-neutral-800 text-neutral-300'
+            onClick={() => setBrushMode("remove")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+              brushMode === "remove"
+                ? "bg-rose-600 text-white shadow-md shadow-rose-900/40"
+                : "text-slate-400 hover:text-slate-200"
             }`}
+            title={t("imageAi.eraseMode")}
           >
-            <SplitSquareVertical className="w-3.5 h-3.5" />
-            <span>مقارنة الأصل</span>
+            <Eraser className="w-3.5 h-3.5" />
+            <span>{t("imageAi.eraseMode")}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setBrushMode("hair")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+              brushMode === "hair"
+                ? "bg-indigo-600 text-white shadow-md shadow-indigo-900/40"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+            title={t("imageAi.hairMode")}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>{t("imageAi.hairMode")}</span>
           </button>
         </div>
 
-        {/* Viewport Zoom & Actions */}
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 bg-neutral-950/70 border border-neutral-800 rounded-lg p-1 text-xs">
-            <button
-              onClick={() => setZoom(Math.max(0.25, zoom - 0.25))}
-              className="p-1 text-neutral-400 hover:text-white rounded"
-              title="تصغير"
-            >
-              <ZoomOut className="w-3.5 h-3.5" />
-            </button>
-            <span className="font-mono text-neutral-300 px-1 text-[11px]">{Math.round(zoom * 100)}%</span>
-            <button
-              onClick={() => setZoom(Math.min(3, zoom + 0.25))}
-              className="p-1 text-neutral-400 hover:text-white rounded"
-              title="تكبير"
-            >
-              <ZoomIn className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={() => setZoom(1)}
-              className="p-1 text-neutral-400 hover:text-white rounded"
-              title="إعادة ضبط"
-            >
-              <Maximize2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          {/* Cloud Higher Quality Button (Strictly rendered ONLY if cloudImageEdit is available) */}
-          {isCloudServiceAvailable && (
+        {/* Brush Preset Sizes & Slider */}
+        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-950/60 rounded-lg border border-slate-800/80">
+          <span className="text-[11px] text-slate-400 font-medium whitespace-nowrap">{t("imageAi.brushSize")}:</span>
+          <div className="flex items-center gap-1">
             <button
               type="button"
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-purple-600/20 border border-purple-500/40 text-purple-300 text-xs font-semibold hover:bg-purple-600/30 transition-all cursor-pointer"
+              onClick={() => setBrushSize(12)}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                brushSize === 12 ? "bg-primary text-white" : "bg-slate-800 text-slate-400"
+              }`}
             >
-              <Cloud className="w-4 h-4 text-purple-400" />
-              <span>جودة أعلى (سحابي)</span>
+              {t("imageAi.brushSmall")}
             </button>
-          )}
+            <button
+              type="button"
+              onClick={() => setBrushSize(32)}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                brushSize === 32 ? "bg-primary text-white" : "bg-slate-800 text-slate-400"
+              }`}
+            >
+              {t("imageAi.brushMedium")}
+            </button>
+            <button
+              type="button"
+              onClick={() => setBrushSize(64)}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                brushSize === 64 ? "bg-primary text-white" : "bg-slate-800 text-slate-400"
+              }`}
+            >
+              {t("imageAi.brushLarge")}
+            </button>
+          </div>
+          <input
+            type="range"
+            min="6"
+            max="100"
+            value={brushSize}
+            onChange={(e) => setBrushSize(parseInt(e.target.value, 10))}
+            className="w-16 sm:w-20 accent-primary h-1.5 bg-slate-700 rounded-lg cursor-pointer"
+          />
+          <span className="text-[11px] font-bold text-slate-300 w-5 text-center">{brushSize}</span>
+        </div>
 
-          {/* Apply to new version */}
+        {/* Feather & Edge Smooth Auto Action */}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-950/60 rounded-lg border border-slate-800/80">
+            <span className="text-[11px] text-slate-400 font-medium">{t("imageAi.feather")}:</span>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={featherAmount}
+              onChange={(e) => setFeatherAmount(parseInt(e.target.value, 10))}
+              className="w-14 sm:w-16 accent-indigo-500 h-1.5 bg-slate-700 rounded-lg cursor-pointer"
+            />
+            <span className="text-[11px] font-bold text-indigo-400 w-6 text-center">{featherAmount}%</span>
+          </div>
+
           <button
             type="button"
-            onClick={handleApplyCommit}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-lg shadow-emerald-600/20 cursor-pointer transition-all"
-            title="تثبيت النتيجة الحالية في مكدس النسخ"
+            onClick={handleAutoSmoothEdges}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-900/60 hover:bg-indigo-800 text-indigo-200 border border-indigo-700/60 text-xs font-semibold transition"
+            title={t("imageAi.autoSmooth")}
           >
-            <Check className="w-4 h-4" />
-            <span>تطبيق (نسخة جديدة)</span>
+            <Wand2 className="w-3.5 h-3.5 text-indigo-400" />
+            <span className="hidden sm:inline">{t("imageAi.autoSmooth")}</span>
           </button>
+        </div>
 
-          {/* Export */}
+        {/* Undo / Redo / Reset */}
+        <div className="flex items-center gap-1">
           <button
             type="button"
-            onClick={() => handleExport('png')}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/20 cursor-pointer transition-all"
+            onClick={handleUndo}
+            disabled={!canUndo}
+            className="p-1.5 rounded-lg bg-slate-800 text-slate-300 disabled:opacity-40 hover:bg-slate-700 transition"
+            title={t("imageAi.undo")}
+            aria-label={t("imageAi.undo")}
           >
-            <Download className="w-4 h-4" />
-            <span>تصدير الصورة</span>
+            <Undo2 className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={handleRedo}
+            disabled={!canRedo}
+            className="p-1.5 rounded-lg bg-slate-800 text-slate-300 disabled:opacity-40 hover:bg-slate-700 transition"
+            title={t("imageAi.redo")}
+            aria-label={t("imageAi.redo")}
+          >
+            <Redo2 className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={handleResetMask}
+            className="p-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-rose-400 hover:bg-slate-700 transition"
+            title={t("imageAi.resetMask")}
+            aria-label={t("imageAi.resetMask")}
+          >
+            <RotateCcw className="w-4 h-4" />
           </button>
         </div>
       </div>
 
-      {/* Main Dual-Canvas Viewport (Image + Selection Overlay) */}
+      {/* Secondary Bar: Background Preview Selector & View Modes */}
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-slate-900/60 border border-slate-800 text-xs">
+        {/* Background Preview Options: Transparent, White, Black, Custom Color, Custom Image */}
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] font-bold text-slate-400 flex items-center gap-1">
+            <Layers className="w-3.5 h-3.5 text-primary" />
+            <span>{t("imageAi.bgPreview")}:</span>
+          </span>
+
+          <button
+            type="button"
+            onClick={() => setBgPreview("transparent")}
+            className={`px-2 py-1 rounded text-[11px] font-semibold transition ${
+              bgPreview === "transparent"
+                ? "bg-primary text-white shadow"
+                : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+            }`}
+          >
+            {t("imageAi.bgTransparent")}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setBgPreview("white")}
+            className={`px-2 py-1 rounded text-[11px] font-semibold transition ${
+              bgPreview === "white"
+                ? "bg-white text-slate-950 font-bold shadow"
+                : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+            }`}
+          >
+            {t("imageAi.bgWhite")}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setBgPreview("black")}
+            className={`px-2 py-1 rounded text-[11px] font-semibold transition ${
+              bgPreview === "black"
+                ? "bg-slate-950 text-white border border-slate-700 shadow"
+                : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+            }`}
+          >
+            {t("imageAi.bgBlack")}
+          </button>
+
+          {/* Color Picker Background */}
+          <div className="flex items-center gap-1 bg-slate-800 px-1.5 py-0.5 rounded">
+            <input
+              type="color"
+              value={customBgColor}
+              onChange={(e) => {
+                setCustomBgColor(e.target.value);
+                setBgPreview("custom-color");
+              }}
+              className="w-4 h-4 rounded cursor-pointer border-0 bg-transparent"
+              title={t("imageAi.customColorTitle")}
+            />
+            <button
+              type="button"
+              onClick={() => setBgPreview("custom-color")}
+              className={`text-[11px] font-semibold ${
+                bgPreview === "custom-color" ? "text-primary" : "text-slate-300"
+              }`}
+            >
+              {t("imageAi.bgColor")}
+            </button>
+          </div>
+
+          {/* Image Background Upload */}
+          <div className="flex items-center gap-1">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleBgImageUpload}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold transition ${
+                bgPreview === "custom-image"
+                  ? "bg-indigo-600 text-white shadow"
+                  : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+              }`}
+            >
+              <ImageIcon className="w-3 h-3" />
+              <span>{t("imageAi.bgImage")}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* View Mode: Cutout / Mask / Original */}
+        <div className="flex items-center gap-1 bg-slate-950/80 p-0.5 rounded-lg border border-slate-800">
+          <button
+            type="button"
+            onClick={() => setViewMode("cutout")}
+            className={`px-2 py-0.5 text-[11px] rounded font-medium ${
+              viewMode === "cutout" ? "bg-primary text-white" : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            {t("imageAi.cutout")}
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("mask")}
+            className={`px-2 py-0.5 text-[11px] rounded font-medium ${
+              viewMode === "mask" ? "bg-primary text-white" : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            {t("imageAi.mask")}
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("original")}
+            className={`px-2 py-0.5 text-[11px] rounded font-medium ${
+              viewMode === "original" ? "bg-primary text-white" : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            {t("imageAi.original")}
+          </button>
+        </div>
+      </div>
+
+      {/* Interactive Canvas Viewport */}
       <div
         ref={containerRef}
-        className="relative overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-950 min-h-[460px] flex items-center justify-center p-4 select-none"
+        className="relative w-full h-80 sm:h-[420px] rounded-2xl overflow-hidden flex items-center justify-center border border-slate-800 shadow-inner select-none cursor-crosshair min-h-0"
+        style={bgPreview === "transparent" ? checkerboardStyle : {}}
+        onPointerLeave={() => setCursorPos((p) => ({ ...p, visible: false }))}
       >
-        <div
-          style={{ transform: `scale(${zoom})`, transformOrigin: 'center center' }}
-          className="transition-transform duration-75 relative"
-        >
-          {/* Base Image Canvas */}
-          <canvas
-            ref={canvasRef}
-            className="max-w-full max-h-[68vh] object-contain shadow-2xl rounded-lg"
-          />
-
-          {/* Interactive Selection Overlay Canvas */}
-          <canvas
-            ref={overlayCanvasRef}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            className={`absolute inset-0 w-full h-full touch-none ${
-              activeTool === 'magic-touch'
-                ? 'cursor-crosshair'
-                : activeTool === 'lasso'
-                ? 'cursor-cell'
-                : 'cursor-pointer'
-            }`}
-          />
-        </div>
-
-        {/* Split slider control */}
-        {showSplit && (
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-neutral-900/90 border border-neutral-800 px-4 py-2 rounded-xl flex items-center gap-3 backdrop-blur-md text-xs shadow-xl z-10">
-            <span className="text-neutral-400">مقارنة الانقسام:</span>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={splitPos}
-              onChange={(e) => setSplitPos(parseInt(e.target.value, 10))}
-              className="w-40 accent-indigo-500 cursor-pointer"
-            />
-            <span className="font-mono text-neutral-200">{splitPos}%</span>
-          </div>
-        )}
-      </div>
-
-      {/* Selection Tools Toolbar */}
-      <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 space-y-3.5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          {/* Tools Picker */}
-          <div className="flex items-center gap-1.5 p-1 bg-neutral-950/70 rounded-xl border border-neutral-800 text-xs">
-            {/* Brush */}
-            <button
-              type="button"
-              onClick={() => setActiveTool('brush')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
-                activeTool === 'brush' ? 'bg-indigo-600 text-white' : 'text-neutral-400 hover:text-white'
-              }`}
-            >
-              <Brush className="w-3.5 h-3.5" />
-              <span>فرشاة</span>
-            </button>
-
-            {/* Eraser */}
-            <button
-              type="button"
-              onClick={() => setActiveTool('eraser')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
-                activeTool === 'eraser' ? 'bg-rose-600 text-white' : 'text-neutral-400 hover:text-white'
-              }`}
-            >
-              <Eraser className="w-3.5 h-3.5" />
-              <span>ممحاة</span>
-            </button>
-
-            {/* Freehand Lasso */}
-            <button
-              type="button"
-              onClick={() => setActiveTool('lasso')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
-                activeTool === 'lasso' ? 'bg-cyan-600 text-white' : 'text-neutral-400 hover:text-white'
-              }`}
-            >
-              <Wand2 className="w-3.5 h-3.5" />
-              <span>لاسو حر</span>
-            </button>
-
-            {/* Interactive Magic Touch */}
-            <button
-              type="button"
-              onClick={() => setActiveTool('magic-touch')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
-                activeTool === 'magic-touch' ? 'bg-amber-600 text-white' : 'text-neutral-400 hover:text-amber-300'
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>اختر بلمسة</span>
-            </button>
-          </div>
-
-          {/* Stroke Undo/Redo, Invert & Clear */}
-          <div className="flex items-center gap-1.5 text-xs">
-            <button
-              onClick={handleMaskUndo}
-              disabled={maskHistoryIdx <= 0}
-              className="p-1.5 bg-neutral-950/70 border border-neutral-800 rounded-lg text-neutral-300 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-neutral-800"
-              title="تراجع عن ضربة الفرشاة"
-            >
-              <Undo2 className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={handleMaskRedo}
-              disabled={maskHistoryIdx >= maskHistory.length - 1}
-              className="p-1.5 bg-neutral-950/70 border border-neutral-800 rounded-lg text-neutral-300 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-neutral-800"
-              title="إعادة ضربة الفرشاة"
-            >
-              <Redo2 className="w-3.5 h-3.5" />
-            </button>
-
-            <button
-              onClick={handleInvertMask}
-              className="px-2.5 py-1.5 bg-neutral-950/70 border border-neutral-800 rounded-lg text-neutral-300 hover:bg-neutral-800 cursor-pointer"
-            >
-              عكس التحديد
-            </button>
-
-            <button
-              onClick={handleClearMask}
-              className="flex items-center gap-1 px-2.5 py-1.5 bg-neutral-950/70 border border-neutral-800 rounded-lg text-rose-300 hover:bg-rose-500/10 cursor-pointer"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>مسح</span>
-            </button>
-
-            <button
-              onClick={() => setShowMaskOverlay(!showMaskOverlay)}
-              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border cursor-pointer ${
-                showMaskOverlay
-                  ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-300'
-                  : 'bg-neutral-950 border-neutral-800 text-neutral-400'
-              }`}
-            >
-              {showMaskOverlay ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-              <span>التحديد</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Dynamic Tool Adjustments Subpanel */}
-        <div className="flex flex-wrap items-center gap-5 pt-2 border-t border-neutral-800/60 text-xs">
-          {/* Brush Size & Hardness */}
-          {(activeTool === 'brush' || activeTool === 'eraser') && (
-            <>
-              <div className="flex items-center gap-2">
-                <span className="text-neutral-400">حجم الفرشاة:</span>
-                <input
-                  type="range"
-                  min={5}
-                  max={120}
-                  value={brushRadius}
-                  onChange={(e) => setBrushRadius(parseInt(e.target.value, 10))}
-                  className="w-28 accent-indigo-500 cursor-pointer"
-                />
-                <span className="font-mono text-neutral-200">{brushRadius}px</span>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <span className="text-neutral-400">نعومة الحواف:</span>
-                <input
-                  type="range"
-                  min={10}
-                  max={100}
-                  value={Math.round(brushHardness * 100)}
-                  onChange={(e) => setBrushHardness(parseInt(e.target.value, 10) / 100)}
-                  className="w-24 accent-indigo-500 cursor-pointer"
-                />
-                <span className="font-mono text-neutral-200">{Math.round(brushHardness * 100)}%</span>
-              </div>
-            </>
-          )}
-
-          {/* Magic Touch Polarity (+ / -) */}
-          {activeTool === 'magic-touch' && (
-            <div className="flex items-center gap-2 bg-neutral-950 p-1 rounded-lg border border-neutral-800">
-              <button
-                type="button"
-                onClick={() => setMagicTouchPolarity('positive')}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold cursor-pointer ${
-                  magicTouchPolarity === 'positive' ? 'bg-emerald-600 text-white' : 'text-neutral-400'
-                }`}
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>إضافة كائن (+)</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setMagicTouchPolarity('negative')}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold cursor-pointer ${
-                  magicTouchPolarity === 'negative' ? 'bg-rose-600 text-white' : 'text-neutral-400'
-                }`}
-              >
-                <Minus className="w-3.5 h-3.5" />
-                <span>استثناء كائن (-)</span>
-              </button>
-            </div>
-          )}
-
-          {/* Dilation Slider (0 - 16px, default 6px) */}
-          <div className="flex items-center gap-2 mr-auto">
-            <span className="text-neutral-400">توسيع التحديد (Dilation):</span>
-            <input
-              type="range"
-              min={0}
-              max={16}
-              value={dilatePx}
-              onChange={(e) => setDilatePx(parseInt(e.target.value, 10))}
-              className="w-24 accent-indigo-500 cursor-pointer"
-            />
-            <span className="font-mono text-cyan-400">{dilatePx}px</span>
-            <span className="text-[10px] text-neutral-500">(تنعيم feather 2px)</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Inpainting Engine Selection & Action Bar */}
-      <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
-        {/* Model Mode Selector */}
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-neutral-400">محرك الترميم:</span>
-          <div className="flex items-center gap-1.5 p-1 bg-neutral-950/80 rounded-xl border border-neutral-800 text-xs">
-            <button
-              type="button"
-              onClick={() => setModelMode('migan-512')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
-                modelMode === 'migan-512' ? 'bg-indigo-600 text-white' : 'text-neutral-400 hover:text-white'
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5 text-indigo-300" />
-              <span>MI-GAN 512 (Places2)</span>
-              <span className="font-mono text-[10px] text-indigo-300">~81MB</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setModelMode('push-pull')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
-                modelMode === 'push-pull' ? 'bg-indigo-600 text-white' : 'text-neutral-400 hover:text-white'
-              }`}
-            >
-              <Zap className="w-3.5 h-3.5 text-amber-400" />
-              <span>سريع (جودة أقل)</span>
-              <span className="text-[10px] text-emerald-400">بدون تنزيل</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Execution & Re-run Buttons */}
-        <div className="flex items-center gap-2">
-          {/* Re-run button */}
-          <button
-            type="button"
-            onClick={handleRerun}
-            disabled={isProcessing}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-neutral-700 hover:bg-neutral-800 text-xs text-neutral-200 font-medium cursor-pointer transition-colors disabled:opacity-40"
-            title="إعادة المعالجة ببذرة عشوائية مختلفة"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            <span>إعادة</span>
-          </button>
-
-          {/* Primary Action Button */}
-          <button
-            type="button"
-            onClick={() => handleRunInpaint()}
-            disabled={isProcessing || !hasMask}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white text-xs font-bold shadow-lg shadow-indigo-600/30 cursor-pointer transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <Sparkles className="w-4 h-4" />
-            <span>إزالة العنصر المحدد</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Progress Bar while inpainting */}
-      {isProcessing && (
-        <div className="p-4 bg-neutral-900 border border-indigo-500/30 rounded-2xl space-y-2 shadow-xl animate-in fade-in">
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-semibold text-indigo-300">{progressStage}</span>
-            <span className="font-mono text-indigo-400 font-bold">{progressPercent}%</span>
-          </div>
-          <div className="w-full bg-neutral-950 rounded-full h-2 overflow-hidden border border-neutral-800">
-            <div
-              className="bg-indigo-600 h-2 rounded-full transition-all duration-300"
-              style={{ width: `${progressPercent}%` }}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Performance & ROI Timing Metrics Card */}
-      {timing && (
-        <div className="bg-neutral-900/90 border border-neutral-800 rounded-xl p-3.5 text-xs space-y-2 text-neutral-300">
-          <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
-            <span className="font-semibold text-white">سجل استدلال إزالة العنصر (بالدقة الكاملة {width}×{height}):</span>
-            <div className="flex items-center gap-1 text-emerald-400 font-mono text-[11px]">
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>تطابق بايت ببايت خارج التحديد</span>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-[11px]">
-            <div className="p-2 rounded bg-neutral-950 border border-neutral-800">
-              <span className="text-neutral-400 block text-[10px]">استدلال المحرك:</span>
-              <span className="text-indigo-300 font-bold">{timing.inferenceMs} ms</span>
-            </div>
-            <div className="p-2 rounded bg-neutral-950 border border-neutral-800">
-              <span className="text-neutral-400 block text-[10px]">اللصق والدمج:</span>
-              <span className="text-cyan-300 font-bold">{timing.compositeMs} ms</span>
-            </div>
-            <div className="p-2 rounded bg-neutral-950 border border-neutral-800">
-              <span className="text-neutral-400 block text-[10px]">الزمن الكلي:</span>
-              <span className="text-white font-bold">{timing.totalMs} ms</span>
-            </div>
-            <div className="p-2 rounded bg-neutral-950 border border-neutral-800">
-              <span className="text-neutral-400 block text-[10px]">أبعاد ROI المعالجة:</span>
-              <span className="text-amber-300 font-bold">
-                {timing.roiBox ? `${timing.roiBox.w}×${timing.roiBox.h}` : 'كامل'}
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Model Download Modal for MI-GAN */}
-      {showDownloadModal && MODEL_CATALOG['migan-512'] && (
-        <ModelDownloadDialog
-          manifest={MODEL_CATALOG['migan-512']}
-          isOpen={true}
-          onConfirmDownload={async () => {
-            setIsDownloading(true);
-            try {
-              await modelStore.downloadModel(
-                'migan-512',
-                MODEL_CATALOG['migan-512'].url!,
-                MODEL_CATALOG['migan-512'].sha256,
-                (p) => setDownloadProgress(p)
-              );
-              setShowDownloadModal(false);
-              setIsDownloading(false);
-              // Trigger inpaint
-              handleRunInpaint();
-            } catch (e: unknown) {
-              setErrorMessage(`فشل تنزيل النموذج: ${(e as Error)?.message}`);
-              setIsDownloading(false);
-            }
+        <canvas
+          ref={canvasRef}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+          className="rounded-lg shadow-2xl transition-transform duration-75 cursor-crosshair touch-none"
+          style={{
+            width: displayedRect.width > 0 ? `${displayedRect.width}px` : "auto",
+            height: displayedRect.height > 0 ? `${displayedRect.height}px` : "auto",
+            maxWidth: "100%",
+            maxHeight: "100%",
+            transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoom})`,
+            transition: isDrawing || isPanning ? "none" : "transform 0.1s ease-out",
           }}
-          onCancel={() => setShowDownloadModal(false)}
-          progress={downloadProgress}
-          isDownloading={isDownloading}
         />
-      )}
 
-      {/* Inline dismissible error banner */}
-      {errorMessage && (
-        <div className="p-3 bg-rose-950/80 border border-rose-800/80 rounded-xl text-xs text-rose-200 flex items-center justify-between gap-2 shadow-lg animate-in fade-in">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-            <span>{errorMessage}</span>
-          </div>
+        {/* Visual Brush Size Indicator on Cursor */}
+        {cursorPos.visible && !isPanning && (
+          <div
+            className="pointer-events-none absolute rounded-full border-2 transform -translate-x-1/2 -translate-y-1/2"
+            style={{
+              left: cursorPos.x,
+              top: cursorPos.y,
+              width: brushSize,
+              height: brushSize,
+              borderColor:
+                brushMode === "add"
+                  ? "rgba(16, 185, 129, 0.9)"
+                  : brushMode === "remove"
+                  ? "rgba(244, 63, 94, 0.9)"
+                  : "rgba(99, 102, 241, 0.9)",
+              backgroundColor:
+                brushMode === "add"
+                  ? "rgba(16, 185, 129, 0.15)"
+                  : brushMode === "remove"
+                  ? "rgba(244, 63, 94, 0.15)"
+                  : "rgba(99, 102, 241, 0.15)",
+            }}
+          />
+        )}
+
+        {/* Zoom & Reset Pan Controls */}
+        <div className="absolute bottom-3 left-3 flex items-center gap-1 bg-slate-950/80 p-1 rounded-lg border border-slate-800 backdrop-blur-md">
           <button
             type="button"
-            onClick={() => setErrorMessage(null)}
-            className="p-1 hover:bg-rose-900/50 rounded-lg text-rose-400 min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer"
+            onClick={() => setZoom((z) => Math.min(4, z + 0.25))}
+            className="p-1 rounded text-slate-300 hover:text-white"
+            title={t("imageAi.zoomIn")}
+            aria-label={t("imageAi.zoomIn")}
           >
-            ✕
+            <ZoomIn className="w-3.5 h-3.5" />
           </button>
+          <span className="text-[10px] font-bold text-slate-400 px-1">{Math.round(zoom * 100)}%</span>
+          <button
+            type="button"
+            onClick={() => setZoom((z) => Math.max(0.4, z - 0.25))}
+            className="p-1 rounded text-slate-300 hover:text-white"
+            title={t("imageAi.zoomOut")}
+            aria-label={t("imageAi.zoomOut")}
+          >
+            <ZoomOut className="w-3.5 h-3.5" />
+          </button>
+          {(zoom !== 1 || panOffset.x !== 0 || panOffset.y !== 0) && (
+            <button
+              type="button"
+              onClick={() => {
+                setZoom(1);
+                setPanOffset({ x: 0, y: 0 });
+              }}
+              className="p-1 rounded text-slate-300 hover:text-white"
+              title={t("imageAi.resetZoom")}
+              aria-label={t("imageAi.resetZoom")}
+            >
+              <Maximize className="w-3 h-3" />
+            </button>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 };
+
+export default MaskEditorCanvas;

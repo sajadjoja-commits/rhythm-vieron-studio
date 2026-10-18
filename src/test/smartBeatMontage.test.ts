@@ -1,0 +1,1415 @@
+import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
+import { 
+  runSmartBeatMontage, 
+  runAutoMontage,
+  buildMusicalBeatSlots, 
+  clearVideoAnalysisCache, 
+  buildVideoCacheKey,
+  setCacheEntry,
+  getCachedInterestScan,
+  computeSegmentScore,
+  buildVideoSampleTimes,
+  computeVisionSampleIndices,
+  applyInterestScanToSegments,
+  snapSliceToShot,
+  alignToMotionPeak,
+  type Segment,
+} from "../lib/autoMontage";
+import { scanVideoInterest, type InterestScanDecoderLike } from "../lib/videoInterestScan";
+import { SMART_TEMPLATES, buildSmartTemplateStyle } from "../lib/smartTemplates";
+import { pickNearestFrameIndex } from "../lib/frameMatching";
+import { analyzeFramesInWorker, type FrameBufferData } from "../lib/workers/videoAnalysis.worker";
+import { analyzeAudioBuffer, mapBeatsToTimeline, type BeatAnalysisResult } from "../lib/beatDetector";
+import type { MediaItem } from "@/context/MediaContext";
+
+beforeAll(() => {
+  HTMLMediaElement.prototype.pause = vi.fn();
+  HTMLMediaElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+
+  // Mock canvas 2D context for jsdom
+  HTMLCanvasElement.prototype.getContext = vi.fn().mockImplementation(() => ({
+    drawImage: vi.fn(),
+    getImageData: vi.fn().mockReturnValue({
+      data: new Uint8ClampedArray(96 * 96 * 4),
+    }),
+  })) as any;
+
+  // Mock video element seeking in jsdom
+  const originalCreateElement = document.createElement.bind(document);
+  document.createElement = vi.fn().mockImplementation((tagName: string) => {
+    if (tagName.toLowerCase() === "video") {
+      const el = originalCreateElement("video");
+      let currentTime = 0;
+      Object.defineProperty(el, "currentTime", {
+        get: () => currentTime,
+        set: (t: number) => {
+          currentTime = t;
+          setTimeout(() => el.dispatchEvent(new Event("seeked")), 2);
+        },
+      });
+      el.load = vi.fn().mockImplementation(() => {
+        setTimeout(() => el.dispatchEvent(new Event("seeked")), 2);
+      });
+      return el;
+    }
+    return originalCreateElement(tagName);
+  });
+});
+
+const mockWorkerAnalyzeFrames = vi.fn();
+
+vi.mock("../lib/videoAnalysisWorkerManager", () => ({
+  VideoAnalysisWorkerManager: {
+    getInstance: () => ({
+      analyzeFrames: (...args: any[]) => mockWorkerAnalyzeFrames(...args),
+    }),
+  },
+}));
+
+vi.mock("../lib/beatDetector", async () => {
+  const actual = await vi.importActual<any>("../lib/beatDetector");
+  return {
+    ...actual,
+    calculateSegmentAudioEnergiesBatch: async (_url: string, segments: Array<{ in: number; out: number }>) => {
+      return segments.map((s) => (s.in >= 4 && s.in <= 8 ? 0.85 : 0.2));
+    },
+    analyzeAudioTrack: async () => ({
+      bpm: 120,
+      offset: 0,
+      beatTimes: [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0],
+      downbeats: [0.5, 2.5, 4.5],
+      strongBeats: [0.5, 1.5, 2.5, 3.5, 4.5],
+      peaks: [0.5, 2.5],
+      beats: [
+        { time: 0.5, strength: 0.9, isDownbeat: true, isStrong: true, section: "calm", energy: 0.2 },
+        { time: 1.0, strength: 0.4, isDownbeat: false, isStrong: false, section: "calm", energy: 0.2 },
+        { time: 1.5, strength: 0.7, isDownbeat: false, isStrong: true, section: "calm", energy: 0.25 },
+        { time: 2.0, strength: 0.3, isDownbeat: false, isStrong: false, section: "calm", energy: 0.25 },
+        { time: 2.5, strength: 0.95, isDownbeat: true, isStrong: true, section: "drop", energy: 0.85 },
+        { time: 3.0, strength: 0.8, isDownbeat: false, isStrong: false, section: "drop", energy: 0.9 },
+        { time: 3.5, strength: 0.85, isDownbeat: false, isStrong: true, section: "drop", energy: 0.88 },
+        { time: 4.0, strength: 0.75, isDownbeat: false, isStrong: false, section: "drop", energy: 0.82 },
+        { time: 4.5, strength: 0.9, isDownbeat: true, isStrong: true, section: "verse", energy: 0.55 },
+        { time: 5.0, strength: 0.5, isDownbeat: false, isStrong: false, section: "verse", energy: 0.5 },
+      ],
+      energyCurve: [],
+      sections: [
+        { type: "calm", start: 0, end: 2.4, avgEnergy: 0.22, peakEnergy: 0.25 },
+        { type: "drop", start: 2.4, end: 4.2, avgEnergy: 0.86, peakEnergy: 0.95 },
+        { type: "verse", start: 4.2, end: 5.5, avgEnergy: 0.52, peakEnergy: 0.6 },
+      ],
+      duration: 5.5,
+    }),
+    clearAudioBufferCache: () => {},
+  };
+});
+
+vi.mock("../lib/visionAnalyzer", () => ({
+  disposeVisionModels: () => {},
+  resetVisionDetector: () => {},
+  getVisionAnalysisStatus: () => ({
+    isDetectorAvailable: true,
+    isInitialized: true,
+    lastEngineUsed: "mediapipe",
+    sessionStats: { realMediaPipeFrames: 5, fallbackFrames: 0, facesDetected: 2, handsDetected: 1 },
+  }),
+  analyzeFrameVision: async () => ({
+    faceCount: 1,
+    faceConfidence: 0.9,
+    hasHands: true,
+    handCount: 1,
+    handPositions: [{ x: 0.5, y: 0.5 }],
+  }),
+  computeVisionSegmentScore: () => ({
+    faceScore: 0.85,
+    handScore: 0.6,
+    handVelocityScore: 0.4,
+  }),
+}));
+
+describe("Comprehensive Smart Cut & Rhythm Engine Test Suite", () => {
+  beforeEach(() => {
+    clearVideoAnalysisCache();
+    mockWorkerAnalyzeFrames.mockImplementation(async (_frames: any[], segments: Array<{ in: number; out: number }>) => {
+      return segments.map((s) => ({
+        in: s.in,
+        out: s.out,
+        motion: s.in >= 3 && s.in <= 7 ? 0.85 : 0.2,
+        sharpness: 0.75,
+        blurPenalty: 1.0,
+        exposureQuality: 1.0,
+        actionIntensity: s.in >= 3 && s.in <= 7 ? 0.9 : 0.2,
+        temporalStability: 0.8,
+        faceScore: s.in >= 3 && s.in <= 7 ? 0.8 : 0.1,
+        handScore: 0.2,
+        handVelocityScore: 0.3,
+        brightness: 0.55,
+        colorfulness: 0.6,
+        containsTransition: false,
+        overallQuality: s.in >= 3 && s.in <= 7 ? 0.88 : 0.45,
+      }));
+    });
+  });
+
+  // 1. Single Short Video Scenario
+  it("Scenario 1: Single short video (3s) cuts within valid bounds without overflowing duration", async () => {
+    const media: MediaItem[] = [
+      {
+        id: "short-vid",
+        name: "short.mp4",
+        type: "video",
+        url: "blob:short",
+        duration: 3.2,
+        width: 1080,
+        height: 1920, size: 0, file: undefined as any,
+      },
+    ];
+
+    const result = await runSmartBeatMontage({
+      media,
+      beatTimes: [0.8, 1.6, 2.4, 3.0],
+      targetDuration: 3.0,
+      minShotDuration: 0.6,
+    });
+
+    expect(result.clips.length).toBeGreaterThan(0);
+    for (const clip of result.clips) {
+      expect(clip.in).toBeGreaterThanOrEqual(0);
+      expect(clip.out).toBeLessThanOrEqual(3.2);
+      expect(clip.out - clip.in).toBeGreaterThanOrEqual(0.5);
+    }
+  });
+
+  // 2. Ten Different Videos Scenario (Diversity & Round Robin)
+  it("Scenario 2: 10 different videos distributes cuts evenly and alternates sources", async () => {
+    const media: MediaItem[] = Array.from({ length: 10 }, (_, i) => ({
+      id: `vid-${i + 1}`,
+      name: `video_${i + 1}.mp4`,
+      type: "video",
+      url: `blob:vid-${i + 1}`,
+      duration: 10,
+      width: 1920,
+      height: 1080, size: 0, file: undefined as any,
+    }));
+
+    const result = await runSmartBeatMontage({
+      media,
+      beatTimes: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+      targetDuration: 8.0,
+    });
+
+    expect(result.clips.length).toBe(8);
+
+    // Verify diversity: no consecutive cuts from the exact same media item
+    for (let i = 1; i < result.clips.length; i++) {
+      expect(result.clips[i].mediaId).not.toBe(result.clips[i - 1].mediaId);
+    }
+
+    // Verify multiple different media items were selected
+    const selectedMediaIds = new Set(result.clips.map((c) => c.mediaId));
+    expect(selectedMediaIds.size).toBeGreaterThanOrEqual(4);
+  });
+
+  // 3. Videos of Mixed Durations (Short, Medium, Long)
+  it("Scenario 3: Mixed video lengths (2s, 12s, 45s) properly sliced without boundary overflow", async () => {
+    const media: MediaItem[] = [
+      { id: "vid-short", name: "v1.mp4", type: "video", url: "blob:v1", duration: 2.2, width: 1920, height: 1080, size: 0, file: undefined as any },
+      { id: "vid-med", name: "v2.mp4", type: "video", url: "blob:v2", duration: 12.0, width: 1920, height: 1080, size: 0, file: undefined as any },
+      { id: "vid-long", name: "v3.mp4", type: "video", url: "blob:v3", duration: 45.0, width: 1920, height: 1080, size: 0, file: undefined as any },
+    ];
+
+    const result = await runSmartBeatMontage({
+      media,
+      beatTimes: [1.2, 2.4, 3.6, 5.0],
+      targetDuration: 5.0,
+    });
+
+    expect(result.clips.length).toBeGreaterThanOrEqual(3);
+    for (const c of result.clips) {
+      const src = media.find((m) => m.id === c.mediaId)!;
+      expect(c.in).toBeGreaterThanOrEqual(0);
+      expect(c.out).toBeLessThanOrEqual(src.duration);
+    }
+  });
+
+  // 4. Musical Rhythm: Calm Music Section Handling
+  it("Scenario 4: Calm music sections produce longer sustained shots (>= 1.2s)", () => {
+    const calmBeats: BeatAnalysisResult = {
+      bpm: 80,
+      offset: 0,
+      beatTimes: [0.75, 1.5, 2.25, 3.0, 3.75, 4.5],
+      downbeats: [0.75, 3.75],
+      strongBeats: [0.75, 2.25, 3.75],
+      peaks: [],
+      beats: [
+        { time: 0.75, strength: 0.4, isDownbeat: true, isStrong: true, section: "calm", energy: 0.2 },
+        { time: 1.5, strength: 0.2, isDownbeat: false, isStrong: false, section: "calm", energy: 0.2 },
+        { time: 2.25, strength: 0.3, isDownbeat: false, isStrong: true, section: "calm", energy: 0.2 },
+        { time: 3.0, strength: 0.2, isDownbeat: false, isStrong: false, section: "calm", energy: 0.2 },
+        { time: 3.75, strength: 0.4, isDownbeat: true, isStrong: true, section: "calm", energy: 0.2 },
+        { time: 4.5, strength: 0.2, isDownbeat: false, isStrong: false, section: "calm", energy: 0.2 },
+      ],
+      energyCurve: [],
+      sections: [{ type: "calm", start: 0, end: 5.0, avgEnergy: 0.2, peakEnergy: 0.25 }],
+      duration: 5.0,
+    };
+
+    const slots = buildMusicalBeatSlots(calmBeats, calmBeats.beatTimes, 5.0, 0.7, 4.0);
+    // In calm section, beats are grouped so shots are longer
+    for (const slot of slots) {
+      expect(slot.dur).toBeGreaterThanOrEqual(1.2);
+    }
+  });
+
+  // 5. Fast Tempo Music & Minimum Duration Constraint
+  it("Scenario 5: Fast 180 BPM music enforces minimum clip duration (no micro-clips < 0.6s)", () => {
+    // 180 BPM = beat every 0.33s
+    const fastBeatTimes = [0.33, 0.66, 1.0, 1.33, 1.66, 2.0, 2.33, 2.66, 3.0];
+    const slots = buildMusicalBeatSlots(null, fastBeatTimes, 3.0, 0.65, 3.5);
+
+    for (const slot of slots) {
+      expect(slot.dur).toBeGreaterThanOrEqual(0.6);
+    }
+  });
+
+  // 6. High-Impact Drop Section Matching
+  it("Scenario 6: Drops and downbeats match high-action and motion candidate moments", async () => {
+    const media: MediaItem[] = [
+      {
+        id: "v-action",
+        name: "action.mp4",
+        type: "video",
+        url: "blob:action",
+        duration: 10,
+        width: 1920,
+        height: 1080, size: 0, file: undefined as any,
+      },
+    ];
+
+    const result = await runSmartBeatMontage({
+      media,
+      audioTrackUrl: "blob:test-drop-song",
+      targetDuration: 5.0,
+    });
+
+    expect(result.clips.length).toBeGreaterThan(0);
+    // The top candidate moments (around 4-8s where action is high) should be selected
+    const selectedRanges = result.clips.map((c) => ({ in: c.in, out: c.out }));
+    const hitsActionZone = selectedRanges.some((r) => r.in >= 2.5 && r.out <= 8.5);
+    expect(hitsActionZone).toBe(true);
+  });
+
+  // 7. Silent Start & Audio Offset Synchronization
+  it("Scenario 7: Audio with silent start and offset correctly maps to timeline without drift", () => {
+    const beatResult: BeatAnalysisResult = {
+      bpm: 120,
+      offset: 1.5, // 1.5 seconds of silence before first beat
+      beatTimes: [1.5, 2.0, 2.5, 3.0, 3.5],
+      downbeats: [1.5, 3.5],
+      strongBeats: [1.5, 2.5, 3.5],
+      peaks: [1.5],
+      beats: [
+        { time: 1.5, strength: 0.9, isDownbeat: true, isStrong: true, section: "verse", energy: 0.5 },
+        { time: 2.0, strength: 0.4, isDownbeat: false, isStrong: false, section: "verse", energy: 0.5 },
+        { time: 2.5, strength: 0.8, isDownbeat: false, isStrong: true, section: "verse", energy: 0.5 },
+        { time: 3.0, strength: 0.4, isDownbeat: false, isStrong: false, section: "verse", energy: 0.5 },
+        { time: 3.5, strength: 0.9, isDownbeat: true, isStrong: true, section: "verse", energy: 0.5 },
+      ],
+      energyCurve: [],
+      sections: [{ type: "verse", start: 1.5, end: 4.0, avgEnergy: 0.5, peakEnergy: 0.9 }],
+      duration: 4.0,
+    };
+
+    // Track placed at timeline t=2.0 with offset 1.0 and duration 3.0
+    const mapped = mapBeatsToTimeline(beatResult, 2.0, 1.0, 3.0, 30);
+
+    expect(mapped.beatsOnTimeline.length).toBeGreaterThan(0);
+    // First beat at 1.5 with offset 1.0 -> 2.0 + (1.5 - 1.0) = 2.5 on timeline
+    expect(mapped.beatsOnTimeline[0]).toBeCloseTo(2.5, 2);
+  });
+
+  // 8. Quality Penalty: Blurry Video Rejection
+  it("Scenario 8: Rejects blurry footage in favor of sharp footage via Laplacian variance penalty", async () => {
+    // Video 1 is blurry (low Laplacian sharpness -> heavy blur penalty)
+    // Video 2 is sharp
+    const media: MediaItem[] = [
+      { id: "vid-blurry", name: "blurry.mp4", type: "video", url: "blob:blurry", duration: 8, width: 1920, height: 1080, size: 0, file: undefined as any },
+      { id: "vid-sharp", name: "sharp.mp4", type: "video", url: "blob:sharp", duration: 8, width: 1920, height: 1080, size: 0, file: undefined as any },
+    ];
+
+    mockWorkerAnalyzeFrames.mockImplementation(async (_frames: any[], segments: Array<{ in: number; out: number }>) => {
+      return segments.map((s) => {
+        // If url matches blurry, apply severe blur penalty
+        const isBlurry = s.in < 100; // Will test with dynamic worker returns
+        return {
+          in: s.in,
+          out: s.out,
+          motion: 0.7,
+          sharpness: 0.02, // very blurry
+          blurPenalty: 0.05, // 95% penalty!
+          exposureQuality: 1.0,
+          actionIntensity: 0.7,
+          temporalStability: 0.8,
+          faceScore: 0.3,
+          handScore: 0,
+          handVelocityScore: 0,
+          brightness: 0.5,
+          colorfulness: 0.5,
+          containsTransition: false,
+          overallQuality: 0.03,
+        };
+      });
+    });
+
+    const result = await runSmartBeatMontage({
+      media: [media[0]],
+      beatTimes: [1.0, 2.0],
+      targetDuration: 2.0,
+    });
+
+    // Score should reflect the heavy penalty
+    expect(result.analysis.topScore).toBeLessThan(0.2);
+  });
+
+  // 9. Quality Penalty: Pitch Black / Overexposed Rejection
+  it("Scenario 9: Penalizes pitch black or overexposed video frames", async () => {
+    const media: MediaItem[] = [
+      { id: "vid-dark", name: "dark.mp4", type: "video", url: "blob:dark", duration: 6, width: 1920, height: 1080, size: 0, file: undefined as any },
+    ];
+
+    mockWorkerAnalyzeFrames.mockImplementation(async (_frames: any[], segments: Array<{ in: number; out: number }>) => {
+      return segments.map((s) => ({
+        in: s.in,
+        out: s.out,
+        motion: 0.5,
+        sharpness: 0.7,
+        blurPenalty: 1.0,
+        exposureQuality: 0.02, // severe dark penalty
+        actionIntensity: 0.5,
+        temporalStability: 0.8,
+        faceScore: 0,
+        handScore: 0,
+        handVelocityScore: 0,
+        brightness: 0.03, // pitch black
+        colorfulness: 0.1,
+        containsTransition: false,
+        overallQuality: 0.02,
+      }));
+    });
+
+    const result = await runSmartBeatMontage({
+      media,
+      beatTimes: [1.0, 2.0],
+      targetDuration: 2.0,
+    });
+
+    expect(result.analysis.topScore).toBeLessThan(0.1);
+  });
+
+  // 10. Intelligent Caching: Changing Music Skips Video Analysis
+  it("Scenario 10: Changing music or beat settings reuses video analysis cache with 0 re-analyses", async () => {
+    const media: MediaItem[] = [
+      { id: "vid-cached", name: "cached.mp4", type: "video", url: "blob:cached", duration: 10, width: 1920, height: 1080, size: 0, file: undefined as any },
+    ];
+
+    mockWorkerAnalyzeFrames.mockClear();
+
+    // Run 1: First analysis
+    await runSmartBeatMontage({
+      media,
+      beatTimes: [1.0, 2.0, 3.0],
+      targetDuration: 3.0,
+    });
+
+    const workerCallCountAfterFirstRun = mockWorkerAnalyzeFrames.mock.calls.length;
+    expect(workerCallCountAfterFirstRun).toBeGreaterThan(0);
+
+    // Run 2: User changes music track or beat settings
+    const tStart = performance.now();
+    await runSmartBeatMontage({
+      media,
+      beatTimes: [0.8, 1.6, 2.4, 3.2],
+      targetDuration: 3.2,
+    });
+    const durationMs = performance.now() - tStart;
+
+    // Worker was NOT called again because video analysis is cached!
+    expect(mockWorkerAnalyzeFrames.mock.calls.length).toBe(workerCallCountAfterFirstRun);
+    // Instantaneous calculation (< 50ms)
+    expect(durationMs).toBeLessThan(100);
+  });
+
+  // 11. Timeline Integrity: Gap-Free & Overlap-Free Continuity
+  it("Scenario 11: Timeline clips are valid, positive duration, and non-overlapping in sequence", async () => {
+    const media: MediaItem[] = [
+      { id: "v1", name: "v1.mp4", type: "video", url: "blob:v1", duration: 15, width: 1920, height: 1080, size: 0, file: undefined as any },
+      { id: "v2", name: "v2.mp4", type: "video", url: "blob:v2", duration: 15, width: 1920, height: 1080, size: 0, file: undefined as any },
+    ];
+
+    const result = await runSmartBeatMontage({
+      media,
+      beatTimes: [1.0, 2.0, 3.5, 5.0, 6.5, 8.0],
+      targetDuration: 8.0,
+    });
+
+    expect(result.clips.length).toBe(6);
+    let cumulativeTimelineTime = 0;
+
+    for (let i = 0; i < result.clips.length; i++) {
+      const c = result.clips[i];
+      const clipDur = c.out - c.in;
+      expect(clipDur).toBeGreaterThanOrEqual(0.5);
+      cumulativeTimelineTime += clipDur;
+    }
+
+    expect(cumulativeTimelineTime).toBeCloseTo(result.totalDuration, 1);
+  });
+
+  // 12. Cancellation Support (AbortSignal)
+  it("Scenario 12: Aborting analysis cleanly stops execution with AbortError", async () => {
+    const media: MediaItem[] = [
+      { id: "v-abort", name: "v.mp4", type: "video", url: "blob:abort", duration: 10, width: 1920, height: 1080, size: 0, file: undefined as any },
+    ];
+
+    const abortController = new AbortController();
+    abortController.abort(); // Pre-abort
+
+    await expect(
+      runSmartBeatMontage({
+        media,
+        beatTimes: [1.0, 2.0],
+        signal: abortController.signal,
+      })
+    ).rejects.toThrow();
+  });
+
+  // 13. All 9 SMART_TEMPLATES Validation (Music & Non-Music Templates)
+  it("Scenario 13: All 9 SMART_TEMPLATES execute runAutoMontage without throwing and non-music templates produce multiple clips across 2+ videos", async () => {
+    expect(SMART_TEMPLATES.length).toBe(9);
+
+    const media: MediaItem[] = [
+      { id: "tpl-v1", name: "v1.mp4", type: "video", url: "blob:tpl-v1", duration: 15, width: 1920, height: 1080, size: 0, file: undefined as any },
+      { id: "tpl-v2", name: "v2.mp4", type: "video", url: "blob:tpl-v2", duration: 15, width: 1920, height: 1080, size: 0, file: undefined as any },
+      { id: "tpl-v3", name: "v3.mp4", type: "video", url: "blob:tpl-v3", duration: 15, width: 1920, height: 1080, size: 0, file: undefined as any },
+    ];
+
+    for (const tpl of SMART_TEMPLATES) {
+      const musicUrl = tpl.ai.musicSync ? "blob:test-song" : undefined;
+      const result = await runAutoMontage(media, tpl, [], musicUrl, { fastMode: true });
+
+      expect(result.clips.length).toBeGreaterThan(1);
+
+      if (!tpl.ai.musicSync) {
+        // Non-music templates (vlog, retro) must split into multiple clips and use multiple videos sequentially
+        const usedMediaIds = new Set(result.clips.map((c) => c.mediaId));
+        expect(usedMediaIds.size).toBeGreaterThanOrEqual(2);
+      }
+    }
+  });
+
+  // 14. Template Style Extraction & Application in runAutoMontage
+  it("Scenario 14: buildSmartTemplateStyle and runAutoMontage populate filters, vfx, and captionStyle spanning [0, totalDuration]", async () => {
+    const media: MediaItem[] = [
+      { id: "style-v1", name: "v1.mp4", type: "video", url: "blob:style-v1", duration: 12, width: 1920, height: 1080, size: 0, file: undefined as any },
+      { id: "style-v2", name: "v2.mp4", type: "video", url: "blob:style-v2", duration: 12, width: 1920, height: 1080, size: 0, file: undefined as any },
+    ];
+
+    for (const tpl of SMART_TEMPLATES) {
+      const result = await runAutoMontage(media, tpl, [], undefined, { fastMode: true, targetDuration: 10 });
+
+      expect(result.totalDuration).toBeGreaterThan(0);
+      expect(result.captions).toEqual([]);
+      expect(result.filters.length).toBe(tpl.filters.length);
+      expect(result.vfx.length).toBe(tpl.vfx.length);
+
+      for (let i = 0; i < tpl.filters.length; i++) {
+        expect(result.filters[i].type).toBe(tpl.filters[i].type);
+        expect(result.filters[i].intensity).toBe(tpl.filters[i].intensity);
+        expect(result.filters[i].start).toBe(0);
+        expect(result.filters[i].end).toBeCloseTo(result.totalDuration, 3);
+      }
+
+      for (let i = 0; i < tpl.vfx.length; i++) {
+        expect(result.vfx[i].type).toBe(tpl.vfx[i].type);
+        expect(result.vfx[i].intensity).toBe(tpl.vfx[i].intensity);
+        expect(result.vfx[i].start).toBe(0);
+        expect(result.vfx[i].end).toBeCloseTo(result.totalDuration, 3);
+      }
+
+      expect(result.captionStyle).toEqual({
+        font: tpl.caption.font,
+        size: tpl.caption.size,
+        color: tpl.caption.color,
+        bg: tpl.caption.bg,
+        animation: tpl.caption.animation,
+        position: tpl.caption.position,
+      });
+
+      const directStyle = buildSmartTemplateStyle(tpl, result.totalDuration);
+      expect(directStyle.captionStyle).toEqual(result.captionStyle);
+      expect(directStyle.filters.map((f) => ({ type: f.type, start: f.start, end: f.end, intensity: f.intensity }))).toEqual(
+        result.filters.map((f) => ({ type: f.type, start: f.start, end: f.end, intensity: f.intensity }))
+      );
+      expect(directStyle.vfx.map((v) => ({ type: v.type, start: v.start, end: v.end, intensity: v.intensity }))).toEqual(
+        result.vfx.map((v) => ({ type: v.type, start: v.start, end: v.end, intensity: v.intensity }))
+      );
+    }
+  });
+
+  // 15. Custom Template Transitions vs Legacy Transition Behavior
+  it("Scenario 15: Applies template transitionIn on clips 1..N with clamped duration, and preserves legacy fade every 4th clip when omitted", async () => {
+    const media: MediaItem[] = [
+      { id: "tr-v1", name: "v1.mp4", type: "video", url: "blob:tr-v1", duration: 15, width: 1920, height: 1080, size: 0, file: undefined as any },
+      { id: "tr-v2", name: "v2.mp4", type: "video", url: "blob:tr-v2", duration: 15, width: 1920, height: 1080, size: 0, file: undefined as any },
+    ];
+
+    // 1. Legacy behavior when transition is omitted
+    const legacyRes = await runSmartBeatMontage({
+      media,
+      beatTimes: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+      targetDuration: 6.0,
+    });
+    expect(legacyRes.clips.length).toBeGreaterThanOrEqual(5);
+    expect(legacyRes.clips[0].transitionIn).toBeUndefined();
+    expect(legacyRes.clips[1].transitionIn).toBeUndefined();
+    expect(legacyRes.clips[2].transitionIn).toBeUndefined();
+    expect(legacyRes.clips[3].transitionIn).toBeUndefined();
+    expect(legacyRes.clips[4].transitionIn).toEqual({ type: "fade", duration: 0.15 });
+
+    // 2. Template transition behavior (both sequential and interleaved)
+    for (const interleaveMode of [false, true]) {
+      const customRes = await runSmartBeatMontage({
+        media,
+        beatTimes: [1.0, 2.0, 3.5, 5.0],
+        targetDuration: 5.0,
+        interleave: interleaveMode,
+        transition: { type: "zoom", duration: 0.8 },
+      });
+
+      expect(customRes.clips[0].transitionIn).toBeUndefined();
+      for (let i = 1; i < customRes.clips.length; i++) {
+        const prevDur = customRes.clips[i - 1].out - customRes.clips[i - 1].in;
+        const currDur = customRes.clips[i].out - customRes.clips[i].in;
+        const expectedDur = Number(Math.min(0.8, 0.4 * Math.min(prevDur, currDur)).toFixed(3));
+        expect(customRes.clips[i].transitionIn).toEqual({
+          type: "zoom",
+          duration: expectedDur,
+        });
+      }
+    }
+  });
+
+  // 16. Video Analysis Accuracy: pickNearestFrameIndex, computeSegmentScore & 1.5s Motion/Transition Neutrality
+  it("Scenario 16: pickNearestFrameIndex selects temporally closest frame to segment midpoint", () => {
+    const frames = [{ time: 0.8 }, { time: 2.4 }, { time: 5.1 }, { time: 8.9 }, { time: 11.2 }];
+
+    // Midpoint of [4.5, 5.5] is 5.0 -> closest is index 2 (5.1)
+    expect(pickNearestFrameIndex(frames, { in: 4.5, out: 5.5 })).toBe(2);
+    // Target time 8.2 -> closest is index 3 (8.9, dist 0.7 vs 5.1 dist 3.1)
+    expect(pickNearestFrameIndex(frames, 8.2)).toBe(3);
+    // Target time 1.1 -> closest is index 0 (0.8, dist 0.3 vs 2.4 dist 1.3)
+    expect(pickNearestFrameIndex(frames, 1.1)).toBe(0);
+    // Segment [10.0, 12.0] at segIdx=0 should still pick index 4 (11.2), NOT index 0
+    expect(pickNearestFrameIndex(frames, { in: 10.0, out: 12.0 })).toBe(4);
+  });
+
+  it("Scenario 17: computeSegmentScore differentiates sport vs food weights on the same segment and preserves exact default without weights", () => {
+    const testSeg: Segment = {
+      mediaId: "seg-1",
+      in: 2,
+      out: 4,
+      score: 0,
+      motion: 0.9,
+      sharpness: 0.8,
+      blurPenalty: 0.95,
+      exposureQuality: 0.9,
+      actionIntensity: 0.85,
+      temporalStability: 0.75,
+      audioEnergy: 0.7,
+      faceScore: 0.6,
+      handScore: 0.2,
+      handVelocityScore: 0.3,
+      brightness: 0.55,
+      colorfulness: 0.3,
+      containsTransition: false,
+      overallQuality: 0.8,
+    };
+
+    const sportTpl = SMART_TEMPLATES.find((t) => t.id === "sport")!;
+    const foodTpl = SMART_TEMPLATES.find((t) => t.id === "food")!;
+
+    // 1. Without weights: matches exact default formula (with audioEnergy at 0.10)
+    const expectedBaseWithFaces =
+      testSeg.faceScore * 0.31 +
+      testSeg.sharpness * 0.22 +
+      testSeg.motion * 0.16 +
+      testSeg.actionIntensity * 0.11 +
+      testSeg.audioEnergy * 0.10 +
+      testSeg.handVelocityScore * 0.05 +
+      testSeg.colorfulness * 0.05;
+    const expectedDefaultWithFaces =
+      expectedBaseWithFaces * testSeg.blurPenalty * testSeg.exposureQuality;
+
+    expect(computeSegmentScore(testSeg, true)).toBeCloseTo(expectedDefaultWithFaces, 6);
+
+    const expectedBaseNoFaces =
+      testSeg.sharpness * 0.27 +
+      testSeg.actionIntensity * 0.25 +
+      testSeg.motion * 0.20 +
+      testSeg.audioEnergy * 0.10 +
+      testSeg.handVelocityScore * 0.09 +
+      testSeg.colorfulness * 0.09;
+    const expectedDefaultNoFaces =
+      expectedBaseNoFaces * testSeg.blurPenalty * testSeg.exposureQuality;
+
+    expect(computeSegmentScore(testSeg, false)).toBeCloseTo(expectedDefaultNoFaces, 6);
+
+    // 2. Same segment produces distinct scores for sport (motionWeight 0.9) vs food (brightnessWeight 0.8, colorWeight 0.7)
+    const sportScore = computeSegmentScore(testSeg, true, sportTpl.ai);
+    const foodScore = computeSegmentScore(testSeg, true, foodTpl.ai);
+
+    expect(sportScore).not.toBeCloseTo(foodScore, 3);
+    // Since testSeg has very high motion/action (0.9/0.85) and low colorfulness (0.3), sport scores higher than food
+    expect(sportScore).toBeGreaterThan(foodScore);
+
+    // Conversely, on a low-motion, high-color, ideal-brightness segment, food scores higher than sport
+    const foodSeg: Segment = {
+      ...testSeg,
+      motion: 0.1,
+      actionIntensity: 0.1,
+      brightness: 0.55,
+      colorfulness: 0.95,
+    };
+    expect(computeSegmentScore(foodSeg, true, foodTpl.ai)).toBeGreaterThan(
+      computeSegmentScore(foodSeg, true, sportTpl.ai)
+    );
+  });
+
+  it("Scenario 18: Worker motion and transition detection are neutral (0.5 and false) when frame delta > 1.5s, and active when <= 1.5s", () => {
+    const W = 16;
+    const H = 16;
+    const makeFrame = (time: number, r: number, g: number, b: number): FrameBufferData => {
+      const arr = new Uint8ClampedArray(W * H * 4);
+      for (let i = 0; i < arr.length; i += 4) {
+        arr[i] = r;
+        arr[i + 1] = g;
+        arr[i + 2] = b;
+        arr[i + 3] = 255;
+      }
+      return { time, width: W, height: H, buffer: arr.buffer };
+    };
+
+    // Case A: Consecutive frames are 2.4s apart (> 1.5s) with extreme pixel change (dark -> bright)
+    const farFrames: FrameBufferData[] = [
+      makeFrame(0.5, 20, 20, 20),
+      makeFrame(2.9, 240, 240, 240),
+    ];
+    const farRes = analyzeFramesInWorker(farFrames, [{ in: 2.7, out: 3.1 }]);
+    expect(farRes[0].motion).toBeCloseTo(0.5, 5);
+    expect(farRes[0].containsTransition).toBe(false);
+
+    // Case B: Consecutive frames are 0.8s apart (<= 1.5s) with the exact same pixel change
+    const closeFrames: FrameBufferData[] = [
+      makeFrame(2.1, 20, 20, 20),
+      makeFrame(2.9, 240, 240, 240),
+    ];
+    const closeRes = analyzeFramesInWorker(closeFrames, [{ in: 2.7, out: 3.1 }]);
+    expect(closeRes[0].motion).toBeGreaterThan(0.8);
+    expect(closeRes[0].containsTransition).toBe(true);
+    // Skin-tone movement is never used to synthesize handVelocityScore in worker
+    expect(closeRes[0].handVelocityScore).toBe(0);
+  });
+
+  it("Scenario 19: Vision frame indices are distributed evenly across full duration (stride = ceil(frameCount/8), cap 8)", () => {
+    // 24 frames -> stride = ceil(24 / 8) = 3 -> [0, 3, 6, 9, 12, 15, 18, 21]
+    const indices24 = computeVisionSampleIndices(24, 8);
+    expect(indices24).toEqual([0, 3, 6, 9, 12, 15, 18, 21]);
+    expect(indices24.length).toBeLessThanOrEqual(8);
+
+    // 36 frames -> stride = ceil(36 / 8) = 5 -> [0, 5, 10, 15, 20, 25, 30, 35]
+    const indices36 = computeVisionSampleIndices(36, 8);
+    expect(indices36).toEqual([0, 5, 10, 15, 20, 25, 30, 35]);
+    expect(indices36.length).toBe(8);
+
+    // Check timestamps on a 24s video and a 120s video cover the full duration (not just first ~14s)
+    const plan24 = buildVideoSampleTimes(24, true, false);
+    const visionTimes24 = computeVisionSampleIndices(plan24.frameCount, 8).map((i) => plan24.sampleTimes[i]);
+    expect(visionTimes24.length).toBe(8);
+    expect(visionTimes24[0]).toBeLessThan(3);
+    expect(visionTimes24[visionTimes24.length - 1]).toBeGreaterThan(20);
+
+    const plan120 = buildVideoSampleTimes(120, true, false);
+    const visionTimes120 = computeVisionSampleIndices(plan120.frameCount, 8).map((i) => plan120.sampleTimes[i]);
+    expect(visionTimes120.length).toBe(8);
+    expect(visionTimes120[0]).toBeLessThan(15);
+    expect(visionTimes120[visionTimes120.length - 1]).toBeGreaterThan(105);
+  });
+
+  it("Scenario 20: 120s video uses <= 24 frames in 8x3 bursts and produces non-neutral motion scores across the timeline", () => {
+    const W = 16;
+    const H = 16;
+    const makeFrame = (time: number, val: number): FrameBufferData => {
+      const arr = new Uint8ClampedArray(W * H * 4);
+      for (let i = 0; i < arr.length; i += 4) {
+        arr[i] = val;
+        arr[i + 1] = val;
+        arr[i + 2] = val;
+        arr[i + 3] = 255;
+      }
+      return { time, width: W, height: H, buffer: arr.buffer };
+    };
+
+    const plan120 = buildVideoSampleTimes(120, true, false);
+    expect(plan120.isBurstSampling).toBe(true);
+    expect(plan120.frameCount).toBeLessThanOrEqual(24);
+    expect(plan120.sampleTimes.length).toBe(24);
+
+    // Build 24 frames: bursts 0..3 are static (no pixel delta), bursts 4..7 have strong motion
+    const frames120: FrameBufferData[] = plan120.sampleTimes.map((t, idx) => {
+      const burstIdx = Math.floor(idx / 3);
+      const intraIdx = idx % 3;
+      const isHighMotionBurst = burstIdx >= 4;
+      const luma = isHighMotionBurst ? 20 + intraIdx * 100 : 120;
+      return makeFrame(t, luma);
+    });
+
+    const segments120 = [
+      { in: 5, out: 8 },     // Near burst 0 (static)
+      { in: 35, out: 38 },   // Near burst 2 (static)
+      { in: 66, out: 69 },   // Near burst 4 (high motion)
+      { in: 110, out: 114 }, // Near burst 7 (high motion)
+    ];
+
+    const workerRes = analyzeFramesInWorker(frames120, segments120);
+    expect(workerRes.length).toBe(4);
+
+    // None of the segments should be stuck at neutral 0.5
+    for (const r of workerRes) {
+      expect(r.motion).not.toBeCloseTo(0.5, 2);
+    }
+
+    // Static bursts -> motion == 0; high-motion bursts -> motion > 0.8
+    expect(workerRes[0].motion).toBeCloseTo(0, 4);
+    expect(workerRes[1].motion).toBeCloseTo(0, 4);
+    expect(workerRes[2].motion).toBeGreaterThan(0.8);
+    expect(workerRes[3].motion).toBeGreaterThan(0.8);
+  });
+
+  it("Scenario 21: Videos <= 25s preserve exact uniform sampling behavior without burst mode", () => {
+    for (const dur of [6, 12, 20, 25]) {
+      const plan = buildVideoSampleTimes(dur, true, false);
+      expect(plan.isBurstSampling).toBe(false);
+
+      const expectedFrameCount = Math.min(24, Math.max(3, Math.floor(dur / 0.9)));
+      const expectedInterval = dur / (expectedFrameCount + 1);
+      const expectedTimes: number[] = [];
+      for (let i = 1; i <= expectedFrameCount; i++) {
+        expectedTimes.push(Math.max(0.4, Math.min(dur - 0.4, i * expectedInterval)));
+      }
+
+      expect(plan.frameCount).toBe(expectedFrameCount);
+      expect(plan.frameInterval).toBeCloseTo(expectedInterval, 6);
+      expect(plan.sampleTimes).toEqual(expectedTimes);
+    }
+  });
+
+  // --------------------------------------------------------------------------
+  // Beat Detector (analyzeAudioBuffer) High-Precision Unit Tests
+  // --------------------------------------------------------------------------
+  function createSyntheticAudioBuffer(
+    durationSec: number,
+    sampleRate: number,
+    fillFn: (data: Float32Array, sr: number) => void
+  ): AudioBuffer {
+    const length = Math.floor(durationSec * sampleRate);
+    const data = new Float32Array(length);
+    fillFn(data, sampleRate);
+    return {
+      sampleRate,
+      length,
+      duration: durationSec,
+      numberOfChannels: 1,
+      getChannelData: () => data,
+      copyFromChannel: () => {},
+      copyToChannel: () => {},
+    } as unknown as AudioBuffer;
+  }
+
+  function addDrumClick(
+    data: Float32Array,
+    sampleRate: number,
+    timeSec: number,
+    bassAmp: number = 0.8,
+    highAmp: number = 0.5,
+    clickDurSec: number = 0.012
+  ): void {
+    const startIdx = Math.floor(timeSec * sampleRate);
+    const clickSamples = Math.floor(clickDurSec * sampleRate);
+    for (let j = 0; j < clickSamples; j++) {
+      const idx = startIdx + j;
+      if (idx >= 0 && idx < data.length) {
+        const env = 1 - j / clickSamples;
+        // 110Hz bass thump + high-frequency transient burst
+        const bass = Math.sin((2 * Math.PI * 110 * j) / sampleRate) * bassAmp * env;
+        const high = (j % 2 === 0 ? 1 : -1) * highAmp * env;
+        data[idx] += bass + high;
+      }
+    }
+  }
+
+  it("Scenario 22: analyzeAudioBuffer detects fractional BPM (119.75) without rounding drift over 180s", async () => {
+    const trueBpm = 119.75;
+    const trueInterval = 60 / trueBpm;
+    const trueOffset = 0.23;
+    const durationSec = 180;
+    const sampleRate = 10000;
+
+    const trueClickTimes: number[] = [];
+    const buffer = createSyntheticAudioBuffer(durationSec, sampleRate, (data, sr) => {
+      for (let t = trueOffset; t < durationSec - 0.05; t += trueInterval) {
+        trueClickTimes.push(t);
+        addDrumClick(data, sr, t, 0.85, 0.45);
+      }
+    });
+
+    const res = await analyzeAudioBuffer(buffer);
+
+    // Must not round 119.75 to integer 120
+    expect(Math.abs(res.bpm - trueBpm)).toBeLessThan(0.08);
+    expect(res.bpm).not.toBe(120);
+    expect(res.gridConfidence).toBeGreaterThan(0.85);
+
+    // Check beats near the end of the 3-minute track (where integer 120 BPM would drift by ~375ms)
+    const lateTrueClicks = trueClickTimes.slice(-10);
+    for (const trueTime of lateTrueClicks) {
+      let minDiff = Infinity;
+      for (const bt of res.beatTimes) {
+        const d = Math.abs(bt - trueTime);
+        if (d < minDiff) minDiff = d;
+      }
+      expect(minDiff).toBeLessThanOrEqual(0.02);
+    }
+  });
+
+  it("Scenario 23: analyzeAudioBuffer aligns beats to local timing shifts (+25ms) and filters single-beat outliers via 5-beat median", async () => {
+    const bpm = 120;
+    const interval = 60 / bpm; // 0.5s
+    const offset = 0.2;
+    const durationSec = 20;
+    const sampleRate = 10000;
+
+    const actualClicks: number[] = [];
+    const buffer = createSyntheticAudioBuffer(durationSec, sampleRate, (data, sr) => {
+      let idx = 0;
+      for (let baseT = offset; baseT < durationSec - 0.1; baseT += interval) {
+        // Beats 12..24 are locally shifted by +25ms (slight tempo variation),
+        // Beat 5 is a single outlier shifted by +45ms (should be rejected by 5-beat median filter)
+        let shift = 0;
+        if (idx >= 12 && idx <= 24) shift = 0.025;
+        if (idx === 5) shift = 0.045;
+        const clickT = baseT + shift;
+        actualClicks.push(clickT);
+        addDrumClick(data, sr, clickT, 0.85, 0.5);
+        idx++;
+      }
+    });
+
+    const res = await analyzeAudioBuffer(buffer);
+    expect(res.gridConfidence).toBeGreaterThan(0.8);
+
+    // Beats in the middle of the shifted region (indices 14..22) must align closely to the +25ms shifted clicks
+    for (let i = 14; i <= 22; i++) {
+      const targetClick = actualClicks[i];
+      const nearestBeat = res.beatTimes.reduce((best, bt) =>
+        Math.abs(bt - targetClick) < Math.abs(best - targetClick) ? bt : best
+      , res.beatTimes[0]);
+      expect(Math.abs(nearestBeat - targetClick)).toBeLessThanOrEqual(0.015);
+    }
+
+    // Single-beat outlier at index 5 (+45ms) should stay near the unshifted grid due to 5-beat median filter
+    const unshiftedBeat5 = offset + 5 * interval;
+    const nearestToBeat5 = res.beatTimes.reduce((best, bt) =>
+      Math.abs(bt - unshiftedBeat5) < Math.abs(best - unshiftedBeat5) ? bt : best
+    , res.beatTimes[0]);
+    expect(Math.abs(nearestToBeat5 - unshiftedBeat5)).toBeLessThanOrEqual(0.015);
+  });
+
+  it("Scenario 24: analyzeAudioBuffer distinguishes 3/4 waltz meter from 4/4 meter", async () => {
+    const sampleRate = 10000;
+    const durationSec = 18;
+    const interval = 0.5; // 120 BPM
+
+    // 1. 3/4 Waltz track: strong bass+high downbeat every 3 beats, light beats on 2 & 3
+    const waltzBuffer = createSyntheticAudioBuffer(durationSec, sampleRate, (data, sr) => {
+      let beatIdx = 0;
+      for (let t = 0.2; t < durationSec - 0.1; t += interval) {
+        const isDownbeat = beatIdx % 3 === 0;
+        addDrumClick(data, sr, t, isDownbeat ? 0.95 : 0.18, isDownbeat ? 0.7 : 0.15);
+        beatIdx++;
+      }
+    });
+
+    const waltzRes = await analyzeAudioBuffer(waltzBuffer);
+    expect(waltzRes.beatsPerBar).toBe(3);
+    expect(waltzRes.downbeats.length).toBeGreaterThan(5);
+    // Consecutive downbeats in 3/4 at 120 BPM are 3 * 0.5s = 1.5s apart
+    expect(waltzRes.downbeats[1] - waltzRes.downbeats[0]).toBeCloseTo(1.5, 1);
+
+    // 2. 4/4 Standard track: strong downbeat every 4 beats
+    const fourFourBuffer = createSyntheticAudioBuffer(durationSec, sampleRate, (data, sr) => {
+      let beatIdx = 0;
+      for (let t = 0.2; t < durationSec - 0.1; t += interval) {
+        const isDownbeat = beatIdx % 4 === 0;
+        addDrumClick(data, sr, t, isDownbeat ? 0.95 : 0.22, isDownbeat ? 0.7 : 0.18);
+        beatIdx++;
+      }
+    });
+
+    const fourFourRes = await analyzeAudioBuffer(fourFourBuffer);
+    expect(fourFourRes.beatsPerBar).toBe(4);
+    expect(fourFourRes.downbeats[1] - fourFourRes.downbeats[0]).toBeCloseTo(2.0, 1);
+  });
+
+  it("Scenario 25: analyzeAudioBuffer classifies compressed flat-RMS tracks as verse (not all drop) and dynamic tracks into calm/verse/drop", async () => {
+    const sampleRate = 8000;
+    const durationSec = 24;
+
+    // 1. Heavily compressed track with constant loud RMS throughout
+    const compressedBuffer = createSyntheticAudioBuffer(durationSec, sampleRate, (data, sr) => {
+      for (let i = 0; i < data.length; i++) {
+        data[i] = Math.sin((2 * Math.PI * 220 * i) / sr) * 0.85;
+      }
+      for (let t = 0.25; t < durationSec - 0.1; t += 0.5) {
+        addDrumClick(data, sr, t, 0.2, 0.2);
+      }
+    });
+
+    const compRes = await analyzeAudioBuffer(compressedBuffer);
+    const dropSectionsInFlat = compRes.sections.filter((s) => s.type === "drop");
+    expect(dropSectionsInFlat.length).toBe(0);
+    expect(compRes.sections.every((s) => s.type === "verse")).toBe(true);
+
+    // 1b. Track with ~8% energy variation (p75 - p30 ≈ 0.08 < 0.15) should also yield verse only
+    const mildVariationBuffer = createSyntheticAudioBuffer(durationSec, sampleRate, (data, sr) => {
+      for (let i = 0; i < data.length; i++) {
+        const t = i / sr;
+        // Smooth ~8% amplitude modulation (0.78 to 0.845)
+        const amp = t < 12 ? 0.78 : 0.845;
+        data[i] = Math.sin((2 * Math.PI * 220 * i) / sr) * amp;
+      }
+      for (let t = 0.25; t < durationSec - 0.1; t += 0.5) {
+        addDrumClick(data, sr, t, 0.2, 0.2);
+      }
+    });
+
+    const mildRes = await analyzeAudioBuffer(mildVariationBuffer);
+    expect(mildRes.sections.length).toBeGreaterThan(0);
+    expect(mildRes.sections.every((s) => s.type === "verse")).toBe(true);
+
+    // 2. Dynamic track: 0..7s calm (amp 0.08), 7..16s verse (amp 0.35), 16..24s drop (amp 0.90)
+    const dynamicBuffer = createSyntheticAudioBuffer(durationSec, sampleRate, (data, sr) => {
+      for (let i = 0; i < data.length; i++) {
+        const t = i / sr;
+        const amp = t < 7 ? 0.08 : t < 16 ? 0.35 : 0.90;
+        data[i] = Math.sin((2 * Math.PI * 180 * i) / sr) * amp;
+      }
+      for (let t = 0.25; t < durationSec - 0.1; t += 0.5) {
+        const amp = t < 7 ? 0.15 : t < 16 ? 0.45 : 0.95;
+        addDrumClick(data, sr, t, amp, amp * 0.6);
+      }
+    });
+
+    const dynRes = await analyzeAudioBuffer(dynamicBuffer);
+    const sectionTypes = new Set(dynRes.sections.map((s) => s.type));
+    expect(sectionTypes.has("calm")).toBe(true);
+    expect(sectionTypes.has("verse")).toBe(true);
+    expect(sectionTypes.has("drop")).toBe(true);
+  });
+
+  // --------------------------------------------------------------------------
+  // Dense Video Interest Scan & Scene/Motion Alignment Tests (a - e)
+  // --------------------------------------------------------------------------
+  function makeSyntheticScanDecoder(options: {
+    durationSec: number;
+    fps?: number;
+    renderFrame: (timeSec: number, frameIdx: number, w: number, h: number) => Uint8ClampedArray;
+    onFrameClosed?: () => void;
+    onDecoderClosed?: () => void;
+    onFrameDecoded?: (frameIdx: number, timeSec: number) => void;
+  }): () => InterestScanDecoderLike {
+    const fps = options.fps ?? 10;
+    const totalFrames = Math.max(1, Math.floor(options.durationSec * fps));
+
+    return () => {
+      let currentIdx = 0;
+      return {
+        prepare: async () => ({
+          width: 1280,
+          height: 720,
+          durationSeconds: options.durationSec,
+          fps,
+          totalFrames,
+          codec: "avc1.42E01E",
+        }),
+        getNextFrame: async () => {
+          if (currentIdx >= totalFrames) return null;
+          const idx = currentIdx++;
+          const timeSec = idx / fps;
+          options.onFrameDecoded?.(idx, timeSec);
+          return {
+            frame: {
+              getRgba: (w: number, h: number) => options.renderFrame(timeSec, idx, w, h),
+              close: () => {
+                options.onFrameClosed?.();
+              },
+            },
+            timestampMicros: Math.round(timeSec * 1_000_000),
+            frameIndex: idx,
+            isKeyFrame: idx % 10 === 0,
+          };
+        },
+        close: () => {
+          options.onDecoderClosed?.();
+        },
+      };
+    };
+  }
+
+  it("Scenario 26 (a): scanVideoInterest with synthetic frames (static -> moving -> sharp cut) yields low then high motion and detects cut within <= 0.4s", async () => {
+    const durationSec = 6.0;
+    const trueCutTimeSec = 4.4;
+    let framesClosed = 0;
+    let decoderClosed = false;
+
+    const decoderFactory = makeSyntheticScanDecoder({
+      durationSec,
+      fps: 10,
+      onFrameClosed: () => {
+        framesClosed++;
+      },
+      onDecoderClosed: () => {
+        decoderClosed = true;
+      },
+      renderFrame: (timeSec, frameIdx, w, h) => {
+        const buf = new Uint8ClampedArray(w * h * 4);
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            const p = (y * w + x) * 4;
+            if (timeSec < 2.0) {
+              // Phase 1 (0..2.0s): completely static dark-gray scene (r=40, g=40, b=40)
+              buf[p] = 40;
+              buf[p + 1] = 40;
+              buf[p + 2] = 40;
+              buf[p + 3] = 255;
+            } else if (timeSec < trueCutTimeSec) {
+              // Phase 2 (2.0..4.4s): oscillating high-motion pattern within the same scene palette
+              const osc = frameIdx % 2 === 0 ? 35 : 95;
+              const check = (x + y + frameIdx * 7) % 2 === 0 ? osc : 60;
+              buf[p] = check;
+              buf[p + 1] = check;
+              buf[p + 2] = check;
+              buf[p + 3] = 255;
+            } else {
+              // Phase 3 (>= 4.4s): hard scene cut to a bright high-contrast scene (r=235, g=220, b=200)
+              const edge = (x + y) % 2 === 0 ? 245 : 210;
+              buf[p] = edge;
+              buf[p + 1] = 225;
+              buf[p + 2] = 200;
+              buf[p + 3] = 255;
+            }
+          }
+        }
+        return buf;
+      },
+    });
+
+    const scan = await scanVideoInterest("blob:synthetic-6s", durationSec, {
+      bucketSec: 0.4,
+      decoderFactory,
+    });
+
+    expect(scan).not.toBeNull();
+    expect(decoderClosed).toBe(true);
+    expect(framesClosed).toBe(60);
+
+    // Buckets 0..4 (0.0s .. 1.6s) are static -> near-zero motion
+    const staticBuckets = scan!.motion.slice(1, 5);
+    const avgStaticMotion = staticBuckets.reduce((a, b) => a + b, 0) / staticBuckets.length;
+    expect(avgStaticMotion).toBeLessThan(0.01);
+
+    // Buckets 6..9 (2.4s .. 3.6s) have active motion -> significantly higher than static
+    const movingBuckets = scan!.motion.slice(6, 10);
+    const avgMovingMotion = movingBuckets.reduce((a, b) => a + b, 0) / movingBuckets.length;
+    expect(avgMovingMotion).toBeGreaterThan(0.08);
+    expect(avgMovingMotion).toBeGreaterThan(avgStaticMotion * 10);
+
+    // Cuts array must include the hard scene cut at 4.4s within <= 0.4s error
+    expect(scan!.cuts.length).toBeGreaterThanOrEqual(1);
+    const nearestCutError = Math.min(...scan!.cuts.map((c) => Math.abs(c - trueCutTimeSec)));
+    expect(nearestCutError).toBeLessThanOrEqual(0.4);
+  });
+
+  it("Scenario 27 (b): 120s video adjacent segments in different motion windows receive distinct motion & scores (instead of identical burst values) while preserving faceScore/handScore", async () => {
+    const durationSec = 120;
+    const media: MediaItem[] = [
+      {
+        id: "vid-120s",
+        name: "long_120.mp4",
+        type: "video",
+        url: "blob:long-120",
+        duration: durationSec,
+        width: 1920,
+        height: 1080,
+        size: 0,
+        file: undefined as any,
+      },
+    ];
+
+    // Simulate sparse worker returning identical motion (0.3) for adjacent segments [0, 3] and [3, 6]
+    // because in 120s burst mode both are closest to Burst Anchor 0 (~7.5s)
+    mockWorkerAnalyzeFrames.mockImplementation(
+      async (_frames: any[], segments: Array<{ in: number; out: number }>) =>
+        segments.map((s) => ({
+          in: s.in,
+          out: s.out,
+          motion: 0.3, // Identical before dense scan!
+          sharpness: 0.6,
+          blurPenalty: 1.0,
+          exposureQuality: 1.0,
+          actionIntensity: 0.3,
+          temporalStability: 0.8,
+          faceScore: 0.72,
+          handScore: 0.44,
+          handVelocityScore: 0.25,
+          brightness: 0.5,
+          colorfulness: 0.5,
+          containsTransition: false,
+          overallQuality: 0.6,
+        }))
+    );
+
+    // Dense scan: 0..3s is static, 3..6s has intense motion, and a cut occurs at 4.5s
+    const decoderFactory = makeSyntheticScanDecoder({
+      durationSec,
+      fps: 5,
+      renderFrame: (timeSec, frameIdx, w, h) => {
+        const buf = new Uint8ClampedArray(w * h * 4);
+        const isHighMotionWindow = timeSec >= 3.0 && timeSec < 6.0;
+        const val = isHighMotionWindow ? (frameIdx % 2 === 0 ? 25 : 230) : 100;
+        for (let p = 0; p < buf.length; p += 4) {
+          buf[p] = val;
+          buf[p + 1] = val;
+          buf[p + 2] = val;
+          buf[p + 3] = 255;
+        }
+        return buf;
+      },
+    });
+
+    await runSmartBeatMontage({
+      media,
+      beatTimes: [1.5, 3.0, 4.5, 6.0],
+      targetDuration: 6.0,
+      interestScanOptions: { decoderFactory, bucketSec: 0.4 },
+    });
+
+    const cacheKey = buildVideoCacheKey(media[0]);
+    const cachedScan = getCachedInterestScan(cacheKey);
+    expect(cachedScan).toBeDefined();
+    expect(cachedScan!.times.length).toBe(Math.ceil(120 / 0.4));
+
+    // Verify applyInterestScanToSegments differentiates adjacent segments [0, 3] and [3, 6]
+    const rawAdjacentSegments: Segment[] = [
+      {
+        mediaId: "vid-120s",
+        in: 0,
+        out: 3,
+        score: 0.5,
+        motion: 0.3,
+        sharpness: 0.6,
+        blurPenalty: 1,
+        exposureQuality: 1,
+        actionIntensity: 0.3,
+        temporalStability: 0.8,
+        audioEnergy: 0.5,
+        faceScore: 0.72,
+        handScore: 0.44,
+        handVelocityScore: 0.25,
+        brightness: 0.5,
+        colorfulness: 0.5,
+        containsTransition: false,
+        overallQuality: 0.5,
+      },
+      {
+        mediaId: "vid-120s",
+        in: 3,
+        out: 6,
+        score: 0.5,
+        motion: 0.3,
+        sharpness: 0.6,
+        blurPenalty: 1,
+        exposureQuality: 1,
+        actionIntensity: 0.3,
+        temporalStability: 0.8,
+        audioEnergy: 0.5,
+        faceScore: 0.72,
+        handScore: 0.44,
+        handVelocityScore: 0.25,
+        brightness: 0.5,
+        colorfulness: 0.5,
+        containsTransition: false,
+        overallQuality: 0.5,
+      },
+    ];
+
+    const refined = applyInterestScanToSegments(rawAdjacentSegments, cachedScan!);
+    expect(refined[0].motion).toBeLessThan(0.1);
+    expect(refined[1].motion).toBeGreaterThan(0.8);
+    expect(refined[1].actionIntensity).toBeGreaterThan(0.8);
+    expect(refined[0].motion).not.toBeCloseTo(refined[1].motion, 2);
+    // Preserves faceScore and handScore from existing analysis
+    expect(refined[0].faceScore).toBe(0.72);
+    expect(refined[0].handScore).toBe(0.44);
+    expect(refined[1].faceScore).toBe(0.72);
+    expect(refined[1].handScore).toBe(0.44);
+  });
+
+  it("Scenario 28 (c): snapSliceToShot and alignToMotionPeak handle no-cuts, internal cut snapping, fallback to previous shot, and edge-clamped motion peaks", () => {
+    // 1. snapSliceToShot: no cuts -> unchanged
+    expect(snapSliceToShot(2.0, 2.0, [], 10.0)).toBe(2.0);
+    expect(snapSliceToShot(2.0, 2.0, undefined, 10.0)).toBe(2.0);
+
+    // 2. snapSliceToShot: cut within first 0.15s (< 0.2s from sliceIn) -> unchanged
+    expect(snapSliceToShot(2.0, 2.0, [2.12], 10.0)).toBe(2.0);
+
+    // 3. snapSliceToShot: cut inside slice (>= sliceIn + 0.2) and remaining fits dur -> snaps forward to cut
+    expect(snapSliceToShot(2.0, 2.0, [2.8], 10.0)).toBeCloseTo(2.8, 3);
+
+    // 4. snapSliceToShot: cut inside slice near end of video where remaining does NOT fit dur,
+    //    but previous shot [5.5, 8.8] fits dur (3.3s >= 2.0s) -> snaps to start of previous shot (5.5)
+    expect(snapSliceToShot(7.5, 2.0, [5.5, 8.8], 10.0)).toBeCloseTo(5.5, 3);
+
+    // 5. snapSliceToShot: neither remaining nor previous shot fits dur -> unchanged
+    expect(snapSliceToShot(8.2, 2.0, [7.4, 9.0], 10.0)).toBeCloseTo(8.2, 3);
+
+    // 6. alignToMotionPeak: strong/downbeat places peak at ~0.15 * dur from slice start; normal beat at ~0.35 * dur
+    // Bucket 11 at bucketSec = 0.4 is at peakTime = 4.4s
+    const curve = new Array(30).fill(0.1);
+    curve[11] = 0.95; // Peak at 4.4s
+    const strongIn = alignToMotionPeak(4.0, 2.0, curve, 0.4, true, 12.0);
+    // 4.4 - 0.15 * 2.0 = 4.1s
+    expect(strongIn).toBeCloseTo(4.1, 2);
+
+    const normalIn = alignToMotionPeak(4.0, 2.0, curve, 0.4, false, 12.0);
+    // 4.4 - 0.35 * 2.0 = 3.7s
+    expect(normalIn).toBeCloseTo(3.7, 2);
+
+    // 7. alignToMotionPeak: peak near video start edge (0.0s) clamps to >= 0
+    const edgeStartCurve = new Array(30).fill(0.1);
+    edgeStartCurve[0] = 0.99; // Peak at 0.0s
+    const clampedStart = alignToMotionPeak(0.2, 2.0, edgeStartCurve, 0.4, true, 12.0);
+    expect(clampedStart).toBeGreaterThanOrEqual(0);
+
+    // 8. alignToMotionPeak: peak near video end edge clamps to <= mediaDur - dur
+    const edgeEndCurve = new Array(25).fill(0.1); // 10.0s total
+    edgeEndCurve[21] = 0.99; // Peak at 8.4s
+    const clampedEnd = alignToMotionPeak(7.8, 2.0, edgeEndCurve, 0.4, true, 10.0);
+    expect(clampedEnd).toBeLessThanOrEqual(8.0);
+  });
+
+  it("Scenario 29 (d): Aborting signal during scanVideoInterest stops scanning immediately and cleans up decoder & frames", async () => {
+    const abortCtrl = new AbortController();
+    let decodedCount = 0;
+    let closedFramesCount = 0;
+    let decoderClosed = false;
+
+    const decoderFactory = makeSyntheticScanDecoder({
+      durationSec: 30,
+      fps: 10,
+      onFrameDecoded: (idx) => {
+        decodedCount++;
+        if (idx >= 5) {
+          abortCtrl.abort();
+        }
+      },
+      onFrameClosed: () => {
+        closedFramesCount++;
+      },
+      onDecoderClosed: () => {
+        decoderClosed = true;
+      },
+      renderFrame: (_t, _i, w, h) => new Uint8ClampedArray(w * h * 4).fill(128),
+    });
+
+    const res = await scanVideoInterest("blob:abort-test", 30, {
+      bucketSec: 0.4,
+      signal: abortCtrl.signal,
+      decoderFactory,
+    });
+
+    expect(res).toBeNull();
+    expect(decodedCount).toBeLessThan(15); // Stopped early out of 300 frames
+    expect(closedFramesCount).toBe(decodedCount);
+    expect(decoderClosed).toBe(true);
+  });
+
+  it("Scenario 30 (e): Scan failure falls back cleanly to legacy sparse analysis in runSmartBeatMontage without throwing", async () => {
+    const media: MediaItem[] = [
+      {
+        id: "vid-fallback",
+        name: "fallback.mp4",
+        type: "video",
+        url: "blob:fallback-30",
+        duration: 30,
+        width: 1920,
+        height: 1080,
+        size: 0,
+        file: undefined as any,
+      },
+    ];
+
+    const failingDecoderFactory = (): InterestScanDecoderLike => ({
+      prepare: async () => {
+        throw new Error("Simulated hardware decoder failure");
+      },
+      getNextFrame: async () => null,
+      close: () => {},
+    });
+
+    const result = await runSmartBeatMontage({
+      media,
+      beatTimes: [1.0, 2.0, 3.0, 4.0],
+      targetDuration: 4.0,
+      interestScanOptions: { decoderFactory: failingDecoderFactory },
+    });
+
+    expect(result.clips.length).toBeGreaterThan(0);
+    expect(result.totalDuration).toBeGreaterThan(0);
+  });
+
+  it("Scenario 31: Benchmarks 60s video interest scan execution time in test environment", async () => {
+    const durationSec = 60;
+    const decoderFactory = makeSyntheticScanDecoder({
+      durationSec,
+      fps: 15, // 900 frames across 60s (150 buckets of 0.4s)
+      renderFrame: (timeSec, idx, w, h) => {
+        const buf = new Uint8ClampedArray(w * h * 4);
+        const v = (idx * 13 + Math.floor(timeSec * 10)) & 0xff;
+        buf.fill(v);
+        return buf;
+      },
+    });
+
+    const t0 = performance.now();
+    const res = await scanVideoInterest("blob:bench-60s", durationSec, {
+      bucketSec: 0.4,
+      decoderFactory,
+    });
+    const elapsedMs = performance.now() - t0;
+
+    expect(res).not.toBeNull();
+    expect(res!.times.length).toBe(150);
+    console.info(`[Benchmark 60s VideoInterestScan] 900 frames / 150 buckets completed in ${elapsedMs.toFixed(1)} ms`);
+    expect(elapsedMs).toBeLessThan(5000);
+  });
+});

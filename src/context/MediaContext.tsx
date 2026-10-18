@@ -1,0 +1,1578 @@
+import { createContext, useContext, useState, useCallback, ReactNode, useMemo, useEffect, useRef } from "react";
+import { toast } from "sonner";
+import { Capacitor } from "@capacitor/core";
+import { supabase } from "@/integrations/supabase/client";
+import { t } from "@/lib/i18n";
+import { triggerHapticTick } from "@/lib/haptics";
+import { robustSeekVideo } from "@/lib/videoSeeking";
+import { mediaService } from "@/services/media";
+import { projectRecoveryService } from "@/services/recovery/ProjectRecoveryService";
+import { buildSmartTemplateStyle } from "@/lib/smartTemplates";
+import { STORE_PROJECTS, STORE_FILES, idbPut, idbGet, idbAll, idbDel } from "@/lib/idbStore";
+import type { WordAnimationConfig, CharacterAnimationConfig } from "@/types/textTemplate";
+
+export type MediaType = "video" | "image";
+
+export interface MediaItem {
+  id: string;
+  url: string;
+  type: MediaType;
+  name: string;
+  size: number;
+  duration: number;
+  file: File;
+  thumbnail?: string;
+  mediaRevision?: number;
+  processedUrl?: string;
+  originalUrl?: string;
+  hasAlpha?: boolean;
+  nativePath?: string;
+  nativeUri?: string;
+  width?: number;
+  height?: number;
+}
+
+export type TransitionType = 
+  | "none" 
+  | "fade" 
+  | "slide" 
+  | "zoom" 
+  | "wipe" 
+  | "blur" 
+  | "dissolve" 
+  | "glitch" 
+  | "spin" 
+  | "flash" 
+  | "shutter" 
+  | "iris" 
+  | "split" 
+  | "mosaic" 
+  | "ripple" 
+  | "radar" 
+  | "whip-pan" 
+  | "zoom-blur" 
+  | "glitch-slice" 
+  | "page-flip" 
+  | "gsap-elastic-zoom" 
+  | "gsap-3d-flip" 
+  | "gsap-stagger-wipe" 
+  | "gsap-elastic-bounce"
+  | "sun-flare"
+  | "light-leak"
+  | "brush-paint"
+  | "bokeh-blur"
+  | "cinematic-bars"
+  | "cube-rotate"
+  | "color-flow"
+  | "retro-pixel"
+  | "star-warp"
+  | "liquid-melt"
+  | "cross-zoom"
+  | "glitch-rgb-shatter"
+  | "burn-film"
+  | "kaleido-spin"
+  | "heart-zoom"
+  | "gsap-vortex-portal"
+  | "gsap-whip-pan-blur"
+  | "gsap-shatter-prism"
+  | "gsap-pendulum-swing"
+  | "diagonal-blade-split"
+  | "shutter-blinds-wipe"
+  | "cyber-datamosh-glitch"
+  | "vhs-rewind-snap"
+  | "supernova-burst"
+  | "origami-fold-3d";
+
+export interface Transition {
+  type: TransitionType;
+  duration: number;
+}
+
+export interface Keyframe {
+  id: string;
+  time: number; // relative to item start in seconds
+  property: string;
+  value: number;
+  easing?: "linear" | "easeIn" | "easeOut" | "easeInOut" | (string & {});
+}
+
+export interface Clip {
+  id: string;
+  mediaId: string;
+  in: number;
+  out: number;
+  transitionIn?: Transition;
+  speed?: number;
+  scale?: number;
+  panX?: number;
+  panY?: number;
+  flipH?: boolean;
+  flipV?: boolean;
+  rotation?: number;
+  opacity?: number;
+  volume?: number;
+  keyframes?: Keyframe[];
+  cropX?: number;
+  cropY?: number;
+  cropW?: number;
+  cropH?: number;
+  speedCurve?: { id: string; timePct: number; value: number }[];
+  mediaRevision?: number;
+  processedUrl?: string;
+  originalUrl?: string;
+  useProcessed?: boolean;
+  hasAlpha?: boolean;
+  previewBgMode?: "checkerboard" | "black" | "green" | "white" | "custom";
+  previewBgColor?: string;
+  processedAudioUrl?: string;
+  muteOriginalAudio?: boolean;
+  editable?: boolean;
+  duration?: number;
+  mask?: import("@/lib/maskEngine").MaskConfig;
+}
+
+export function interpolateKeyframes(
+  item: { keyframes?: Keyframe[] },
+  property: string,
+  time: number,
+  defaultValue: number
+): number {
+  if (!item.keyframes || item.keyframes.length === 0) return defaultValue;
+  
+  // Filter keyframes for this specific property
+  const kfs = item.keyframes
+    .filter(k => k.property === property)
+    .sort((a, b) => a.time - b.time);
+    
+  if (kfs.length === 0) return defaultValue;
+  
+  // If time is before the first keyframe, return first keyframe's value
+  if (time <= kfs[0].time) return kfs[0].value;
+  
+  // If time is after the last keyframe, return last keyframe's value
+  if (time >= kfs[kfs.length - 1].time) return kfs[kfs.length - 1].value;
+  
+  // Find the two keyframes surrounding the current time
+  let k1 = kfs[0];
+  let k2 = kfs[0];
+  for (let i = 0; i < kfs.length - 1; i++) {
+    if (time >= kfs[i].time && time <= kfs[i + 1].time) {
+      k1 = kfs[i];
+      k2 = kfs[i + 1];
+      break;
+    }
+  }
+  
+  const duration = k2.time - k1.time;
+  if (duration <= 0) return k2.value;
+  
+  // Normalized time ratio (0 to 1)
+  let t = (time - k1.time) / duration;
+  
+  // Apply cubic/bezier easing functions
+  const easing = k2.easing || "linear";
+  if (easing === "easeIn") {
+    t = t * t * t;
+  } else if (easing === "easeOut") {
+    const f = t - 1;
+    t = f * f * f + 1;
+  } else if (easing === "easeInOut") {
+    t = t < 0.5 ? 4 * t * t * t : (t - 1) * (2 * t - 2) * (2 * t - 2) + 1;
+  }
+  
+  return k1.value + (k2.value - k1.value) * t;
+}
+
+export const clipTimelineLen = (c: Clip) => Math.max(0, c.out - c.in) / (c.speed && c.speed > 0 ? c.speed : 1);
+
+export type CaptionAnimation = "none" | "fade" | "slide-up" | "slide-down" | "pop" | "typewriter" | "bounce" | "glitch" | "zoom-fade" | "scale-up" | "rotate-in" | "blur-in" | "elastic-drop" | "swing-in" | "reveal-left" | "reveal-right" | "heartbeat" | "neon-flicker" | "3d-flip" | "wave-bounce" | "curtain-reveal" | "shatter-pop";
+
+export interface Caption {
+  id: string;
+  start: number;
+  end: number;
+  text: string;
+  confidence?: number;
+  font?: string;
+  size?: number;
+  color?: string;
+  bg?: string;
+  yPercent?: number;
+  xPercent?: number;
+  rotation?: number;
+  scale?: number;
+  flipH?: boolean;
+  flipV?: boolean;
+  animation?: CaptionAnimation;
+  keyframes?: Keyframe[];
+  editable?: boolean;
+  isMultiLine?: boolean;
+  customWidth?: number;
+  // Enhanced text styling & template features
+  strokeColor?: string;
+  strokeWidth?: number;
+  shadowColor?: string;
+  shadowBlur?: number;
+  shadowOffsetX?: number;
+  shadowOffsetY?: number;
+  letterSpacing?: number;
+  lineHeight?: number;
+  textTransform?: "none" | "uppercase" | "lowercase" | "capitalize";
+  bgRadius?: number;
+  bgPadding?: number;
+  badgeIcon?: string;
+  badgePosition?: "left" | "right" | "top";
+  presetCategory?: string;
+  templateId?: string;
+  templateOverrides?: Partial<Caption>;
+  wordAnimation?: WordAnimationConfig;
+  characterAnimation?: CharacterAnimationConfig;
+  mask?: import("@/lib/maskEngine").MaskConfig;
+}
+
+export interface CaptionTemplate {
+  id: string;
+  name: string;
+  nameEn?: string;
+  font: string;
+  size: number;
+  color: string;
+  bg: string;
+  animation: CaptionAnimation;
+  category?: "social" | "titles" | "callouts" | "badges" | "neon" | "aesthetic";
+  strokeColor?: string;
+  strokeWidth?: number;
+  shadowColor?: string;
+  shadowBlur?: number;
+  letterSpacing?: number;
+  bgRadius?: number;
+  bgPadding?: number;
+  badgeIcon?: string;
+  badgePosition?: "left" | "right" | "top";
+  sampleText?: string;
+  sampleTextAr?: string;
+  sampleTextEn?: string;
+}
+
+export interface CaptionStyle {
+  font: string;
+  size: number;
+  color: string;
+  bg: string;
+  position: "top" | "center" | "bottom";
+  language: string;
+  animation: CaptionAnimation;
+  strokeColor?: string;
+  strokeWidth?: number;
+  shadowColor?: string;
+  shadowBlur?: number;
+  letterSpacing?: number;
+  lineHeight?: number;
+  textTransform?: "none" | "uppercase" | "lowercase" | "capitalize";
+  bgRadius?: number;
+  bgPadding?: number;
+  badgeIcon?: string;
+  badgePosition?: "left" | "right" | "top";
+  isMultiLine?: boolean;
+  flipH?: boolean;
+  flipV?: boolean;
+}
+
+export type AudioFxType =
+  | "none"
+  | "robot"
+  | "chipmunk"
+  | "deep"
+  | "female"
+  | "male"
+  | "megaphone"
+  | "alien"
+  | "underwater"
+  | "echo"
+  | "studio"
+  | "reverb"
+  | "telephone"
+  | "lowpass";
+
+export interface AudioTrackItem {
+  id: string;
+  name: string;
+  url: string;
+  file?: File;
+  coverUrl?: string;
+  start: number;
+  offset: number;
+  duration: number;
+  sourceDuration: number;
+  volume: number;
+  muted: boolean;
+  fx: AudioFxType;
+  color: string;
+  kind: "music" | "sfx" | "voice" | "video-audio";
+  clipId?: string;
+  fadeIn?: number;
+  fadeOut?: number;
+  keyframes?: Keyframe[];
+  beats?: number[];
+  bpm?: number;
+  end?: number;
+  audioIn?: number;
+  audioOut?: number;
+}
+
+export type FilterType = 
+  | "brightness" | "contrast" | "saturate" | "grayscale" | "sepia" | "blur" | "hue-rotate" | "invert" 
+  | "vintage" | "warm" | "cool" | "dramatic" | "noir" | "fade-edge" | "duotone" | "dream" | "neon" | "sepia-blue"
+  | "cyberpunk-teal-orange" | "emerald-forest" | "golden-hour" | "vaporwave-pastel" | "polaroid-matte" | "monochrome-red"
+  | "cinematic-2383" | "fuji-velvia" | "bleach-bypass" | "sunset-miami" | "matrix-cyber-green" | "soft-peach-skin";
+export interface FilterItem { 
+  id: string; 
+  type: FilterType; 
+  start: number; 
+  end: number; 
+  intensity: number; 
+  keyframes?: Keyframe[]; 
+  brightness?: number;
+  contrast?: number;
+  saturation?: number;
+  blur?: number;
+  hueRotate?: number;
+  sharpness?: number;
+  hslHue?: number;
+  hslSaturation?: number;
+  hslLightness?: number;
+}
+
+export type VfxType = 
+  | "glitch" | "shake" | "flash" | "zoom-pulse" | "rgb-split" | "vhs" | "scan-lines" | "pixelate" | "rotate-3d" | "particles" | "light-leak" | "film-grain" | "chromatic" | "shake-v" | "bounce" | "swing" | "heartbeat" | "prism" | "crt-scanner" | "radial-lens-flare" | "motion-blur-streak" | "vintage-sepia-bloom" | "water-ripple" | "vintage-8mm" | "old-vhs-tape" | "retro-sepia-grain" | "crt-tv-retro"
+  // Intro & Opener VFX
+  | "cinematic-opener" | "spotlight-reveal" | "epic-zoom-in" | "neon-glow-entry" | "film-countdown" | "tv-power-on" | "curtain-rise"
+  // Weather & Nature VFX
+  | "rain-storm" | "snow-blizzard" | "fire-embers" | "fog-smoke" | "thunder-lightning" | "sparkles-stars" | "bubbles-floating"
+  // Dance & Music Party VFX
+  | "disco-strobe" | "bass-shake-pulse" | "neon-equalizer" | "rgb-rave" | "laser-beams" | "kaleidoscope-dance"
+  // Modern Special VFX
+  | "cyber-hologram" | "matrix-digital-rain" | "aurora-borealis" | "golden-dust" | "electric-sparks" | "rgb-echo"
+  // Newly Added Pro VFX
+  | "cyber-portal-intro" | "shatter-glass-intro" | "cherry-blossom" | "autumn-leaves" | "confetti-celebration" | "neon-heart-rave" | "earthquake-tremor" | "speed-warp-lines" | "thermal-infrared" | "halftone-comic";
+export interface VfxItem { id: string; type: VfxType; start: number; end: number; intensity: number; keyframes?: Keyframe[]; }
+
+export interface OverlayItem {
+  id: string;
+  url: string;
+  type: "image" | "video";
+  name: string;
+  file?: File;
+  start: number;
+  end: number;
+  x: number; // 0..100%
+  y: number; // 0..100%
+  scale: number;
+  width?: number;
+  height?: number;
+  opacity?: number;
+  rotation?: number;
+  blend?: string;
+  brightness?: number;
+  cornerRadius?: number; // 0..60px
+  borderWidth?: number; // 0..12px
+  borderColor?: string;
+  shadowBlur?: number; // 0..40px
+  shadowColor?: string;
+  cropX?: number;
+  cropY?: number;
+  cropW?: number;
+  cropH?: number;
+  muted?: boolean; // for video overlays
+  volume?: number; // 0..1 for video overlays
+  audioAction?: "mix" | "mute" | "solo";
+  zIndex?: number;
+  flipH?: boolean;
+  flipV?: boolean;
+  keyframes?: Keyframe[];
+  duration?: number;
+  // Mask (قناع)
+  mask?: import("@/lib/maskEngine").MaskConfig;
+  maskShape?: import("@/lib/maskEngine").MaskShape;
+  maskX?: number;
+  maskY?: number;
+  maskSize?: number;
+  maskWidth?: number;
+  maskHeight?: number;
+  maskFeather?: number;
+  maskInverted?: boolean;
+  maskKeyframes?: import("@/lib/maskEngine").MaskKeyframe[];
+  maskPath?: string;
+  customPoints?: Array<{ x: number; y: number }>;
+}
+
+export type ExportPreset = "reels-15" | "reels-30" | "reels-60" | "story-60" | "full";
+
+export interface ProjectMeta { id: string; name: string; updatedAt: number; duration: number; preset: ExportPreset; thumb?: string; coverImage?: string | null; }
+
+interface MediaContextType {
+  filters: FilterItem[]; vfx: VfxItem[]; overlays: OverlayItem[];
+  selectedClipId?: string | null; selectedOverlayId?: string | null; currentTime?: number;
+  addFilter: (f: Omit<FilterItem, "id">) => void;
+  updateFilter: (id: string, patch: Partial<FilterItem>) => void;
+  removeFilter: (id: string) => void;
+  addVfx: (v: Omit<VfxItem, "id">) => void;
+  updateVfx: (id: string, patch: Partial<VfxItem>) => void;
+  removeVfx: (id: string) => void;
+  addOverlay: (file: File) => Promise<string>;
+  updateOverlay: (id: string, patch: Partial<OverlayItem>) => void;
+  removeOverlay: (id: string) => void;
+  media: MediaItem[]; clips: Clip[]; captions: Caption[]; captionStyle: CaptionStyle;
+  audioTracks: AudioTrackItem[]; videoMuted: boolean; videoVolume: number; videoAudioFx: AudioFxType;
+  exportPreset: ExportPreset; projectName: string; projectId: string;
+  addFiles: (files: FileList | File[]) => Promise<MediaItem[]>;
+  updateMediaItem: (id: string, patch: Partial<MediaItem>) => void;
+  removeMedia: (id: string) => void; clearMedia: () => void;
+  setClips: React.Dispatch<React.SetStateAction<Clip[]>>;
+  setFilters: React.Dispatch<React.SetStateAction<FilterItem[]>>;
+  setVfx: React.Dispatch<React.SetStateAction<VfxItem[]>>;
+  setOverlays: React.Dispatch<React.SetStateAction<OverlayItem[]>>;
+  splitClipAt: (clipId: string, localTime: number) => void;
+  splitTrackAt: (trackType: "video" | "audio" | "caption" | "filter" | "vfx" | "overlay", time: number) => boolean;
+  trimClip: (clipId: string, edge: "in" | "out", newValue: number) => void;
+  removeClip: (clipId: string) => void;
+  moveClip: (clipId: string, targetIndex: number) => void;
+  setClipSpeed: (clipId: string, speed: number) => void;
+  setTransition: (clipId: string, transition: Transition) => void;
+  coverImage: string | null; setCoverImage: (url: string | null) => void;
+  audioBeats: number[]; setAudioBeats: React.Dispatch<React.SetStateAction<number[]>>;
+  selectedAudioTrackId: string | null; setSelectedAudioTrackId: React.Dispatch<React.SetStateAction<string | null>>;
+  setCaptions: React.Dispatch<React.SetStateAction<Caption[]>>;
+  setAudioTracks: React.Dispatch<React.SetStateAction<AudioTrackItem[]>>;
+  updateCaption: (id: string, patch: Partial<Caption>) => void;
+  removeCaption: (id: string) => void;
+  setCaptionStyle: React.Dispatch<React.SetStateAction<CaptionStyle>>;
+  addAudioTrack: (t: Omit<AudioTrackItem, "id">) => string;
+  updateAudioTrack: (id: string, patch: Partial<AudioTrackItem>) => void;
+  removeAudioTrack: (id: string) => void;
+  setVideoMuted: (m: boolean) => void; setVideoVolume: (v: number) => void; setVideoAudioFx: (fx: AudioFxType) => void;
+  setExportPreset: (p: ExportPreset) => void; setProjectName: (n: string) => void;
+  newProject: () => void;
+  createNewProjectWithFiles: (files: FileList | File[]) => Promise<MediaItem[]>;
+  loadProject: (id: string) => Promise<boolean>;
+  listProjects: () => Promise<ProjectMeta[]>; deleteProject: (id: string) => Promise<void>;
+  totalDuration: number; getMediaById: (id: string) => MediaItem | undefined;
+  resolveTimelineTime: (t: number) => { clip: Clip; clipIndex: number; mediaTime: number; clipStart: number } | null;
+  splitClipsAtBeats: (beats: number[]) => void;
+  applySmartTemplate: (tpl: import("@/lib/smartTemplates").SmartTemplate) => boolean;
+  addFreezeFrameAt: (time: number, frameDataUrl: string, duration?: number) => void;
+  undo: () => void; redo: () => void; canUndo: boolean; canRedo: boolean;
+}
+
+const MediaContext = createContext<MediaContextType | null>(null);
+
+const createLimiter = (maxConcurrent: number) => {
+  let active = 0;
+  const queue: Array<() => void> = [];
+  const drain = () => {
+    while (active < maxConcurrent && queue.length > 0) {
+      active++;
+      const job = queue.shift()!;
+      job();
+    }
+  };
+  return <T,>(task: () => Promise<T>): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      queue.push(() => {
+        Promise.resolve()
+          .then(task)
+          .then(resolve, reject)
+          .finally(() => {
+            active--;
+            drain();
+          });
+      });
+      drain();
+    });
+};
+
+const runMetadataLimited = createLimiter(3);
+const runThumbnailLimited = createLimiter(2);
+
+const sanitizeCoverUrl = (url?: string | null): string | null => {
+  if (!url || typeof url !== "string" || url.startsWith("blob:")) return null;
+  return url;
+};
+
+const computeCloudSignature = (serialized: string): string => {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < serialized.length; i++) {
+    hash ^= serialized.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `${serialized.length}:${hash >>> 0}`;
+};
+
+const getVideoMetadata = async (file: File, nativePath?: string): Promise<{ duration: number; width: number; height: number }> => {
+  if (nativePath && Capacitor.isNativePlatform()) {
+    try {
+      const meta = await mediaService.getMetadata(nativePath);
+      if (meta && meta.duration > 0) {
+        return {
+          duration: meta.duration,
+          width: meta.width || 1920,
+          height: meta.height || 1080,
+        };
+      }
+    } catch (err) {
+      console.warn("[MediaContext] mediaService.getMetadata failed, falling back to DOM video:", err);
+    }
+  }
+
+  return new Promise((resolve) => {
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    const objectUrl = URL.createObjectURL(file);
+    const cleanup = () => {
+      video.onloadedmetadata = null;
+      video.onerror = null;
+      try {
+        video.src = "";
+        video.load();
+      } catch {}
+      URL.revokeObjectURL(objectUrl);
+    };
+    video.onloadedmetadata = () => {
+      const result = {
+        duration: video.duration || 0,
+        width: video.videoWidth || 0,
+        height: video.videoHeight || 0,
+      };
+      cleanup();
+      resolve(result);
+    };
+    video.onerror = () => {
+      cleanup();
+      resolve({ duration: 0, width: 0, height: 0 });
+    };
+    video.src = objectUrl;
+  });
+};
+
+const extractVideoFrameThumbnail = async (file: File): Promise<string> => {
+  const nativePath = (file as any)?.nativePath;
+  const isNative = nativePath && Capacitor.isNativePlatform();
+  const url = isNative ? Capacitor.convertFileSrc(nativePath) : URL.createObjectURL(file);
+  const video = document.createElement("video");
+  video.preload = "auto";
+  video.muted = true;
+  video.playsInline = true;
+  video.src = url;
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      video.onloadeddata = () => resolve();
+      video.onerror = () => reject();
+    });
+
+    const targetTime = Math.min(0.5, (video.duration || 1) / 2);
+    const seekOk = await robustSeekVideo(video, targetTime, { timeoutMs: 1200, toleranceSec: 0.04 });
+    if (seekOk) {
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.min(video.videoWidth || 320, 320);
+      canvas.height = Math.min(video.videoHeight || 180, 180);
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
+        return dataUrl;
+      }
+    }
+  } catch {
+    /* fallback */
+  } finally {
+    try {
+      video.src = "";
+      video.load();
+    } catch {}
+    if (!isNative) {
+      URL.revokeObjectURL(url);
+    }
+  }
+  return "";
+};
+
+const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+const ACTIVE_KEY = "vireon:activeProjectId";
+const CLOUD_SYNC_INTERVAL_MS = 20_000;
+const trackColors = ["#a855f7", "#ec4899", "#f59e0b", "#10b981", "#06b6d4", "#3b82f6"];
+
+export const MediaProvider = ({ children }: { children: ReactNode }) => {
+  const freshStartRef = useRef(false);
+  const [projectId, setProjectId] = useState<string>(() => localStorage.getItem(ACTIVE_KEY) || uid());
+  const [projectName, setProjectName] = useState<string>(() => t("editor.projectName"));
+  const [media, setMedia] = useState<MediaItem[]>([]);
+  const [clips, setClips] = useState<Clip[]>([]);
+  const [captions, setCaptions] = useState<Caption[]>([]);
+  const [audioTracks, setAudioTracks] = useState<AudioTrackItem[]>([]);
+  const [selectedAudioTrackId, setSelectedAudioTrackId] = useState<string | null>(null);
+  const [audioBeats, setAudioBeats] = useState<number[]>([]);
+  const [filters, setFilters] = useState<FilterItem[]>([]);
+  const [vfx, setVfx] = useState<VfxItem[]>([]);
+  const [overlays, setOverlays] = useState<OverlayItem[]>([]);
+  const [coverImage, setCoverImage] = useState<string | null>(null);
+  const [videoMuted, setVideoMuted] = useState(false);
+  const [videoVolume, setVideoVolume] = useState(1);
+  const [videoAudioFx, setVideoAudioFx] = useState<AudioFxType>("none");
+  const [exportPreset, setExportPreset] = useState<ExportPreset>("full");
+  const [captionStyle, setCaptionStyle] = useState<CaptionStyle>({
+    font: "Cairo", size: 22, color: "#ffffff", bg: "rgba(0,0,0,0.55)",
+    position: "bottom", language: "ar", animation: "fade",
+  });
+
+  const hydratedRef = useRef(false);
+  const storedFileKeysRef = useRef<Set<string>>(new Set());
+
+  const mediaRef = useRef<MediaItem[]>(media);
+  mediaRef.current = media;
+  const clipsRef = useRef<Clip[]>(clips);
+  clipsRef.current = clips;
+  const audioTracksRef = useRef<AudioTrackItem[]>(audioTracks);
+  audioTracksRef.current = audioTracks;
+  const overlaysRef = useRef<OverlayItem[]>(overlays);
+  overlaysRef.current = overlays;
+  const captionStyleRef = useRef<CaptionStyle>(captionStyle);
+  captionStyleRef.current = captionStyle;
+
+  type Snapshot = {
+    clips: Clip[]; captions: Caption[]; filters: FilterItem[]; vfx: VfxItem[];
+    overlays: OverlayItem[]; audioTracks: AudioTrackItem[]; captionStyle: CaptionStyle;
+  };
+  const pastRef = useRef<Snapshot[]>([]);
+  const futureRef = useRef<Snapshot[]>([]);
+  const presentRef = useRef<Snapshot | null>(null);
+  const pendingPrevRef = useRef<Snapshot | null>(null);
+  const commitTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const applyingRef = useRef(false);
+  const [histVersion, setHistVersion] = useState(0);
+
+  const flushPending = useCallback(() => {
+    if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = undefined; }
+    if (pendingPrevRef.current) {
+      pastRef.current.push(pendingPrevRef.current);
+      if (pastRef.current.length > 60) pastRef.current.shift();
+      pendingPrevRef.current = null;
+      futureRef.current = [];
+    }
+  }, []);
+
+  const applySnapshot = useCallback((s: Snapshot) => {
+    applyingRef.current = true;
+    setClips(s.clips); setCaptions(s.captions); setFilters(s.filters);
+    setVfx(s.vfx); setOverlays(s.overlays); setAudioTracks(s.audioTracks);
+    setCaptionStyle(s.captionStyle);
+    presentRef.current = s;
+  }, []);
+
+  const resetHistory = useCallback(() => {
+    pastRef.current = []; futureRef.current = [];
+    presentRef.current = null; pendingPrevRef.current = null;
+    if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = undefined; }
+    setHistVersion((v) => v + 1);
+  }, []);
+
+  const undo = useCallback(() => {
+    flushPending();
+    if (!pastRef.current.length) { toast.info(t("toast.nothingToUndo")); return; }
+    const prev = pastRef.current.pop()!;
+    if (presentRef.current) futureRef.current.push(presentRef.current);
+    applySnapshot(prev);
+    setHistVersion((v) => v + 1);
+    toast.success(t("toast.undoDone"));
+    try { navigator.vibrate?.(8); } catch { /* ignore */ }
+  }, [flushPending, applySnapshot]);
+
+  const redo = useCallback(() => {
+    flushPending();
+    if (!futureRef.current.length) { toast.info(t("toast.nothingToRedo")); return; }
+    const next = futureRef.current.pop()!;
+    if (presentRef.current) pastRef.current.push(presentRef.current);
+    applySnapshot(next);
+    setHistVersion((v) => v + 1);
+    toast.success(t("toast.redoDone"));
+    try { navigator.vibrate?.(8); } catch { /* ignore */ }
+  }, [flushPending, applySnapshot]);
+
+  const canUndo = pastRef.current.length > 0 || pendingPrevRef.current != null;
+  const canRedo = futureRef.current.length > 0;
+
+  useEffect(() => {
+    if (freshStartRef.current) {
+      console.log("[MediaContext] freshStart detected, setting hydrated=true");
+      hydratedRef.current = true;
+      return;
+    }
+    (async () => {
+      console.log("[MediaContext] Starting hydration for projectId:", projectId);
+      try {
+        const proj = await idbGet<any>(STORE_PROJECTS, projectId);
+        if (proj) {
+          console.log("[MediaContext] Project found in DB, restoring state...");
+          setProjectName(proj.name || t("editor.projectName"));
+          setExportPreset(proj.exportPreset || "full");
+          setVideoMuted(!!proj.videoMuted);
+          setVideoVolume(proj.videoVolume ?? 1);
+          setVideoAudioFx(proj.videoAudioFx || "none");
+          setCaptions(proj.captions || []);
+          setCaptionStyle(proj.captionStyle || captionStyleRef.current);
+          setCoverImage(sanitizeCoverUrl(proj.coverImage));
+          const restoredMedia: MediaItem[] = [];
+          for (const m of proj.media || []) {
+            const blob = await idbGet<Blob>(STORE_FILES, m.fileKey);
+            if (!blob) continue;
+            if (m.fileKey) storedFileKeysRef.current.add(m.fileKey);
+            const file = new File([blob], m.name, { type: m.mime });
+            restoredMedia.push({ id: m.id, url: URL.createObjectURL(blob), type: m.type, name: m.name, size: m.size, duration: m.duration, file });
+          }
+          setMedia(restoredMedia);
+          setClips(proj.clips || []);
+          setFilters(proj.filters || []);
+          setVfx(proj.vfx || []);
+          const restoredOverlays: OverlayItem[] = [];
+          for (const o of proj.overlays || []) {
+            const blob = o.fileKey ? await idbGet<Blob>(STORE_FILES, o.fileKey) : null;
+            if (blob && o.fileKey) storedFileKeysRef.current.add(o.fileKey);
+            const url = blob ? URL.createObjectURL(blob) : o.url;
+            restoredOverlays.push({ ...o, url, file: blob ? new File([blob], o.name, { type: blob.type }) : undefined });
+          }
+          setOverlays(restoredOverlays);
+          const restoredAudio: AudioTrackItem[] = [];
+          for (const a of proj.audioTracks || []) {
+            const blob = a.fileKey ? await idbGet<Blob>(STORE_FILES, a.fileKey) : null;
+            if (blob && a.fileKey) storedFileKeysRef.current.add(a.fileKey);
+            const url = blob ? URL.createObjectURL(blob) : a.url;
+            restoredAudio.push({ ...a, url, file: blob ? new File([blob], a.name, { type: blob.type }) : undefined });
+          }
+          setAudioTracks(restoredAudio);
+          console.log("[MediaContext] project state restored successfully.");
+        } else {
+          console.log("[MediaContext] No project found in DB for this ID.");
+        }
+      } catch (e) {
+        console.warn("[MediaContext] project restore failed:", e);
+      } finally {
+        hydratedRef.current = true;
+        projectRecoveryService.startProjectSession(projectId, projectName);
+        console.log("[MediaContext] Hydration process finished.");
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const totalDuration = useMemo(() => {
+    const clipsLen = clips.reduce((acc, c) => acc + clipTimelineLen(c), 0);
+    const audioLen = audioTracks.reduce((acc, t) => Math.max(acc, t.start + t.duration), 0);
+    return Math.max(clipsLen, audioLen);
+  }, [clips, audioTracks]);
+
+  const lastCloudSyncSigRef = useRef<string | null>(null);
+  const pendingCloudPayloadRef = useRef<{ record: Record<string, any>; sig: string } | null>(null);
+  const cloudSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const buildCloudPayloadRef = useRef<() => { record: Record<string, any>; sig: string }>(() => ({ record: {}, sig: "" }));
+  buildCloudPayloadRef.current = () => {
+    const effectiveCover = sanitizeCoverUrl(coverImage) || sanitizeCoverUrl(media[0]?.thumbnail) || null;
+    const record = {
+      id: projectId,
+      name: projectName,
+      export_preset: exportPreset,
+      clips_json: clips as any,
+      captions_json: captions as any,
+      caption_style_json: captionStyle as any,
+      audio_tracks_json: audioTracks.map((a) => ({
+        id: a.id, name: a.name, start: a.start, offset: a.offset, duration: a.duration,
+        sourceDuration: a.sourceDuration, volume: a.volume, muted: a.muted, fx: a.fx,
+        color: a.color, kind: a.kind, url: a.file ? null : a.url,
+      })),
+      filters_json: filters as any,
+      vfx_json: vfx as any,
+      cover_image: effectiveCover,
+      duration: totalDuration,
+    };
+    const serialized = JSON.stringify(record);
+    const sig = computeCloudSignature(serialized);
+    return { record, sig };
+  };
+
+  const flushCloudSync = useCallback(async (fromLifecycle = false) => {
+    if (cloudSyncTimerRef.current) {
+      clearTimeout(cloudSyncTimerRef.current);
+      cloudSyncTimerRef.current = null;
+    }
+    const candidate = fromLifecycle
+      ? buildCloudPayloadRef.current()
+      : pendingCloudPayloadRef.current;
+    if (!candidate) return;
+    pendingCloudPayloadRef.current = null;
+    if (candidate.sig === lastCloudSyncSigRef.current) return;
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        lastCloudSyncSigRef.current = candidate.sig;
+        const { error } = await supabase.from("projects").upsert({
+          ...candidate.record,
+          updated_at: new Date().toISOString(),
+        });
+        if (error) console.warn("cloud sync failed", error.message);
+      }
+    } catch (e) {
+      console.warn("cloud sync failed", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden" && hydratedRef.current) {
+        void flushCloudSync(true);
+      }
+    };
+    const onPageHide = () => {
+      if (hydratedRef.current) {
+        void flushCloudSync(true);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", onPageHide);
+      if (cloudSyncTimerRef.current) {
+        clearTimeout(cloudSyncTimerRef.current);
+        cloudSyncTimerRef.current = null;
+      }
+    };
+  }, [flushCloudSync]);
+
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    const t = setTimeout(async () => {
+      try {
+        for (const m of media) {
+          const fileKey = `media:${m.id}`;
+          if (!storedFileKeysRef.current.has(fileKey)) {
+            await idbPut(STORE_FILES, fileKey, m.file);
+            storedFileKeysRef.current.add(fileKey);
+          }
+        }
+        for (const a of audioTracks) {
+          if (!a.file) continue;
+          const fileKey = `audio:${a.id}`;
+          if (!storedFileKeysRef.current.has(fileKey)) {
+            await idbPut(STORE_FILES, fileKey, a.file);
+            storedFileKeysRef.current.add(fileKey);
+          }
+        }
+        for (const o of overlays) {
+          if (!o.file) continue;
+          const fileKey = `overlay:${o.id}`;
+          if (!storedFileKeysRef.current.has(fileKey)) {
+            await idbPut(STORE_FILES, fileKey, o.file);
+            storedFileKeysRef.current.add(fileKey);
+          }
+        }
+        const effectiveCover = sanitizeCoverUrl(coverImage) || sanitizeCoverUrl(media[0]?.thumbnail) || null;
+
+        const payload = {
+          id: projectId, name: projectName, updatedAt: Date.now(),
+          exportPreset, videoMuted, videoVolume, videoAudioFx, captions, captionStyle, coverImage: effectiveCover, clips,
+          filters, vfx,
+          overlays: overlays.map((o) => ({ id: o.id, start: o.start, end: o.end, x: o.x, y: o.y, scale: o.scale, opacity: o.opacity, rotation: o.rotation, blend: o.blend, brightness: o.brightness, name: o.name, type: o.type, fileKey: o.file ? `overlay:${o.id}` : null, url: o.file ? null : o.url })),
+          media: media.map((m) => ({ id: m.id, name: m.name, type: m.type, size: m.size, duration: m.duration, mime: m.file.type, fileKey: `media:${m.id}` })),
+          audioTracks: audioTracks.map((a) => ({ id: a.id, name: a.name, start: a.start, offset: a.offset, duration: a.duration, sourceDuration: a.sourceDuration, volume: a.volume, muted: a.muted, fx: a.fx, color: a.color, kind: a.kind, fileKey: a.file ? `audio:${a.id}` : null, url: a.file ? null : a.url })),
+        };
+        await idbPut(STORE_PROJECTS, undefined, payload);
+        localStorage.setItem(ACTIVE_KEY, projectId);
+        projectRecoveryService.saveSnapshot(projectId, projectName, payload);
+
+        const nextCloud = buildCloudPayloadRef.current();
+        if (nextCloud.sig !== lastCloudSyncSigRef.current) {
+          pendingCloudPayloadRef.current = nextCloud;
+          if (!cloudSyncTimerRef.current) {
+            cloudSyncTimerRef.current = setTimeout(() => {
+              cloudSyncTimerRef.current = null;
+              void flushCloudSync(false);
+            }, CLOUD_SYNC_INTERVAL_MS);
+          }
+        }
+      } catch (e) { console.warn("autosave failed", e); }
+    }, 600);
+    return () => clearTimeout(t);
+  }, [projectId, projectName, exportPreset, videoMuted, videoVolume, videoAudioFx, captions, captionStyle, coverImage, clips, media, audioTracks, filters, vfx, totalDuration, overlays, flushCloudSync]);
+
+  useEffect(() => {
+    const snap: Snapshot = { clips, captions, filters, vfx, overlays, audioTracks, captionStyle };
+    if (!presentRef.current) { presentRef.current = snap; return; }
+    if (applyingRef.current) { applyingRef.current = false; presentRef.current = snap; return; }
+    if (!pendingPrevRef.current) pendingPrevRef.current = presentRef.current;
+    presentRef.current = snap;
+    if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+    commitTimerRef.current = setTimeout(() => {
+      if (pendingPrevRef.current) {
+        pastRef.current.push(pendingPrevRef.current);
+        if (pastRef.current.length > 60) pastRef.current.shift();
+        pendingPrevRef.current = null;
+        futureRef.current = [];
+        commitTimerRef.current = undefined;
+        setHistVersion((v) => v + 1);
+      }
+    }, 450);
+  }, [clips, captions, filters, vfx, overlays, audioTracks, captionStyle]);
+
+  const addFiles = useCallback(async (files: FileList | File[]) => {
+    const arr = Array.from(files);
+    const isValidMediaFile = (f: File) => {
+      if (f.type && (f.type.startsWith("video/") || f.type.startsWith("image/"))) return true;
+      const name = (f.name || "").toLowerCase();
+      return /\.(mp4|mov|avi|m4v|webm|mkv|3gp|jpg|jpeg|png|gif|webp|heic|bmp|tiff)$/i.test(name);
+    };
+
+    const valid = arr.filter(isValidMediaFile);
+    if (valid.length === 0) { toast.error(t("toast.selectValidFiles")); return []; }
+
+    const items: MediaItem[] = valid.map((file) => {
+      let type: MediaType = "image";
+      if (file.type && file.type.startsWith("video/")) {
+        type = "video";
+      } else if (file.type && file.type.startsWith("image/")) {
+        type = "image";
+      } else {
+        const isVideoExt = /\.(mp4|mov|avi|m4v|webm|mkv|3gp)$/i.test((file.name || "").toLowerCase());
+        type = isVideoExt ? "video" : "image";
+      }
+
+      const nativePath = (file as any).nativePath as string | undefined;
+      const nativeUri = (file as any).nativeUri as string | undefined;
+      const url = nativePath && Capacitor.isNativePlatform()
+        ? Capacitor.convertFileSrc(nativePath)
+        : URL.createObjectURL(file);
+
+      return {
+        id: uid(),
+        url,
+        type,
+        name: file.name,
+        size: file.size,
+        file,
+        duration: type === "video" ? 0 : 5,
+        nativePath,
+        nativeUri,
+      };
+    });
+    setMedia((prev) => [...prev, ...items]);
+    setClips((prev) => [...prev, ...items.map<Clip>((m) => ({ id: uid(), mediaId: m.id, in: 0, out: m.duration || 5 }))]);
+    toast.success(t("toast.mediaUploaded", { n: items.length }));
+    items.forEach((m) => {
+      if (m.type === "video") {
+        runMetadataLimited(() => getVideoMetadata(m.file, m.nativePath)).then((meta) => {
+          const dur = meta.duration || 5;
+          setMedia((prev) => prev.map((x) => (x.id === m.id ? { ...x, duration: dur, width: meta.width, height: meta.height } : x)));
+          setClips((prev) => prev.map((c) => c.mediaId === m.id && c.in === 0 && (c.out === 5 || c.out === 0) ? { ...c, out: dur } : c));
+        });
+        if (m.file) {
+          runThumbnailLimited(() => extractVideoFrameThumbnail(m.file)).then((thumb) => {
+            if (thumb) {
+              setMedia((prev) => prev.map((x) => (x.id === m.id ? { ...x, thumbnail: thumb } : x)));
+            }
+          });
+        }
+      } else if (m.type === "image") {
+        const img = new Image();
+        img.onload = () => {
+          setMedia((prev) => prev.map((x) => (x.id === m.id ? { ...x, width: img.naturalWidth, height: img.naturalHeight } : x)));
+        };
+        img.src = m.url;
+      }
+    });
+    return items;
+  }, []);
+
+  const updateMediaItem = useCallback((id: string, patch: Partial<MediaItem>) => {
+    setMedia((prev) =>
+      prev.map((m) => {
+        if (m.id !== id) return m;
+        const originalUrl = m.originalUrl || (patch.processedUrl && patch.processedUrl !== m.url ? m.url : undefined);
+        return {
+          ...m,
+          ...patch,
+          ...(originalUrl ? { originalUrl } : {}),
+        };
+      })
+    );
+  }, []);
+
+  const removeMedia = useCallback((id: string) => {
+    setMedia((prev) => { const item = prev.find((m) => m.id === id); if (item) URL.revokeObjectURL(item.url); return prev.filter((m) => m.id !== id); });
+    setClips((prev) => prev.filter((c) => c.mediaId !== id));
+    const fileKey = `media:${id}`;
+    storedFileKeysRef.current.delete(fileKey);
+    idbDel(STORE_FILES, fileKey).catch(() => {});
+  }, []);
+
+  const clearMedia = useCallback(() => {
+    setMedia((prev) => { prev.forEach((m) => URL.revokeObjectURL(m.url)); return []; });
+    setClips([]); setCaptions([]);
+  }, []);
+
+  const splitClipAt = useCallback((clipId: string, localTime: number) => {
+    setClips((prev) => {
+      const idx = prev.findIndex((c) => c.id === clipId);
+      if (idx === -1) return prev;
+      const c = prev[idx];
+      const splitAt = c.in + localTime;
+      if (splitAt <= c.in + 0.05 || splitAt >= c.out - 0.05) { toast.error(t("toast.splitTooClose")); return prev; }
+
+      // Partition keyframes between left and right clips
+      const leftKeyframes = (c.keyframes || []).filter((k) => k.time <= localTime);
+      const rightKeyframes = (c.keyframes || [])
+        .filter((k) => k.time > localTime)
+        .map((k) => ({ ...k, time: Math.max(0, k.time - localTime) }));
+
+      const left: Clip = { 
+        ...c, 
+        out: splitAt,
+        keyframes: leftKeyframes.length > 0 ? leftKeyframes : undefined,
+      };
+      const right: Clip = { 
+        id: uid(), 
+        mediaId: c.mediaId, 
+        in: splitAt, 
+        out: c.out, 
+        speed: c.speed, 
+        scale: c.scale, 
+        panX: c.panX, 
+        panY: c.panY, 
+        flipH: c.flipH, 
+        flipV: c.flipV,
+        rotation: c.rotation,
+        opacity: c.opacity,
+        volume: c.volume,
+        transitionIn: undefined, // New cut point starts clean with CapCut cut indicator
+        keyframes: rightKeyframes.length > 0 ? rightKeyframes : undefined,
+      };
+      const next = [...prev]; 
+      next.splice(idx, 1, left, right);
+      toast.success(t("toast.splitDone"));
+      return next;
+    });
+  }, []);
+
+  const addFreezeFrameAt = useCallback((time: number, frameDataUrl: string, duration: number = 3.0) => {
+    const freezeMediaId = uid();
+    const freezeMediaItem: MediaItem = {
+      id: freezeMediaId,
+      file: new File([], `freeze_frame_${Math.round(time)}s.png`, { type: "image/png" }),
+      url: frameDataUrl,
+      type: "image",
+      size: 0,
+      duration: duration,
+      name: `توقف عند ${time.toFixed(1)}s`,
+    };
+
+    setMedia((prev) => [...prev, freezeMediaItem]);
+
+    setClips((prev) => {
+      let acc = 0;
+      let targetIdx = -1;
+      let targetClip: Clip | null = null;
+      let localSplitTime = 0;
+
+      for (let i = 0; i < prev.length; i++) {
+        const c = prev[i];
+        const sp = c.speed && c.speed > 0 ? c.speed : 1;
+        const len = (c.out - c.in) / sp;
+        if (time >= acc && time <= acc + len) {
+          targetIdx = i;
+          targetClip = c;
+          localSplitTime = (time - acc) * sp;
+          break;
+        }
+        acc += len;
+      }
+
+      const freezeClip: Clip = {
+        id: uid(),
+        mediaId: freezeMediaId,
+        in: 0,
+        out: duration,
+      };
+
+      if (targetIdx !== -1 && targetClip) {
+        const splitAt = targetClip.in + localSplitTime;
+        if (splitAt <= targetClip.in + 0.05) {
+          const next = [...prev];
+          next.splice(targetIdx, 0, freezeClip);
+          return next;
+        }
+        if (splitAt >= targetClip.out - 0.05) {
+          const next = [...prev];
+          next.splice(targetIdx + 1, 0, freezeClip);
+          return next;
+        }
+        const leftClip: Clip = { ...targetClip, out: splitAt };
+        const rightClip: Clip = {
+          id: uid(),
+          mediaId: targetClip.mediaId,
+          in: splitAt,
+          out: targetClip.out,
+          speed: targetClip.speed,
+          scale: targetClip.scale,
+          panX: targetClip.panX,
+          panY: targetClip.panY,
+          flipH: targetClip.flipH,
+          flipV: targetClip.flipV,
+        };
+        const next = [...prev];
+        next.splice(targetIdx, 1, leftClip, freezeClip, rightClip);
+        return next;
+      } else {
+        return [...prev, freezeClip];
+      }
+    });
+
+    toast.success("تم إضافة لقطة التوقف (3 ثوانٍ) كصورة داخل المسار بنجاح!");
+  }, []);
+
+  const resolveTimelineTime = useCallback((t: number) => {
+    const currentClips = clipsRef.current;
+    let acc = 0;
+    const clipsLen = currentClips.reduce((sum, c) => sum + clipTimelineLen(c), 0);
+    if (t > clipsLen) return null;
+
+    for (let i = 0; i < currentClips.length; i++) {
+      const c = currentClips[i];
+      const sp = c.speed && c.speed > 0 ? c.speed : 1;
+      const len = clipTimelineLen(c);
+      if (t < acc + len || i === currentClips.length - 1) {
+        const localT = Math.min(Math.max(0, t - acc), len);
+        return { clip: c, clipIndex: i, mediaTime: c.in + localT * sp, clipStart: acc };
+      }
+      acc += len;
+    }
+    return null;
+  }, []);
+
+  const splitTrackAt = useCallback((trackType: "video" | "audio" | "caption" | "filter" | "vfx" | "overlay", time: number) => {
+    let success = false;
+    if (trackType === "video") {
+      const r = resolveTimelineTime(time);
+      if (!r) { toast.error(t("toast.noClipAtPlayhead")); return false; }
+      const localTime = r.mediaTime - r.clip.in;
+      const c = r.clip;
+      const splitAt = c.in + localTime;
+      if (splitAt <= c.in + 0.05 || splitAt >= c.out - 0.05) { toast.error(t("toast.splitTooClose")); return false; }
+      setClips((prev) => {
+        const idx = prev.findIndex((x) => x.id === c.id);
+        if (idx === -1) return prev;
+        const left: Clip = { ...c, out: splitAt };
+        const right: Clip = { id: uid(), mediaId: c.mediaId, in: splitAt, out: c.out, speed: c.speed, scale: c.scale, panX: c.panX, panY: c.panY, flipH: c.flipH, flipV: c.flipV };
+        const next = [...prev]; next.splice(idx, 1, left, right);
+        return next;
+      });
+      success = true;
+    } else if (trackType === "audio") {
+      setAudioTracks((prev) => {
+        const active = prev.filter((a) => time > a.start && time < a.start + a.duration);
+        if (!active.length) return prev;
+        const next = [...prev];
+        for (const track of active) {
+          const idx = next.findIndex((x) => x.id === track.id);
+          if (idx === -1) continue;
+          const dt = time - track.start;
+          if (dt <= 0.05 || dt >= track.duration - 0.05) continue;
+          const left: AudioTrackItem = { ...track, duration: dt };
+          const right: AudioTrackItem = { ...track, id: uid(), start: time, offset: track.offset + dt, duration: track.duration - dt };
+          next.splice(idx, 1, left, right);
+          success = true;
+        }
+        return next;
+      });
+    } else if (trackType === "caption") {
+      setCaptions((prev) => {
+        const active = prev.filter((c) => time > c.start && time < c.end);
+        if (!active.length) return prev;
+        const next = [...prev];
+        for (const cap of active) {
+          const idx = next.findIndex((x) => x.id === cap.id);
+          if (idx === -1) continue;
+          if (time - cap.start <= 0.05 || cap.end - time <= 0.05) continue;
+          const left: Caption = { ...cap, end: time };
+          const right: Caption = { ...cap, id: uid(), start: time };
+          next.splice(idx, 1, left, right);
+          success = true;
+        }
+        return next;
+      });
+    } else if (trackType === "filter") {
+      setFilters((prev) => {
+        const active = prev.filter((f) => time > f.start && time < f.end);
+        if (!active.length) return prev;
+        const next = [...prev];
+        for (const filt of active) {
+          const idx = next.findIndex((x) => x.id === filt.id);
+          if (idx === -1) continue;
+          if (time - filt.start <= 0.05 || filt.end - time <= 0.05) continue;
+          const left: FilterItem = { ...filt, end: time };
+          const right: FilterItem = { ...filt, id: uid(), start: time };
+          next.splice(idx, 1, left, right);
+          success = true;
+        }
+        return next;
+      });
+    } else if (trackType === "vfx") {
+      setVfx((prev) => {
+        const active = prev.filter((v) => time > v.start && time < v.end);
+        if (!active.length) return prev;
+        const next = [...prev];
+        for (const item of active) {
+          const idx = next.findIndex((x) => x.id === item.id);
+          if (idx === -1) continue;
+          if (time - item.start <= 0.05 || item.end - time <= 0.05) continue;
+          const left: VfxItem = { ...item, end: time };
+          const right: VfxItem = { ...item, id: uid(), start: time };
+          next.splice(idx, 1, left, right);
+          success = true;
+        }
+        return next;
+      });
+    } else if (trackType === "overlay") {
+      setOverlays((prev) => {
+        const active = prev.filter((o) => time > o.start && time < o.end);
+        if (!active.length) return prev;
+        const next = [...prev];
+        for (const item of active) {
+          const idx = next.findIndex((x) => x.id === item.id);
+          if (idx === -1) continue;
+          if (time - item.start <= 0.05 || item.end - time <= 0.05) continue;
+          const left: OverlayItem = { ...item, end: time };
+          const right: OverlayItem = { ...item, id: uid(), start: time };
+          next.splice(idx, 1, left, right);
+          success = true;
+        }
+        return next;
+      });
+    }
+
+    if (success) {
+      toast.success(t("toast.splitDone"));
+      try { navigator.vibrate?.(12); } catch {}
+      return true;
+    } else {
+      toast.error(t("toast.noClipAtPlayhead"));
+      return false;
+    }
+  }, [resolveTimelineTime]);
+
+  const trimClip = useCallback((clipId: string, edge: "in" | "out", newValue: number) => {
+    setClips((prev) => prev.map((c) => {
+      if (c.id !== clipId) return c;
+      const mediaItem = mediaRef.current.find((m) => m.id === c.mediaId);
+      const isVideo = mediaItem && mediaItem.type === "video";
+      const maxSourceDuration = isVideo && mediaItem.duration > 0 ? mediaItem.duration : Infinity;
+
+      if (edge === "in") {
+        const clampedIn = Math.max(0, Math.min(newValue, c.out - 0.1));
+        return { ...c, in: clampedIn };
+      } else {
+        const clampedOut = Math.max(c.in + 0.1, Math.min(newValue, maxSourceDuration));
+        return { ...c, out: clampedOut };
+      }
+    }));
+  }, []);
+
+  const removeClip = useCallback((clipId: string) => {
+    setClips((prev) => prev.filter((c) => c.id !== clipId));
+    triggerHapticTick("medium");
+  }, []);
+
+  const moveClip = useCallback((clipId: string, targetIndex: number) => {
+    setClips((prev) => {
+      const from = prev.findIndex((c) => c.id === clipId);
+      if (from === -1) return prev;
+      const clamped = Math.max(0, Math.min(prev.length - 1, targetIndex));
+      if (clamped === from) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(clamped, 0, moved);
+      return next;
+    });
+  }, []);
+
+  const setClipSpeed = useCallback((clipId: string, speed: number) => {
+    setClips((prev) => prev.map((c) => (c.id === clipId ? { ...c, speed } : c)));
+  }, []);
+
+  const setTransition = useCallback((clipId: string, transition: Transition) => {
+    setClips((prev) => prev.map((c) => (c.id === clipId ? { ...c, transitionIn: transition } : c)));
+  }, []);
+
+  const updateCaption = useCallback((id: string, patch: Partial<Caption>) => {
+    setCaptions((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+  }, []);
+  const removeCaption = useCallback((id: string) => { setCaptions((prev) => prev.filter((c) => c.id !== id)); }, []);
+
+  const addAudioTrack = useCallback((t_param: Omit<AudioTrackItem, "id">) => {
+    const id = uid();
+    const color = t_param.color || trackColors[Math.floor(Math.random() * trackColors.length)];
+    setAudioTracks((prev) => [...prev, { ...t_param, id, color }]);
+    setSelectedAudioTrackId(id);
+    toast.success(t("toast.audioAdded"));
+    return id;
+  }, []);
+  const updateAudioTrack = useCallback((id: string, patch: Partial<AudioTrackItem>) => {
+    setAudioTracks((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)));
+  }, []);
+  const removeAudioTrack = useCallback((id: string) => {
+    setAudioTracks((prev) => {
+      const t_track = prev.find((a) => a.id === id);
+      if (t_track) URL.revokeObjectURL(t_track.url);
+      const remaining = prev.filter((a) => a.id !== id);
+      return remaining;
+    });
+    setSelectedAudioTrackId((prev) => (prev === id ? null : prev));
+    setAudioBeats([]);
+    const fileKey = `audio:${id}`;
+    storedFileKeysRef.current.delete(fileKey);
+    idbDel(STORE_FILES, fileKey).catch(() => {});
+  }, []);
+
+  const newProject = useCallback(() => {
+    console.log("[MediaContext] newProject called. Resetting state...");
+    mediaRef.current.forEach((m) => URL.revokeObjectURL(m.url));
+    audioTracksRef.current.forEach((a) => URL.revokeObjectURL(a.url));
+    const id = uid();
+    console.log("[MediaContext] New Project ID generated:", id);
+    freshStartRef.current = true; hydratedRef.current = true;
+    setProjectId(id); setProjectName(t("editor.projectName"));
+    setMedia([]); setClips([]); setCaptions([]); setAudioTracks([]);
+    setFilters([]); setVfx([]); setOverlays([]); setCoverImage(null);
+    setVideoMuted(false); setVideoVolume(1); setVideoAudioFx("none"); setExportPreset("full");
+    localStorage.setItem(ACTIVE_KEY, id);
+    resetHistory();
+    console.log("[MediaContext] project reset completed.");
+  }, [resetHistory]);
+
+  const createNewProjectWithFiles = useCallback(async (files: FileList | File[]) => {
+    newProject();
+    return await addFiles(files);
+  }, [newProject, addFiles]);
+
+  const loadProject = useCallback(async (id: string) => {
+    const proj = await idbGet<any>(STORE_PROJECTS, id);
+    if (!proj) return false;
+    mediaRef.current.forEach((m) => URL.revokeObjectURL(m.url));
+    audioTracksRef.current.forEach((a) => URL.revokeObjectURL(a.url));
+    overlaysRef.current.forEach((o) => { if (o.file) URL.revokeObjectURL(o.url); });
+    setProjectId(id); localStorage.setItem(ACTIVE_KEY, id);
+    setProjectName(proj.name || t("editor.projectName"));
+    setExportPreset(proj.exportPreset || "full");
+    setVideoMuted(!!proj.videoMuted); setVideoVolume(proj.videoVolume ?? 1);
+    setCaptions(proj.captions || []); setCaptionStyle(proj.captionStyle || captionStyleRef.current);
+    setCoverImage(sanitizeCoverUrl(proj.coverImage));
+    const restoredMedia: MediaItem[] = [];
+    for (const m of proj.media || []) {
+      const blob = await idbGet<Blob>(STORE_FILES, m.fileKey);
+      if (!blob) continue;
+      if (m.fileKey) storedFileKeysRef.current.add(m.fileKey);
+      const file = new File([blob], m.name, { type: m.mime });
+      restoredMedia.push({ id: m.id, url: URL.createObjectURL(blob), type: m.type, name: m.name, size: m.size, duration: m.duration, file });
+    }
+    setMedia(restoredMedia); setClips(proj.clips || []);
+    setFilters(proj.filters || []);
+    setVfx(proj.vfx || []);
+    const restoredOverlays: OverlayItem[] = [];
+    for (const o of proj.overlays || []) {
+      const blob = o.fileKey ? await idbGet<Blob>(STORE_FILES, o.fileKey) : null;
+      if (blob && o.fileKey) storedFileKeysRef.current.add(o.fileKey);
+      const url = blob ? URL.createObjectURL(blob) : o.url;
+      restoredOverlays.push({ ...o, url, file: blob ? new File([blob], o.name, { type: blob.type }) : undefined });
+    }
+    setOverlays(restoredOverlays);
+    const restoredAudio: AudioTrackItem[] = [];
+    for (const a of proj.audioTracks || []) {
+      const blob = a.fileKey ? await idbGet<Blob>(STORE_FILES, a.fileKey) : null;
+      if (blob && a.fileKey) storedFileKeysRef.current.add(a.fileKey);
+      const url = blob ? URL.createObjectURL(blob) : a.url;
+      restoredAudio.push({ ...a, url, file: blob ? new File([blob], a.name, { type: blob.type }) : undefined });
+    }
+    setAudioTracks(restoredAudio); resetHistory();
+    toast.success(t("toast.projectLoaded"));
+    return true;
+  }, [resetHistory]);
+
+  const listProjects = useCallback(async (): Promise<ProjectMeta[]> => {
+    const localAll = await idbAll<any>(STORE_PROJECTS);
+    const localProjects: ProjectMeta[] = localAll.map((p) => {
+      const cover = sanitizeCoverUrl(p.coverImage || p.cover_image);
+      return {
+        id: p.id, name: p.name, updatedAt: p.updatedAt || 0,
+        duration: (p.clips || []).reduce((acc: number, c: any) => acc + (c.out - c.in), 0),
+        preset: p.exportPreset || "full",
+        coverImage: cover,
+      };
+    });
+    const { data: { session } } = await supabase.auth.getSession();
+    let cloudProjects: ProjectMeta[] = [];
+    if (session?.user) {
+      const { data, error } = await supabase.from("projects").select("id, name, duration, export_preset, updated_at, cover_image").order("updated_at", { ascending: false });
+      if (!error && data) {
+        cloudProjects = data.map((p: any) => ({
+          id: p.id, name: p.name, updatedAt: new Date(p.updated_at).getTime(), duration: p.duration || 0, preset: p.export_preset || "full", coverImage: sanitizeCoverUrl(p.cover_image)
+        }));
+      }
+    }
+    const merged = new Map<string, ProjectMeta>();
+    for (const p of localProjects) merged.set(p.id, p);
+    for (const p of cloudProjects) merged.set(p.id, p);
+    return Array.from(merged.values()).sort((a, b) => b.updatedAt - a.updatedAt);
+  }, []);
+
+  const deleteProject = useCallback(async (id: string) => {
+    const proj = await idbGet<any>(STORE_PROJECTS, id);
+    if (proj) {
+      const fileKeys = new Set<string>();
+      for (const m of proj.media || []) {
+        if (m?.fileKey) fileKeys.add(m.fileKey);
+      }
+      for (const a of proj.audioTracks || []) {
+        if (a?.fileKey) fileKeys.add(a.fileKey);
+      }
+      for (const o of proj.overlays || []) {
+        if (o?.fileKey) fileKeys.add(o.fileKey);
+      }
+      for (const fileKey of fileKeys) {
+        await idbDel(STORE_FILES, fileKey);
+        storedFileKeysRef.current.delete(fileKey);
+      }
+    }
+    await idbDel(STORE_PROJECTS, id);
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user) { await supabase.from("projects").delete().eq("id", id); }
+    toast.success(t("toast.projectDeleted"));
+  }, []);
+
+  const getMediaById = useCallback((id: string) => mediaRef.current.find((m) => m.id === id), []);
+
+  const splitClipsAtBeats = useCallback((beats: number[]) => {
+    if (!beats.length) return;
+    setClips((prev) => {
+      const out: Clip[] = [];
+      let acc = 0;
+      for (const c of prev) {
+        const len = c.out - c.in;
+        const inBeats = beats.filter((b) => b > acc + 0.1 && b < acc + len - 0.1).map((b) => c.in + (b - acc)).sort((a, b) => a - b);
+        if (!inBeats.length) { out.push(c); acc += len; continue; }
+        let lastIn = c.in;
+        for (const b of inBeats) { out.push({ id: uid(), mediaId: c.mediaId, in: lastIn, out: b }); lastIn = b; }
+        out.push({ id: uid(), mediaId: c.mediaId, in: lastIn, out: c.out });
+        acc += len;
+      }
+      toast.success(t("smartCut.done", { n: beats.length }));
+      return out;
+    });
+  }, []);
+
+  const applySmartTemplate = useCallback((tpl: import("@/lib/smartTemplates").SmartTemplate) => {
+    const currentClips = clipsRef.current;
+    const dur = currentClips.reduce((acc, c) => acc + Math.max(0, c.out - c.in), 0);
+    if (currentClips.length === 0 || dur <= 0) { toast.error(t("toast.addMediaFirst")); return false; }
+    const style = buildSmartTemplateStyle(tpl, dur);
+    setFilters(style.filters);
+    setVfx(style.vfx);
+    if (tpl.transition !== "none") {
+      const transitionDuration = tpl.transitionDuration ?? 0.5;
+      setClips((prev) => prev.map((c, i) => (i === 0 ? c : { ...c, transitionIn: { type: tpl.transition, duration: transitionDuration } })));
+    }
+    setCaptionStyle((s) => ({ ...s, ...style.captionStyle }));
+    if (tpl.segmentSec > 0) {
+      const beats: number[] = [];
+      for (let t = tpl.segmentSec; t < dur - 0.2; t += tpl.segmentSec) beats.push(t);
+      if (beats.length) splitClipsAtBeats(beats);
+    }
+    toast.success(t("toast.templateApplied", { name: tpl.name }));
+    return true;
+  }, [splitClipsAtBeats]);
+
+  const addFilter = useCallback((f: Omit<FilterItem, "id">) => { setFilters((prev) => [...prev, { ...f, id: uid() }]); }, []);
+  const updateFilter = useCallback((id: string, patch: Partial<FilterItem>) => { setFilters((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f))); }, []);
+  const removeFilter = useCallback((id: string) => { setFilters((prev) => prev.filter((f) => f.id !== id)); }, []);
+  const addVfx = useCallback((v: Omit<VfxItem, "id">) => { setVfx((prev) => [...prev, { ...v, id: uid() }]); }, []);
+  const updateVfx = useCallback((id: string, patch: Partial<VfxItem>) => { setVfx((prev) => prev.map((v) => (v.id === id ? { ...v, ...patch } : v))); }, []);
+  const removeVfx = useCallback((id: string) => { setVfx((prev) => prev.filter((v) => v.id !== id)); }, []);
+
+  const addOverlay = useCallback(async (file: File): Promise<string> => {
+    const id = uid(); const url = URL.createObjectURL(file);
+    const type: "image" | "video" = file.type.startsWith("video/") ? "video" : "image";
+    const item: OverlayItem = { id, url, type, name: file.name, file, start: 0, end: 3, x: 50, y: 50, scale: 0.4, opacity: 1, rotation: 0, blend: "normal", brightness: 1 };
+    setOverlays((prev) => [...prev, item]);
+    toast.success(t("toast.overlayAdded"));
+    return id;
+  }, []);
+  const updateOverlay = useCallback((id: string, patch: Partial<OverlayItem>) => { setOverlays((prev) => prev.map((o) => (o.id === id ? { ...o, ...patch } : o))); }, []);
+  const removeOverlay = useCallback((id: string) => {
+    setOverlays((prev) => {
+      const item = prev.find((o) => o.id === id);
+      if (item) URL.revokeObjectURL(item.url);
+      return prev.filter((o) => o.id !== id);
+    });
+    const fileKey = `overlay:${id}`;
+    storedFileKeysRef.current.delete(fileKey);
+    idbDel(STORE_FILES, fileKey).catch(() => {});
+  }, []);
+
+  const contextValue = useMemo<MediaContextType>(() => ({
+    media, clips, captions, captionStyle, audioTracks, videoMuted, videoVolume, videoAudioFx,
+    exportPreset, projectName, projectId,
+    filters, vfx, overlays,
+    addFiles, updateMediaItem, removeMedia, clearMedia,
+    setClips, splitClipAt, splitTrackAt, trimClip, removeClip, moveClip, setClipSpeed, setTransition,
+    setFilters, setVfx, setOverlays,
+    coverImage, setCoverImage,
+    audioBeats, setAudioBeats,
+    selectedAudioTrackId, setSelectedAudioTrackId,
+    setCaptions, updateCaption, removeCaption, setCaptionStyle,
+    setAudioTracks,
+    addAudioTrack, updateAudioTrack, removeAudioTrack, setVideoMuted, setVideoVolume, setVideoAudioFx,
+    addFilter, updateFilter, removeFilter,
+    addVfx, updateVfx, removeVfx,
+    addOverlay, updateOverlay, removeOverlay,
+    setExportPreset, setProjectName, newProject, createNewProjectWithFiles, loadProject, listProjects, deleteProject,
+    totalDuration, getMediaById, resolveTimelineTime, splitClipsAtBeats,
+    applySmartTemplate, addFreezeFrameAt,
+    undo, redo, canUndo, canRedo,
+  }), [
+    media, clips, captions, captionStyle, audioTracks, videoMuted, videoVolume, videoAudioFx,
+    exportPreset, projectName, projectId,
+    filters, vfx, overlays,
+    addFiles, updateMediaItem, removeMedia, clearMedia,
+    splitClipAt, splitTrackAt, trimClip, removeClip, moveClip, setClipSpeed, setTransition,
+    coverImage, audioBeats, selectedAudioTrackId,
+    updateCaption, removeCaption,
+    addAudioTrack, updateAudioTrack, removeAudioTrack,
+    addFilter, updateFilter, removeFilter,
+    addVfx, updateVfx, removeVfx,
+    addOverlay, updateOverlay, removeOverlay,
+    newProject, createNewProjectWithFiles, loadProject, listProjects, deleteProject,
+    totalDuration, getMediaById, resolveTimelineTime, splitClipsAtBeats,
+    applySmartTemplate, addFreezeFrameAt,
+    undo, redo, canUndo, canRedo, histVersion,
+  ]);
+
+  return (
+    <MediaContext.Provider value={contextValue}>
+      {children}
+    </MediaContext.Provider>
+  );
+};
+
+export const useMedia = () => {
+  const ctx = useContext(MediaContext);
+  if (!ctx) throw new Error("useMedia must be used within MediaProvider");
+  return ctx;
+};

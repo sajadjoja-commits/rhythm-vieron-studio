@@ -1,0 +1,33 @@
+<!-- OFFICIAL APP LOGO — DO NOT ADD ALTERNATE VERSIONS OR MODIFY WITHOUT EXPLICIT USER REQUEST -->
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="512" height="512" rx="128" fill="#090d16"/>
+  <defs>
+    <linearGradient id="vGlowGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="35%" stop-color="#3b82f6" />
+      <stop offset="70%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#a855f7" />
+    </linearGradient>
+    <filter id="neonGlowFilter" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="18" result="blur1" />
+      <feGaussianBlur stdDeviation="8" result="blur2" />
+      <feMerge>
+        <feMergeNode in="blur1" />
+        <feMergeNode in="blur2" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+  <!-- Ambient outer neon glow -->
+  <path
+    d="M 105 110 L 185 110 L 256 280 L 327 110 L 407 110 L 295 375 C 275 425 237 425 217 375 Z"
+    fill="url(#vGlowGradient)"
+    filter="url(#neonGlowFilter)"
+    opacity="0.9"
+  />
+  <!-- Main crisp V vector mark -->
+  <path
+    d="M 105 110 L 185 110 L 256 280 L 327 110 L 407 110 L 295 375 C 275 425 237 425 217 375 Z"
+    fill="url(#vGlowGradient)"
+  />
+</svg>
