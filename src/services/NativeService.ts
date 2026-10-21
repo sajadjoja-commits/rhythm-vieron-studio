@@ -26,7 +26,7 @@ async function saveBlobViaAndroidShell(
 ): Promise<{ success: boolean; path?: string }> {
   const bridge = getAndroidShellBridge();
   if (!bridge) return { success: false };
-  const safeName = fileName.trim().replace(/[\\/:*?"<>|]+/g, '_').replace(/\\s+/g, '_') || 'vireon_export';
+  const safeName = fileName.trim().replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, '_') || 'vireon_export';
   const mime = blob.type || fallbackMime || 'application/octet-stream';
   if (!bridge.beginSaveFile(safeName, mime)) {
     throw new Error('تعذر إنشاء الملف في مساحة التخزين. تحقق من مساحة الجهاز ثم حاول مجدداً.');
