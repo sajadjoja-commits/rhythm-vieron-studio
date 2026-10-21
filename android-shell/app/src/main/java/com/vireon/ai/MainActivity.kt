@@ -84,7 +84,6 @@ class MainActivity : ComponentActivity() {
             allowFileAccess = false
             allowContentAccess = true
         }
-        webView.addJavascriptInterface(AndroidBridge(), "AndroidBridge")
         webView.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                 loading.visibility = if (newProgress >= 100) View.GONE else View.VISIBLE
@@ -116,6 +115,14 @@ class MainActivity : ComponentActivity() {
         }
         webView.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                // Expose the save bridge only while the trusted Vireon app is the top-level page.
+                // External OAuth pages must never receive the native bridge.
+                if (Uri.parse(url.orEmpty()).host == APP_HOST) {
+                    webView.removeJavascriptInterface("AndroidBridge")
+                    webView.addJavascriptInterface(AndroidBridge(), "AndroidBridge")
+                } else {
+                    webView.removeJavascriptInterface("AndroidBridge")
+                }
                 offlinePanel?.let { root.removeView(it) }
                 offlinePanel = null
                 loading.visibility = View.VISIBLE
@@ -179,6 +186,7 @@ class MainActivity : ComponentActivity() {
 
     inner class AndroidBridge {
         @JavascriptInterface fun beginSaveFile(fileName: String, mimeType: String): Boolean {
+            cancelCurrentExport()
             return try {
                 exportName = fileName.substringAfterLast('/').substringAfterLast('\\').ifBlank { "download" }
                 exportMime = mimeType.ifBlank { "application/octet-stream" }
@@ -245,11 +253,16 @@ class MainActivity : ComponentActivity() {
         }
 
         @JavascriptInterface fun cancelSaveFile() {
-            try { exportStream?.close() } catch (_: Exception) {}
-            exportStream = null
-            exportUri?.let { try { contentResolver.delete(it, null, null) } catch (_: Exception) {} }
-            exportUri = null
+            cancelCurrentExport()
         }
+    }
+
+    private fun cancelCurrentExport() {
+        try { exportStream?.close() } catch (_: Exception) {}
+        exportStream = null
+        exportUri?.let { try { contentResolver.delete(it, null, null) } catch (_: Exception) {} }
+        exportUri = null
+    }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -266,5 +279,6 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         private const val APP_URL = "https://rhythm-vieron-studio.lovable.app"
+        private const val APP_HOST = "rhythm-vieron-studio.lovable.app"
     }
 }
