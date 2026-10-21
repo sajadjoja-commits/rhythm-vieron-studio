@@ -3,6 +3,56 @@ import { registerPlugin, Capacitor } from '@capacitor/core';
 
 const VireonMedia = registerPlugin<any>('VireonMedia');
 
+type AndroidShellBridge = {
+  beginSaveFile: (fileName: string, mimeType: string) => boolean;
+  appendSaveChunk: (base64Chunk: string) => boolean;
+  finishSaveFile: () => boolean;
+  cancelSaveFile: () => void;
+};
+
+function getAndroidShellBridge(): AndroidShellBridge | undefined {
+  if (typeof window === 'undefined') return undefined;
+  return (window as Window & { AndroidBridge?: AndroidShellBridge }).AndroidBridge;
+}
+
+/**
+ * Stream an exported Blob directly to the standalone Kotlin WebView bridge.
+ * Small chunks avoid passing very large strings across the JavaScript interface.
+ */
+async function saveBlobViaAndroidShell(
+  blob: Blob,
+  fileName: string,
+  fallbackMime: string
+): Promise<{ success: boolean; path?: string }> {
+  const bridge = getAndroidShellBridge();
+  if (!bridge) return { success: false };
+  const safeName = fileName.trim().replace(/[\\/:*?"<>|]+/g, '_').replace(/\\s+/g, '_') || 'vireon_export';
+  const mime = blob.type || fallbackMime || 'application/octet-stream';
+  if (!bridge.beginSaveFile(safeName, mime)) {
+    throw new Error('تعذر إنشاء الملف في مساحة التخزين. تحقق من مساحة الجهاز ثم حاول مجدداً.');
+  }
+
+  try {
+    const chunkSize = 192 * 1024;
+    for (let offset = 0; offset < blob.size; offset += chunkSize) {
+      const bytes = new Uint8Array(await blob.slice(offset, Math.min(offset + chunkSize, blob.size)).arrayBuffer());
+      let binary = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + 0x8000, bytes.length)));
+      }
+      if (!bridge.appendSaveChunk(btoa(binary))) {
+        throw new Error('فشل نقل جزء من الملف إلى Android.');
+      }
+    }
+    if (!bridge.finishSaveFile()) throw new Error('تعذر إكمال حفظ الملف على الجهاز.');
+    return { success: true, path: `MediaStore/Vireon/${safeName}` };
+  } catch (error) {
+    try { bridge.cancelSaveFile(); } catch {}
+    throw error;
+  }
+}
+
+
 /**
  * Converts a Blob to a Base64 string in small chunks using ArrayBuffer.
  * Avoids call stack overflow and memory spikes from large FileReader operations.
@@ -116,6 +166,15 @@ export async function saveVideoToGallery(
   fileName: string = 'vireon_video.mp4',
   isCancelled?: () => boolean
 ): Promise<{ success: boolean; path?: string; warning?: string }> {
+  if (blobOrPath instanceof Blob && getAndroidShellBridge()) {
+    if (isCancelled?.()) return { success: false, warning: 'Save operation cancelled by user.' };
+    const sizeMB = (blobOrPath.size / (1024 * 1024)).toFixed(1);
+    const warning = blobOrPath.size > 50 * 1024 * 1024
+      ? `Video size (${sizeMB} MB) is large; saving may take longer on this device.`
+      : undefined;
+    const result = await saveBlobViaAndroidShell(blobOrPath, fileName, 'video/mp4');
+    return { ...result, warning };
+  }
   if (!Capacitor.isNativePlatform()) {
     console.log("[NativeService] Not running on a native platform, skipping native gallery save.");
     return { success: false, path: '' };
@@ -266,6 +325,10 @@ export async function saveImageToGallery(
   blobOrPath: Blob | string,
   fileName: string = 'vireon_photo.png'
 ): Promise<{ success: boolean; path?: string; warning?: string }> {
+  if (blobOrPath instanceof Blob && getAndroidShellBridge()) {
+    const result = await saveBlobViaAndroidShell(blobOrPath, fileName, 'image/png');
+    return result;
+  }
   if (!Capacitor.isNativePlatform()) {
     console.log("[NativeService] Not running on native platform, returning standard web result.");
     return { success: false, path: '' };
@@ -344,6 +407,10 @@ export async function saveAudioToGallery(
   blob: Blob,
   fileName: string = 'vireon_audio.wav'
 ): Promise<{ success: boolean; message?: string }> {
+  if (getAndroidShellBridge()) {
+    const result = await saveBlobViaAndroidShell(blob, fileName, 'audio/wav');
+    return { success: result.success, message: result.success ? 'Saved to Music/Vireon' : 'Android save failed' };
+  }
   if (!Capacitor.isNativePlatform()) return { success: false };
 
   try {
