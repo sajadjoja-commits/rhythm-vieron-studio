@@ -7,7 +7,6 @@ import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
-import android.provider.OpenableColumns
 import android.view.View
 import android.view.WindowManager
 import android.webkit.JavascriptInterface
@@ -23,7 +22,6 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AppCompatActivity
 import android.content.ContentValues
 import android.os.Build
 import android.os.Environment
@@ -41,6 +39,7 @@ class MainActivity : Activity() {
     private var exportMime = "application/octet-stream"
     private var exportName = "download"
     private var pageReady = false
+    private var offlinePanel: TextView? = null
 
     private val filePicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val callback = fileChooserCallback
@@ -115,6 +114,12 @@ class MainActivity : Activity() {
             }
         }
         webView.webViewClient = object : WebViewClient() {
+            override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                offlinePanel?.let { root.removeView(it) }
+                offlinePanel = null
+                loading.visibility = View.VISIBLE
+            }
+
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val uri = request.url
                 val host = uri.host?.lowercase().orEmpty()
@@ -159,6 +164,8 @@ class MainActivity : Activity() {
                 setPadding(32, 32, 32, 32)
                 setOnClickListener { webView.reload() }
             }
+            offlinePanel?.let { root.removeView(it) }
+            offlinePanel = panel
             root.addView(panel, FrameLayout.LayoutParams(-1, -1))
             loading.visibility = View.GONE
         }
@@ -174,11 +181,20 @@ class MainActivity : Activity() {
             return try {
                 exportName = fileName.substringAfterLast('/').substringAfterLast('\\').ifBlank { "download" }
                 exportMime = mimeType.ifBlank { "application/octet-stream" }
-                val collection = when {
-                    exportMime.startsWith("video/") -> MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-                    exportMime.startsWith("image/") -> MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-                    exportMime.startsWith("audio/") -> MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-                    else -> MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    when {
+                        exportMime.startsWith("video/") -> MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                        exportMime.startsWith("image/") -> MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                        exportMime.startsWith("audio/") -> MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                        else -> MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                    }
+                } else {
+                    when {
+                        exportMime.startsWith("video/") -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                        exportMime.startsWith("image/") -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                        exportMime.startsWith("audio/") -> MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+                        else -> MediaStore.Files.getContentUri("external")
+                    }
                 }
                 val values = ContentValues().apply {
                     put(MediaStore.MediaColumns.DISPLAY_NAME, exportName)

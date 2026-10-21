@@ -1,9 +1,9 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
-
-import java.util.Properties
 
 val signingProps = Properties()
 val signingFile = rootProject.file("keystore.properties")
