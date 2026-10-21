@@ -6,6 +6,7 @@ on:
       - feat/native-shell
     paths:
       - "android-shell/**"
+      - "src/services/NativeService.ts"
       - ".github/workflows/native-shell-build.yml"
   workflow_dispatch:
 
