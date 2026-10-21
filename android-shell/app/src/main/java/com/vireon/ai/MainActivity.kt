@@ -20,6 +20,7 @@ import android.widget.FrameLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import android.content.ContentValues
@@ -29,7 +30,7 @@ import android.provider.MediaStore
 import android.util.Base64
 import java.io.OutputStream
 
-class MainActivity : Activity() {
+class MainActivity : ComponentActivity() {
     private lateinit var root: FrameLayout
     private lateinit var webView: WebView
     private lateinit var loading: ProgressBar
@@ -136,7 +137,7 @@ class MainActivity : Activity() {
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                if (request.isForMainFrame && !pageReady) showOfflineError()
+                if (request.isForMainFrame) showOfflineError()
             }
         }
 
