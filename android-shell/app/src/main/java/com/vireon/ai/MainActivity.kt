@@ -263,7 +263,6 @@ class MainActivity : ComponentActivity() {
         exportUri?.let { try { contentResolver.delete(it, null, null) } catch (_: Exception) {} }
         exportUri = null
     }
-    }
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
