@@ -1,18 +1,24 @@
 # Vireon native Android shell
 
-This is a standalone Kotlin/Android WebView wrapper for the published Vireon web app. It is deliberately separate from the legacy `android/` Capacitor project.
+Standalone Kotlin Android wrapper for the published Vireon web app. This project is independent of the old Capacitor `android/` wrapper.
 
-## Build
+## Open in Android Studio
 
-Requires JDK 17+ and Android SDK Platform 35.
+1. Download/clone this repository and check out `feat/native-shell`.
+2. In Android Studio choose **Open** and select the `android-shell/` directory (not the repository root).
+3. Install Android SDK Platform 35 and use JDK 17.
+4. Wait for Gradle sync, then choose **Run app** to launch on an emulator or connected Android phone.
+5. For an APK, use **Build > Build APK(s)**. The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`.
+
+The command-line equivalent from this directory is:
 
 ```bash
-./gradlew assembleDebug
+./gradlew --no-daemon assembleDebug
 ```
 
-Debug APK output: `app/build/outputs/apk/debug/app-debug.apk`.
+A GitHub Actions workflow also builds the debug APK and stores it as the `vireon-native-shell-debug` artifact when a runner is available.
 
-## Signing
+## Signing a release
 
 For local release signing, create `keystore.properties` in this directory (never commit it):
 
@@ -23,16 +29,19 @@ keyAlias=...
 keyPassword=...
 ```
 
-No signing credentials belong in source control.
+Do not put signing credentials in source control. A debug APK is for testing, not Play Store distribution.
 
-## Web content
+## How it works
 
-The app loads https://rhythm-vieron-studio.lovable.app. The web UI remains web content inside a full-screen native WebView; web deployments update independently of this APK. Changes to Kotlin/native behavior still require a new APK.
+- Loads https://rhythm-vieron-studio.lovable.app in a full-screen WebView.
+- Native Kotlin file picker supports image, audio, and video uploads.
+- The `AndroidBridge` streams exported blobs in small Base64 chunks into Android MediaStore under Movies/Pictures/Music/Download, in a Vireon subfolder.
+- Web export functions now detect this bridge first, while preserving the existing Capacitor path for the legacy wrapper and web behavior.
+- The native bridge is exposed only when the top-level page is the Vireon app origin; external OAuth pages do not receive it.
+- External HTTP(S) links open in the browser. The app origin plus Google/Supabase auth hosts are currently permitted in WebView.
 
-## Current scope
+## Known verification limits
 
-- Kotlin-only Android shell, no Capacitor/Cordova runtime in this directory.
-- WebView JavaScript, DOM storage, media playback, upload picker for image/audio/video.
-- Chunked MediaStore export bridge: `beginSaveFile`, `appendSaveChunk`, `finishSaveFile`, and `cancelSaveFile`.
-- External HTTP(S) links open in the browser; the app origin and Supabase/Google auth hosts are allowed in WebView.
-- Offline behavior, Google OAuth return/deep-link flow, share bridge, and real-device export verification are not yet complete.
+- The current published web app must include the matching `src/services/NativeService.ts` update for the native save bridge to be used. The GitHub code change does not by itself publish the hosted Lovable site.
+- Google OAuth session return/deep-link behavior, native share, and offline caching still need device-level verification/implementation.
+- No successful Android APK build or physical-device test is claimed until GitHub Actions or Android Studio completes it successfully.
