@@ -1,30 +1,74 @@
 [
     {
-        "merged": "com.vireon.ai.app-merged_res-33:/drawable_ic_launcher_background.xml.flat",
-        "source": "com.vireon.ai.app-main-35:/drawable/ic_launcher_background.xml"
+        "merged": "com.vireon.ai.app-merged_res-33:/mipmap-xxhdpi_ic_launcher.png.flat",
+        "source": "com.vireon.ai.app-main-35:/mipmap-xxhdpi/ic_launcher.png"
+    },
+    {
+        "merged": "D:\\Gradle\\daemon\\8.4\\com.vireon.ai.app-merged_res-33:\\mipmap-anydpi-v26_ic_launcher_round.xml.flat",
+        "source": "D:\\Gradle\\daemon\\8.4\\com.vireon.ai.app-main-35:\\mipmap-anydpi-v26\\ic_launcher_round.xml"
+    },
+    {
+        "merged": "D:\\Gradle\\daemon\\8.4\\com.vireon.ai.app-merged_res-33:\\mipmap-anydpi-v26_ic_launcher.xml.flat",
+        "source": "D:\\Gradle\\daemon\\8.4\\com.vireon.ai.app-main-35:\\mipmap-anydpi-v26\\ic_launcher.xml"
+    },
+    {
+        "merged": "com.vireon.ai.app-merged_res-33:/mipmap-xxhdpi_ic_launcher_round.png.flat",
+        "source": "com.vireon.ai.app-main-35:/mipmap-xxhdpi/ic_launcher_round.png"
+    },
+    {
+        "merged": "D:\\Gradle\\daemon\\8.4\\com.vireon.ai.app-merged_res-33:\\drawable_ic_launcher_foreground.xml.flat",
+        "source": "D:\\Gradle\\daemon\\8.4\\com.vireon.ai.app-main-35:\\drawable\\ic_launcher_foreground.xml"
+    },
+    {
+        "merged": "D:\\Gradle\\daemon\\8.4\\com.vireon.ai.app-merged_res-33:\\xml_file_paths.xml.flat",
+        "source": "D:\\Gradle\\daemon\\8.4\\com.vireon.ai.app-main-35:\\xml\\file_paths.xml"
+    },
+    {
+        "merged": "com.vireon.ai.app-merged_res-33:/mipmap-xhdpi_ic_launcher_round.png.flat",
+        "source": "com.vireon.ai.app-main-35:/mipmap-xhdpi/ic_launcher_round.png"
+    },
+    {
+        "merged": "com.vireon.ai.app-merged_res-33:/mipmap-mdpi_ic_launcher_round.png.flat",
+        "source": "com.vireon.ai.app-main-35:/mipmap-mdpi/ic_launcher_round.png"
+    },
+    {
+        "merged": "com.vireon.ai.app-merged_res-33:/mipmap-xhdpi_ic_launcher.png.flat",
+        "source": "com.vireon.ai.app-main-35:/mipmap-xhdpi/ic_launcher.png"
+    },
+    {
+        "merged": "D:\\Gradle\\daemon\\8.4\\com.vireon.ai.app-merged_res-33:\\layout_activity_main.xml.flat",
+        "source": "D:\\Gradle\\daemon\\8.4\\com.vireon.ai.app-main-35:\\layout\\activity_main.xml"
+    },
+    {
+        "merged": "com.vireon.ai.app-merged_res-33:/mipmap-hdpi_ic_launcher.png.flat",
+        "source": "com.vireon.ai.app-main-35:/mipmap-hdpi/ic_launcher.png"
+    },
+    {
+        "merged": "D:\\Gradle\\daemon\\8.4\\com.vireon.ai.app-merged_res-33:\\drawable_ic_launcher_background.xml.flat",
+        "source": "D:\\Gradle\\daemon\\8.4\\com.vireon.ai.app-main-35:\\drawable\\ic_launcher_background.xml"
+    },
+    {
+        "merged": "com.vireon.ai.app-merged_res-33:/mipmap-mdpi_ic_launcher.png.flat",
+        "source": "com.vireon.ai.app-main-35:/mipmap-mdpi/ic_launcher.png"
+    },
+    {
+        "merged": "com.vireon.ai.app-merged_res-33:/mipmap-xxxhdpi_ic_launcher_round.png.flat",
+        "source": "com.vireon.ai.app-main-35:/mipmap-xxxhdpi/ic_launcher_round.png"
     },
     {
         "merged": "com.vireon.ai.app-merged_res-33:/drawable_ic_launcher_foreground.xml.flat",
         "source": "com.vireon.ai.app-main-35:/drawable/ic_launcher_foreground.xml"
     },
     {
-        "merged": "com.vireon.ai.app-merged_res-33:/mipmap-anydpi-v26_ic_launcher_round.xml.flat",
-        "source": "com.vireon.ai.app-main-35:/mipmap-anydpi-v26/ic_launcher_round.xml"
+        "merged": "D:\\Gradle\\daemon\\8.4\\com.vireon.ai.app-merged_res-33:\\drawable_ic_offline.xml.flat",
+        "source": "D:\\Gradle\\daemon\\8.4\\com.vireon.ai.app-main-35:\\drawable\\ic_offline.xml"
     },
     {
-        "merged": "com.vireon.ai.app-merged_res-33:/xml_file_paths.xml.flat",
-        "source": "com.vireon.ai.app-main-35:/xml/file_paths.xml"
+        "merged": "com.vireon.ai.app-merged_res-33:/mipmap-xxxhdpi_ic_launcher.png.flat",
+        "source": "com.vireon.ai.app-main-35:/mipmap-xxxhdpi/ic_launcher.png"
     },
     {
-        "merged": "com.vireon.ai.app-merged_res-33:/layout_activity_main.xml.flat",
-        "source": "com.vireon.ai.app-main-35:/layout/activity_main.xml"
-    },
-    {
-        "merged": "com.vireon.ai.app-merged_res-33:/mipmap-anydpi-v26_ic_launcher.xml.flat",
-        "source": "com.vireon.ai.app-main-35:/mipmap-anydpi-v26/ic_launcher.xml"
-    },
-    {
-        "merged": "com.vireon.ai.app-merged_res-33:/drawable_ic_offline.xml.flat",
-        "source": "com.vireon.ai.app-main-35:/drawable/ic_offline.xml"
+        "merged": "com.vireon.ai.app-merged_res-33:/mipmap-hdpi_ic_launcher_round.png.flat",
+        "source": "com.vireon.ai.app-main-35:/mipmap-hdpi/ic_launcher_round.png"
     }
 ]

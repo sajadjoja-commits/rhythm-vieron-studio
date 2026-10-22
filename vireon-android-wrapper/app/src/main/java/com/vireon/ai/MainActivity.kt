@@ -1,10 +1,14 @@
 package com.vireon.ai
 
+import android.app.DownloadManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
 import android.view.View
 import android.webkit.CookieManager
+import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
@@ -12,6 +16,7 @@ import android.webkit.WebView
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -67,7 +72,7 @@ class MainActivity : AppCompatActivity() {
                 webView.reload()
             } else {
                 swipeRefreshLayout.isRefreshing = false
-                showError("No internet connection")
+                showError()
             }
         }
 
@@ -76,7 +81,7 @@ class MainActivity : AppCompatActivity() {
                 hideError()
                 loadMainUrl()
             } else {
-                showError("No internet connection")
+                showError()
             }
         }
     }
@@ -91,13 +96,55 @@ class MainActivity : AppCompatActivity() {
         settings.mediaPlaybackRequiresUserGesture = false
         settings.useWideViewPort = true
         settings.loadWithOverviewMode = true
-        settings.cacheMode = WebSettings.LOAD_DEFAULT
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+
+        // Cache strategy for offline support
+        if (NetworkUtils.isNetworkAvailable(this)) {
+            settings.cacheMode = WebSettings.LOAD_DEFAULT
+        } else {
+            settings.cacheMode = WebSettings.LOAD_CACHE_ELSE_NETWORK
+        }
 
         // Enable Cookies & Session management
         val cookieManager = CookieManager.getInstance()
         cookieManager.setAcceptCookie(true)
         cookieManager.setAcceptThirdPartyCookies(webView, true)
+
+        // Register Native JavaScript Bridge for File Exports & Blob Downloads
+        webView.addJavascriptInterface(
+            VireonDownloadBridge(this) { webView },
+            "VireonNative"
+        )
+
+        // Native Download Listener for HTTP / HTTPS files
+        webView.setDownloadListener { url, userAgent, contentDisposition, mimetype, contentLength ->
+            if (url.startsWith("blob:") || url.startsWith("data:")) {
+                // Intercepted via JS Bridge
+                return@setDownloadListener
+            }
+
+            try {
+                val fileName = URLUtil.guessFileName(url, contentDisposition, mimetype)
+                val request = DownloadManager.Request(Uri.parse(url)).apply {
+                    setMimeType(mimetype)
+                    addRequestHeader("User-Agent", userAgent)
+                    addRequestHeader("Cookie", CookieManager.getInstance().getCookie(url))
+                    setTitle(fileName)
+                    setDescription("جارٍ تنزيل الملف...")
+                    setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    setDestinationInExternalPublicDir(
+                        Environment.DIRECTORY_DOWNLOADS,
+                        "VireonAI/$fileName"
+                    )
+                }
+                val dm = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                dm.enqueue(request)
+                Toast.makeText(this, "بدء تنزيل الملف...", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                e.printStackTrace()
+                Toast.makeText(this, "فشل بدء التنزيل: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
 
         webView.webViewClient = VireonWebViewClient(
             context = this,
@@ -110,7 +157,7 @@ class MainActivity : AppCompatActivity() {
             },
             onErrorCallback = { _ ->
                 if (!NetworkUtils.isNetworkAvailable(this)) {
-                    showError("No internet connection")
+                    showError()
                 }
             }
         )
@@ -161,13 +208,16 @@ class MainActivity : AppCompatActivity() {
             hideError()
             webView.loadUrl(MAIN_URL)
         } else {
-            showError("No internet connection")
+            // Try loading cached web pages first when offline
+            webView.loadUrl(MAIN_URL)
         }
     }
 
-    private fun showError(message: String) {
-        webView.visibility = View.GONE
-        errorView.visibility = View.VISIBLE
+    private fun showError() {
+        if (webView.url.isNullOrEmpty() || webView.url == "about:blank") {
+            webView.visibility = View.GONE
+            errorView.visibility = View.VISIBLE
+        }
         swipeRefreshLayout.isRefreshing = false
         progressBar.visibility = View.GONE
     }
