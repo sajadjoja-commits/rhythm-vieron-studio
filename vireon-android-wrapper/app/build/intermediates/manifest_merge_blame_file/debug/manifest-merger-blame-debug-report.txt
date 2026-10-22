@@ -83,134 +83,135 @@
 46-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:23:9-54
 47        android:supportsRtl="true"
 47-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:24:9-35
-48        android:theme="@style/Theme.VireonAI"
-48-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:25:9-46
-49        android:usesCleartextTraffic="true" >
-49-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:27:9-44
-50        <activity
-50-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:29:9-49:20
-51            android:name="com.vireon.ai.MainActivity"
-51-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:30:13-41
-52            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode|density"
-52-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:32:13-102
-53            android:exported="true"
-53-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:31:13-36
-54            android:launchMode="singleTask"
-54-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:33:13-44
-55            android:windowSoftInputMode="adjustResize" >
-55-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:34:13-55
-56            <intent-filter>
-56-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:36:13-39:29
-57                <action android:name="android.intent.action.MAIN" />
-57-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:37:17-69
-57-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:37:25-66
-58
-59                <category android:name="android.intent.category.LAUNCHER" />
-59-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:38:17-77
-59-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:38:27-74
-60            </intent-filter>
-61
-62            <!-- Custom Deep Link scheme (vireon://) -->
-63            <intent-filter>
-63-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:42:13-47:29
-64                <action android:name="android.intent.action.VIEW" />
-64-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:43:17-69
-64-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:43:25-66
-65
-66                <category android:name="android.intent.category.DEFAULT" />
-66-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:44:17-76
-66-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:44:27-73
-67                <category android:name="android.intent.category.BROWSABLE" />
-67-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:45:17-78
-67-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:45:27-75
-68
-69                <data android:scheme="vireon" />
-69-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:46:17-49
-69-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:46:23-46
-70            </intent-filter>
-71        </activity>
-72
-73        <provider
-74            android:name="androidx.core.content.FileProvider"
-74-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:52:13-62
-75            android:authorities="com.vireon.ai.fileprovider"
-75-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:53:13-64
-76            android:exported="false"
-76-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:54:13-37
-77            android:grantUriPermissions="true" >
-77-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:55:13-47
-78            <meta-data
-78-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:56:13-58:54
-79                android:name="android.support.FILE_PROVIDER_PATHS"
-79-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:57:17-67
-80                android:resource="@xml/file_paths" />
-80-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:58:17-51
-81        </provider>
-82        <provider
-82-->[androidx.emoji2:emoji2:1.2.0] D:\Gradle\caches\transforms-3\2497a04ce439ba5192d483e53a542533\transformed\emoji2-1.2.0\AndroidManifest.xml:24:9-32:20
-83            android:name="androidx.startup.InitializationProvider"
-83-->[androidx.emoji2:emoji2:1.2.0] D:\Gradle\caches\transforms-3\2497a04ce439ba5192d483e53a542533\transformed\emoji2-1.2.0\AndroidManifest.xml:25:13-67
-84            android:authorities="com.vireon.ai.androidx-startup"
-84-->[androidx.emoji2:emoji2:1.2.0] D:\Gradle\caches\transforms-3\2497a04ce439ba5192d483e53a542533\transformed\emoji2-1.2.0\AndroidManifest.xml:26:13-68
-85            android:exported="false" >
-85-->[androidx.emoji2:emoji2:1.2.0] D:\Gradle\caches\transforms-3\2497a04ce439ba5192d483e53a542533\transformed\emoji2-1.2.0\AndroidManifest.xml:27:13-37
-86            <meta-data
-86-->[androidx.emoji2:emoji2:1.2.0] D:\Gradle\caches\transforms-3\2497a04ce439ba5192d483e53a542533\transformed\emoji2-1.2.0\AndroidManifest.xml:29:13-31:52
-87                android:name="androidx.emoji2.text.EmojiCompatInitializer"
-87-->[androidx.emoji2:emoji2:1.2.0] D:\Gradle\caches\transforms-3\2497a04ce439ba5192d483e53a542533\transformed\emoji2-1.2.0\AndroidManifest.xml:30:17-75
-88                android:value="androidx.startup" />
-88-->[androidx.emoji2:emoji2:1.2.0] D:\Gradle\caches\transforms-3\2497a04ce439ba5192d483e53a542533\transformed\emoji2-1.2.0\AndroidManifest.xml:31:17-49
-89            <meta-data
-89-->[androidx.lifecycle:lifecycle-process:2.6.1] D:\Gradle\caches\transforms-3\86ffc40331241160dd6ae3395fef3d53\transformed\lifecycle-process-2.6.1\AndroidManifest.xml:29:13-31:52
-90                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
-90-->[androidx.lifecycle:lifecycle-process:2.6.1] D:\Gradle\caches\transforms-3\86ffc40331241160dd6ae3395fef3d53\transformed\lifecycle-process-2.6.1\AndroidManifest.xml:30:17-78
-91                android:value="androidx.startup" />
-91-->[androidx.lifecycle:lifecycle-process:2.6.1] D:\Gradle\caches\transforms-3\86ffc40331241160dd6ae3395fef3d53\transformed\lifecycle-process-2.6.1\AndroidManifest.xml:31:17-49
-92            <meta-data
-92-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:29:13-31:52
-93                android:name="androidx.profileinstaller.ProfileInstallerInitializer"
-93-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:30:17-85
-94                android:value="androidx.startup" />
-94-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:31:17-49
-95        </provider>
-96
-97        <receiver
-97-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:34:9-52:20
-98            android:name="androidx.profileinstaller.ProfileInstallReceiver"
-98-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:35:13-76
-99            android:directBootAware="false"
-99-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:36:13-44
-100            android:enabled="true"
-100-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:37:13-35
-101            android:exported="true"
-101-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:38:13-36
-102            android:permission="android.permission.DUMP" >
-102-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:39:13-57
-103            <intent-filter>
-103-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:40:13-42:29
-104                <action android:name="androidx.profileinstaller.action.INSTALL_PROFILE" />
-104-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:41:17-91
-104-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:41:25-88
-105            </intent-filter>
-106            <intent-filter>
-106-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:43:13-45:29
-107                <action android:name="androidx.profileinstaller.action.SKIP_FILE" />
-107-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:44:17-85
-107-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:44:25-82
-108            </intent-filter>
-109            <intent-filter>
-109-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:46:13-48:29
-110                <action android:name="androidx.profileinstaller.action.SAVE_PROFILE" />
-110-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:47:17-88
-110-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:47:25-85
-111            </intent-filter>
-112            <intent-filter>
-112-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:49:13-51:29
-113                <action android:name="androidx.profileinstaller.action.BENCHMARK_OPERATION" />
-113-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:50:17-95
-113-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:50:25-92
-114            </intent-filter>
-115        </receiver>
-116    </application>
-117
-118</manifest>
+48        android:testOnly="true"
+49        android:theme="@style/Theme.VireonAI"
+49-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:25:9-46
+50        android:usesCleartextTraffic="true" >
+50-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:27:9-44
+51        <activity
+51-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:29:9-49:20
+52            android:name="com.vireon.ai.MainActivity"
+52-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:30:13-41
+53            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode|density"
+53-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:32:13-102
+54            android:exported="true"
+54-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:31:13-36
+55            android:launchMode="singleTask"
+55-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:33:13-44
+56            android:windowSoftInputMode="adjustResize" >
+56-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:34:13-55
+57            <intent-filter>
+57-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:36:13-39:29
+58                <action android:name="android.intent.action.MAIN" />
+58-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:37:17-69
+58-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:37:25-66
+59
+60                <category android:name="android.intent.category.LAUNCHER" />
+60-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:38:17-77
+60-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:38:27-74
+61            </intent-filter>
+62
+63            <!-- Custom Deep Link scheme (vireon://) -->
+64            <intent-filter>
+64-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:42:13-47:29
+65                <action android:name="android.intent.action.VIEW" />
+65-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:43:17-69
+65-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:43:25-66
+66
+67                <category android:name="android.intent.category.DEFAULT" />
+67-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:44:17-76
+67-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:44:27-73
+68                <category android:name="android.intent.category.BROWSABLE" />
+68-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:45:17-78
+68-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:45:27-75
+69
+70                <data android:scheme="vireon" />
+70-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:46:17-49
+70-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:46:23-46
+71            </intent-filter>
+72        </activity>
+73
+74        <provider
+75            android:name="androidx.core.content.FileProvider"
+75-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:52:13-62
+76            android:authorities="com.vireon.ai.fileprovider"
+76-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:53:13-64
+77            android:exported="false"
+77-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:54:13-37
+78            android:grantUriPermissions="true" >
+78-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:55:13-47
+79            <meta-data
+79-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:56:13-58:54
+80                android:name="android.support.FILE_PROVIDER_PATHS"
+80-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:57:17-67
+81                android:resource="@xml/file_paths" />
+81-->D:\rhythm-vieron\vireon-android-wrapper\app\src\main\AndroidManifest.xml:58:17-51
+82        </provider>
+83        <provider
+83-->[androidx.emoji2:emoji2:1.2.0] D:\Gradle\caches\transforms-3\2497a04ce439ba5192d483e53a542533\transformed\emoji2-1.2.0\AndroidManifest.xml:24:9-32:20
+84            android:name="androidx.startup.InitializationProvider"
+84-->[androidx.emoji2:emoji2:1.2.0] D:\Gradle\caches\transforms-3\2497a04ce439ba5192d483e53a542533\transformed\emoji2-1.2.0\AndroidManifest.xml:25:13-67
+85            android:authorities="com.vireon.ai.androidx-startup"
+85-->[androidx.emoji2:emoji2:1.2.0] D:\Gradle\caches\transforms-3\2497a04ce439ba5192d483e53a542533\transformed\emoji2-1.2.0\AndroidManifest.xml:26:13-68
+86            android:exported="false" >
+86-->[androidx.emoji2:emoji2:1.2.0] D:\Gradle\caches\transforms-3\2497a04ce439ba5192d483e53a542533\transformed\emoji2-1.2.0\AndroidManifest.xml:27:13-37
+87            <meta-data
+87-->[androidx.emoji2:emoji2:1.2.0] D:\Gradle\caches\transforms-3\2497a04ce439ba5192d483e53a542533\transformed\emoji2-1.2.0\AndroidManifest.xml:29:13-31:52
+88                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+88-->[androidx.emoji2:emoji2:1.2.0] D:\Gradle\caches\transforms-3\2497a04ce439ba5192d483e53a542533\transformed\emoji2-1.2.0\AndroidManifest.xml:30:17-75
+89                android:value="androidx.startup" />
+89-->[androidx.emoji2:emoji2:1.2.0] D:\Gradle\caches\transforms-3\2497a04ce439ba5192d483e53a542533\transformed\emoji2-1.2.0\AndroidManifest.xml:31:17-49
+90            <meta-data
+90-->[androidx.lifecycle:lifecycle-process:2.6.1] D:\Gradle\caches\transforms-3\86ffc40331241160dd6ae3395fef3d53\transformed\lifecycle-process-2.6.1\AndroidManifest.xml:29:13-31:52
+91                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
+91-->[androidx.lifecycle:lifecycle-process:2.6.1] D:\Gradle\caches\transforms-3\86ffc40331241160dd6ae3395fef3d53\transformed\lifecycle-process-2.6.1\AndroidManifest.xml:30:17-78
+92                android:value="androidx.startup" />
+92-->[androidx.lifecycle:lifecycle-process:2.6.1] D:\Gradle\caches\transforms-3\86ffc40331241160dd6ae3395fef3d53\transformed\lifecycle-process-2.6.1\AndroidManifest.xml:31:17-49
+93            <meta-data
+93-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:29:13-31:52
+94                android:name="androidx.profileinstaller.ProfileInstallerInitializer"
+94-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:30:17-85
+95                android:value="androidx.startup" />
+95-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:31:17-49
+96        </provider>
+97
+98        <receiver
+98-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:34:9-52:20
+99            android:name="androidx.profileinstaller.ProfileInstallReceiver"
+99-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:35:13-76
+100            android:directBootAware="false"
+100-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:36:13-44
+101            android:enabled="true"
+101-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:37:13-35
+102            android:exported="true"
+102-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:38:13-36
+103            android:permission="android.permission.DUMP" >
+103-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:39:13-57
+104            <intent-filter>
+104-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:40:13-42:29
+105                <action android:name="androidx.profileinstaller.action.INSTALL_PROFILE" />
+105-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:41:17-91
+105-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:41:25-88
+106            </intent-filter>
+107            <intent-filter>
+107-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:43:13-45:29
+108                <action android:name="androidx.profileinstaller.action.SKIP_FILE" />
+108-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:44:17-85
+108-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:44:25-82
+109            </intent-filter>
+110            <intent-filter>
+110-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:46:13-48:29
+111                <action android:name="androidx.profileinstaller.action.SAVE_PROFILE" />
+111-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:47:17-88
+111-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:47:25-85
+112            </intent-filter>
+113            <intent-filter>
+113-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:49:13-51:29
+114                <action android:name="androidx.profileinstaller.action.BENCHMARK_OPERATION" />
+114-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:50:17-95
+114-->[androidx.profileinstaller:profileinstaller:1.3.0] D:\Gradle\caches\transforms-3\5f7ce29a25973535d221a2c1da52466d\transformed\profileinstaller-1.3.0\AndroidManifest.xml:50:25-92
+115            </intent-filter>
+116        </receiver>
+117    </application>
+118
+119</manifest>
