@@ -117,7 +117,7 @@ class MainActivity : AppCompatActivity() {
         )
 
         // Native Download Listener for HTTP / HTTPS files
-        webView.setDownloadListener { url, userAgent, contentDisposition, mimetype, contentLength ->
+        webView.setDownloadListener { url, userAgent, contentDisposition, mimetype, _ ->
             if (url.startsWith("blob:") || url.startsWith("data:")) {
                 // Intercepted via JS Bridge
                 return@setDownloadListener
