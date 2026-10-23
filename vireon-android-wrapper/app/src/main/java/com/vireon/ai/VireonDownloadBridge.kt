@@ -120,36 +120,34 @@ class VireonDownloadBridge(
         rawFileName: String
     ): Pair<String, String> {
         var mime = rawMimeType.trim().lowercase()
-        // Sanitize raw filename, preserving Arabic / Unicode characters, digits, spaces, dots, underscores
         var name = rawFileName.trim().replace(Regex("[\\\\/:*?\"<>|\\x00-\\x1F]"), "_")
         if (name.isEmpty() || name == "_") {
             name = "vireon_export_${System.currentTimeMillis()}"
         }
 
-        // Magic byte inspection for guaranteed format detection
+        // Magic byte inspection
         val magicExt = detectMagicBytesExtension(bytes)
         var ext = magicExt ?: getExtensionFromFileName(name) ?: getExtensionFromMime(mime)
 
         if (ext == null) {
-            ext = if (mime.startsWith("video/")) ".mp4" else if (mime.startsWith("image/")) ".png" else ".bin"
+            // Default to video/mp4 if unknown binary/export
+            ext = if (mime.startsWith("image/")) ".png" else ".mp4"
         }
 
-        // Correct MIME type based on extension if generic
-        if (mime.isEmpty() || mime == "application/octet-stream" || mime == "binary/octet-stream" || mime == "*/*") {
-            mime = when (ext) {
-                ".mp4" -> "video/mp4"
-                ".webm" -> "video/webm"
-                ".mkv" -> "video/x-matroska"
-                ".mov" -> "video/quicktime"
-                ".png" -> "image/png"
-                ".jpg", ".jpeg" -> "image/jpeg"
-                ".webp" -> "image/webp"
-                ".gif" -> "image/gif"
-                ".mp3" -> "audio/mpeg"
-                ".wav" -> "audio/wav"
-                ".pdf" -> "application/pdf"
-                else -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext.removePrefix(".")) ?: "application/octet-stream"
-            }
+        // Ensure correct video/image MIME type matching extension
+        mime = when (ext) {
+            ".mp4" -> "video/mp4"
+            ".webm" -> "video/webm"
+            ".mkv" -> "video/x-matroska"
+            ".mov" -> "video/quicktime"
+            ".png" -> "image/png"
+            ".jpg", ".jpeg" -> "image/jpeg"
+            ".webp" -> "image/webp"
+            ".gif" -> "image/gif"
+            ".mp3" -> "audio/mpeg"
+            ".wav" -> "audio/wav"
+            ".pdf" -> "application/pdf"
+            else -> if (mime.isEmpty() || mime == "application/octet-stream") "video/mp4" else mime
         }
 
         if (!name.lowercase().endsWith(ext)) {
@@ -232,25 +230,29 @@ class VireonDownloadBridge(
 
     private fun saveViaMediaStore(bytes: ByteArray, mimeType: String, fileName: String): Pair<Boolean, String> {
         val resolver = context.contentResolver
+        val isVideo = mimeType.startsWith("video/")
+        val isImage = mimeType.startsWith("image/")
+        val isAudio = mimeType.startsWith("audio/")
+
+        val relativeFolder = when {
+            isVideo -> Environment.DIRECTORY_MOVIES + "/Vireon"
+            isImage -> Environment.DIRECTORY_PICTURES + "/Vireon"
+            isAudio -> Environment.DIRECTORY_MUSIC + "/Vireon"
+            else -> Environment.DIRECTORY_DOWNLOADS + "/Vireon"
+        }
+
+        val collectionUri: Uri = when {
+            isVideo -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+            isImage -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            isAudio -> MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+            else -> MediaStore.Downloads.EXTERNAL_CONTENT_URI
+        }
+
         val contentValues = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
             put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
             put(MediaStore.MediaColumns.IS_PENDING, 1)
-
-            val relativeFolder = when {
-                mimeType.startsWith("video/") -> Environment.DIRECTORY_MOVIES + "/Vireon"
-                mimeType.startsWith("image/") -> Environment.DIRECTORY_PICTURES + "/Vireon"
-                mimeType.startsWith("audio/") -> Environment.DIRECTORY_MUSIC + "/Vireon"
-                else -> Environment.DIRECTORY_DOWNLOADS + "/Vireon"
-            }
             put(MediaStore.MediaColumns.RELATIVE_PATH, relativeFolder)
-        }
-
-        val collectionUri: Uri = when {
-            mimeType.startsWith("video/") -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-            mimeType.startsWith("image/") -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
-            mimeType.startsWith("audio/") -> MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-            else -> MediaStore.Downloads.EXTERNAL_CONTENT_URI
         }
 
         val uri = resolver.insert(collectionUri, contentValues) ?: return Pair(false, "")
