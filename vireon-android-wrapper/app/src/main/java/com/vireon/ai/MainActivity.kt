@@ -97,6 +97,15 @@ class MainActivity : AppCompatActivity() {
         settings.useWideViewPort = true
         settings.loadWithOverviewMode = true
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+        settings.javaScriptCanOpenWindowsAutomatically = true
+        settings.setSupportMultipleWindows(false)
+
+        // Custom User-Agent to allow Google Sign-In inside WebView
+        val defaultUserAgent = settings.userAgentString
+        val customUserAgent = defaultUserAgent
+            .replace("; wv", "")
+            .replace("Version/4.0 ", "")
+        settings.userAgentString = customUserAgent
 
         // Cache strategy for offline support
         if (NetworkUtils.isNetworkAvailable(this)) {

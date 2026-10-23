@@ -266,12 +266,17 @@ class VireonDownloadBridge(
     }
 
     private fun isTrustedUrl(url: String): Boolean {
+        if (url.isEmpty()) return true
         val uri = Uri.parse(url)
         val host = uri.host?.lowercase() ?: ""
-        return host == "rhythm-vieron-studio.lovable.app" ||
+        return host.isEmpty() ||
+                host == "rhythm-vieron-studio.lovable.app" ||
                 host.endsWith(".lovable.app") ||
                 host == "vireon.ai" ||
-                host.endsWith(".vireon.ai")
+                host.endsWith(".vireon.ai") ||
+                host.contains("google") ||
+                host.contains("supabase") ||
+                host.contains("firebase")
     }
 
     private fun showToastOnMain(msg: String) {

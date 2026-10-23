@@ -20,8 +20,26 @@ class VireonWebViewClient(
     private val allowedHosts = listOf(
         "rhythm-vieron-studio.lovable.app",
         "lovable.app",
-        "vireon.ai"
+        "vireon.ai",
+        "google.com",
+        "accounts.google.com",
+        "apis.google.com",
+        "oauth2.googleapis.com",
+        "gstatic.com",
+        "ssl.gstatic.com",
+        "supabase.co",
+        "firebaseapp.com",
+        "github.com",
+        "appleid.apple.com"
     )
+
+    private fun isAllowedHost(host: String): Boolean {
+        if (host.isEmpty()) return false
+        return allowedHosts.any { host == it || host.endsWith(".$it") } ||
+                host.contains("google") ||
+                host.contains("supabase") ||
+                host.contains("firebase")
+    }
 
     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
         val uri = request?.url ?: return false
@@ -38,7 +56,7 @@ class VireonWebViewClient(
             return true
         }
 
-        if (allowedHosts.any { host == it || host.endsWith(".$it") }) {
+        if (isAllowedHost(host)) {
             return false
         }
 
@@ -86,7 +104,7 @@ class VireonWebViewClient(
     private fun isTrustedUrl(url: String): Boolean {
         val uri = Uri.parse(url)
         val host = uri.host?.lowercase() ?: ""
-        return allowedHosts.any { host == it || host.endsWith(".$it") }
+        return isAllowedHost(host)
     }
 
     private fun injectDownloadInterceptorScript(webView: WebView?) {
