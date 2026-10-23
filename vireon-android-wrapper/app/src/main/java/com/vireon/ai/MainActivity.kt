@@ -116,10 +116,40 @@ class MainActivity : AppCompatActivity() {
             "VireonNative"
         )
 
-        // Native Download Listener for HTTP / HTTPS files
+        // Native Download Listener for HTTP / HTTPS / Blob files
         webView.setDownloadListener { url, userAgent, contentDisposition, mimetype, _ ->
             if (url.startsWith("blob:") || url.startsWith("data:")) {
-                // Intercepted via JS Bridge
+                val fileName = URLUtil.guessFileName(url, contentDisposition, mimetype).ifEmpty { "vireon_export" }
+                val safeUrl = url.replace("'", "\\'")
+                val safeMime = mimetype.replace("'", "\\'")
+                val safeName = fileName.replace("'", "\\'")
+                val js = """
+                    (function() {
+                        var href = '$safeUrl';
+                        var mime = '$safeMime';
+                        var name = '$safeName';
+                        if (href.startsWith('blob:')) {
+                            fetch(href)
+                                .then(function(r) { return r.blob(); })
+                                .then(function(blob) {
+                                    var reader = new FileReader();
+                                    reader.onloadend = function() {
+                                        if (window.VireonNative && window.VireonNative.saveBlobData) {
+                                            window.VireonNative.saveBlobData(reader.result, blob.type || mime || '', name);
+                                        }
+                                    };
+                                    reader.readAsDataURL(blob);
+                                })
+                                .catch(function(err) { console.error('Fetch blob error:', err); });
+                        } else if (href.startsWith('data:')) {
+                            var parts = href.split(',');
+                            if (window.VireonNative && window.VireonNative.saveBlobData) {
+                                window.VireonNative.saveBlobData(parts[1], mime || '', name);
+                            }
+                        }
+                    })();
+                """.trimIndent()
+                webView.evaluateJavascript(js, null)
                 return@setDownloadListener
             }
 
