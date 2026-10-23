@@ -48,11 +48,13 @@ class VireonDownloadBridge(
                 }
 
                 val safeFileName = sanitizeFileName(fileName, mimeType)
-                val success = saveToFileSystem(fileBytes, mimeType, safeFileName)
+                val isVideoOrImage = mimeType.startsWith("video/") || mimeType.startsWith("image/")
+                val (success, _) = saveToFileSystem(fileBytes, mimeType, safeFileName)
 
                 withContext(Dispatchers.Main) {
                     if (success) {
-                        showToastOnMain("تم حفظ الملف بنجاح: $safeFileName")
+                        val locationMsg = if (isVideoOrImage) "في المعرض (Gallery)" else "في التنزيلات"
+                        showToastOnMain("تم حفظ الملف بنجاح $locationMsg: $safeFileName")
                     } else {
                         showToastOnMain("فشل حفظ الملف على الجهاز")
                     }
@@ -66,15 +68,15 @@ class VireonDownloadBridge(
         }
     }
 
-    private fun saveToFileSystem(bytes: ByteArray, mimeType: String, fileName: String): Boolean {
+    private fun saveToFileSystem(bytes: ByteArray, mimeType: String, fileName: String): Pair<Boolean, String> {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             saveViaMediaStore(bytes, mimeType, fileName)
         } else {
-            saveViaLegacyStorage(bytes, fileName)
+            saveViaLegacyStorage(bytes, mimeType, fileName)
         }
     }
 
-    private fun saveViaMediaStore(bytes: ByteArray, mimeType: String, fileName: String): Boolean {
+    private fun saveViaMediaStore(bytes: ByteArray, mimeType: String, fileName: String): Pair<Boolean, String> {
         val resolver = context.contentResolver
         val contentValues = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
@@ -97,7 +99,7 @@ class VireonDownloadBridge(
             else -> MediaStore.Downloads.EXTERNAL_CONTENT_URI
         }
 
-        val uri = resolver.insert(collectionUri, contentValues) ?: return false
+        val uri = resolver.insert(collectionUri, contentValues) ?: return Pair(false, "")
 
         return try {
             resolver.openOutputStream(uri)?.use { outputStream ->
@@ -107,18 +109,25 @@ class VireonDownloadBridge(
             contentValues.clear()
             contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
             resolver.update(uri, contentValues, null, null)
-            true
+
+            Pair(true, uri.toString())
         } catch (e: Exception) {
             e.printStackTrace()
             resolver.delete(uri, null, null)
-            false
+            Pair(false, "")
         }
     }
 
-    private fun saveViaLegacyStorage(bytes: ByteArray, fileName: String): Boolean {
+    private fun saveViaLegacyStorage(bytes: ByteArray, mimeType: String, fileName: String): Pair<Boolean, String> {
         return try {
-            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            val vireonDir = File(downloadsDir, "VireonAI")
+            val targetDirName = when {
+                mimeType.startsWith("video/") -> Environment.DIRECTORY_MOVIES
+                mimeType.startsWith("image/") -> Environment.DIRECTORY_PICTURES
+                mimeType.startsWith("audio/") -> Environment.DIRECTORY_MUSIC
+                else -> Environment.DIRECTORY_DOWNLOADS
+            }
+            val parentDir = Environment.getExternalStoragePublicDirectory(targetDirName)
+            val vireonDir = File(parentDir, "VireonAI")
             if (!vireonDir.exists()) vireonDir.mkdirs()
 
             val targetFile = File(vireonDir, fileName)
@@ -129,13 +138,13 @@ class VireonDownloadBridge(
             MediaScannerConnection.scanFile(
                 context,
                 arrayOf(targetFile.absolutePath),
-                null,
+                arrayOf(mimeType),
                 null
             )
-            true
+            Pair(true, targetFile.absolutePath)
         } catch (e: Exception) {
             e.printStackTrace()
-            false
+            Pair(false, "")
         }
     }
 
