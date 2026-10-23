@@ -17,7 +17,7 @@
     "@emotion/is-prop-valid": "^1.3.1",
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
-    "@capacitor/core": "^7.0.0",
+    "@capacitor/core": "^8.4.2",
     "@fontsource/plus-jakarta-sans": "^5.2.8",
     "@fontsource/syne": "^5.2.7",
     "@hookform/resolvers": "^3.10.0",
