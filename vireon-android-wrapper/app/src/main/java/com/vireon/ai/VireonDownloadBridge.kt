@@ -1,5 +1,6 @@
 package com.vireon.ai
 
+import android.app.DownloadManager
 import android.content.ContentValues
 import android.content.Context
 import android.media.MediaScannerConnection
@@ -10,6 +11,7 @@ import android.provider.MediaStore
 import android.util.Base64
 import android.webkit.JavascriptInterface
 import android.webkit.MimeTypeMap
+import android.webkit.URLUtil
 import android.webkit.WebView
 import android.widget.Toast
 import kotlinx.coroutines.CoroutineScope
@@ -64,6 +66,49 @@ class VireonDownloadBridge(
                 e.printStackTrace()
                 withContext(Dispatchers.Main) {
                     showToastOnMain("خطأ أثناء التصدير: ${e.message}")
+                }
+            }
+        }
+    }
+
+    @JavascriptInterface
+    fun downloadUrl(url: String, mimeType: String, fileName: String) {
+        val currentUrl = webViewProvider()?.url ?: ""
+        if (!isTrustedUrl(currentUrl)) {
+            showToastOnMain("Export blocked: Untrusted domain")
+            return
+        }
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                if (url.startsWith("data:")) {
+                    val base64Data = url.substringAfter(",")
+                    saveBlobData(base64Data, mimeType, fileName)
+                    return@launch
+                }
+
+                val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                val uri = Uri.parse(url)
+                val safeFileName = fileName.ifEmpty { URLUtil.guessFileName(url, null, mimeType) }
+
+                val request = DownloadManager.Request(uri).apply {
+                    setMimeType(mimeType.ifEmpty { "video/mp4" })
+                    setTitle(safeFileName)
+                    setDescription("جارٍ تنزيل الملف...")
+                    setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    setDestinationInExternalPublicDir(
+                        Environment.DIRECTORY_MOVIES,
+                        "Vireon/$safeFileName"
+                    )
+                }
+                downloadManager.enqueue(request)
+                withContext(Dispatchers.Main) {
+                    showToastOnMain("بدء تنزيل الملف: $safeFileName")
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    showToastOnMain("فشل بدء التنزيل: ${e.message}")
                 }
             }
         }

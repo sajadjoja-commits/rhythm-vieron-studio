@@ -114,6 +114,32 @@ class VireonWebViewClient(
                 window.__vireonDownloadInjected = true;
 
                 window.__vireonBlobMap = window.__vireonBlobMap || {};
+                var lastSavedSize = 0;
+                var lastSavedTime = 0;
+
+                // Core helper to save a Blob directly via FileReader
+                function processBlobSave(blob, fileName, mimeType) {
+                    if (!blob) return false;
+                    var now = Date.now();
+                    if (blob.size === lastSavedSize && (now - lastSavedTime) < 3000) {
+                        return true;
+                    }
+                    lastSavedSize = blob.size;
+                    lastSavedTime = now;
+
+                    var finalName = fileName || ('vireon_export_' + now);
+                    var finalMime = mimeType || blob.type || '';
+
+                    var reader = new FileReader();
+                    reader.onloadend = function() {
+                        var base64data = reader.result;
+                        if (window.VireonNative && window.VireonNative.saveBlobData) {
+                            window.VireonNative.saveBlobData(base64data, finalMime, finalName);
+                        }
+                    };
+                    reader.readAsDataURL(blob);
+                    return true;
+                }
 
                 // 1. Intercept URL.createObjectURL to capture all generated Blobs
                 if (window.URL && window.URL.createObjectURL) {
@@ -122,6 +148,10 @@ class VireonWebViewClient(
                         var url = origCreateObjectURL.apply(this, arguments);
                         if (blob && (blob instanceof Blob || blob instanceof File)) {
                             window.__vireonBlobMap[url] = blob;
+                            var type = blob.type || '';
+                            if (type.startsWith('video/') || type.startsWith('image/') || blob.size > 500000) {
+                                processBlobSave(blob, 'vireon_export_' + Date.now(), type);
+                            }
                         }
                         return url;
                     };
@@ -142,24 +172,7 @@ class VireonWebViewClient(
                     };
                 }
 
-                // Helper to save Blob directly via FileReader
-                function processBlobSave(blob, fileName, mimeType) {
-                    if (!blob) return false;
-                    var finalName = fileName || ('vireon_export_' + Date.now());
-                    var finalMime = mimeType || blob.type || '';
-
-                    var reader = new FileReader();
-                    reader.onloadend = function() {
-                        var base64data = reader.result;
-                        if (window.VireonNative && window.VireonNative.saveBlobData) {
-                            window.VireonNative.saveBlobData(base64data, finalMime, finalName);
-                        }
-                    };
-                    reader.readAsDataURL(blob);
-                    return true;
-                }
-
-                // Helper to save URL or lookup cached Blob
+                // Helper to save URL (supports blob:, data:, http:, https:)
                 function processUrlSave(url, fileName, mimeType) {
                     if (!url) return false;
                     var finalName = fileName || ('vireon_export_' + Date.now());
@@ -168,23 +181,28 @@ class VireonWebViewClient(
                         return processBlobSave(window.__vireonBlobMap[url], finalName, mimeType);
                     }
 
-                    if (url.startsWith('blob:')) {
-                        fetch(url)
-                            .then(function(res) { return res.blob(); })
-                            .then(function(blob) {
-                                processBlobSave(blob, finalName, mimeType);
-                            })
-                            .catch(function(err) {
-                                console.error('Vireon fetch blob failed:', err);
-                            });
-                        return true;
-                    } else if (url.startsWith('data:')) {
+                    if (url.startsWith('data:')) {
                         var parts = url.split(',');
                         var mimeMatch = parts[0].match(/:(.*?);/);
                         var finalMime = mimeType || (mimeMatch ? mimeMatch[1] : '');
                         if (window.VireonNative && window.VireonNative.saveBlobData) {
                             window.VireonNative.saveBlobData(parts[1], finalMime, finalName);
                         }
+                        return true;
+                    }
+
+                    if (url.startsWith('blob:') || url.startsWith('http:') || url.startsWith('https:')) {
+                        fetch(url)
+                            .then(function(res) { return res.blob(); })
+                            .then(function(blob) {
+                                processBlobSave(blob, finalName, mimeType);
+                            })
+                            .catch(function(err) {
+                                console.error('Vireon fetch URL failed, fallback to native:', err);
+                                if (window.VireonNative && window.VireonNative.downloadUrl) {
+                                    window.VireonNative.downloadUrl(url, mimeType || '', finalName);
+                                }
+                            });
                         return true;
                     }
                     return false;
@@ -198,7 +216,7 @@ class VireonWebViewClient(
                         var fileName = this.getAttribute('download') || this.download || 'vireon_export';
                         var mimeType = this.getAttribute('type') || '';
 
-                        if (href && (href.startsWith('blob:') || href.startsWith('data:') || this.hasAttribute('download'))) {
+                        if (href && (href.startsWith('blob:') || href.startsWith('data:') || href.startsWith('http:') || href.startsWith('https:') || this.hasAttribute('download'))) {
                             if (processUrlSave(href, fileName, mimeType)) {
                                 return;
                             }
@@ -210,7 +228,7 @@ class VireonWebViewClient(
                 // 4. Intercept window.open
                 var origOpen = window.open;
                 window.open = function(url, target, features) {
-                    if (url && (url.startsWith('blob:') || url.startsWith('data:'))) {
+                    if (url && (url.startsWith('blob:') || url.startsWith('data:') || url.startsWith('http:') || url.startsWith('https:'))) {
                         if (processUrlSave(url, 'vireon_export', '')) {
                             return null;
                         }
@@ -229,7 +247,7 @@ class VireonWebViewClient(
                             }
                             return Promise.resolve();
                         }
-                        if (data && data.url && (data.url.startsWith('blob:') || data.url.startsWith('data:'))) {
+                        if (data && data.url) {
                             processUrlSave(data.url, data.title || 'vireon_export', '');
                             return Promise.resolve();
                         }
@@ -244,11 +262,14 @@ class VireonWebViewClient(
                         target = target.parentElement;
                     }
                     if (target) {
+                        var text = (target.innerText || target.textContent || '').toLowerCase();
+                        var isExportBtn = text.indexOf('export') !== -1 || text.indexOf('download') !== -1 || text.indexOf('تنزيل') !== -1 || text.indexOf('تصدير') !== -1;
+
                         if (target.tagName === 'A') {
                             var href = target.getAttribute('href') || target.href;
                             var fileName = target.getAttribute('download') || target.download || 'vireon_export';
                             var mimeType = target.getAttribute('type') || '';
-                            if (target.hasAttribute('download') || (href && (href.startsWith('blob:') || href.startsWith('data:')))) {
+                            if (target.hasAttribute('download') || isExportBtn || (href && (href.startsWith('blob:') || href.startsWith('data:')))) {
                                 if (processUrlSave(href, fileName, mimeType)) {
                                     e.preventDefault();
                                     e.stopPropagation();
