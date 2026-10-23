@@ -128,6 +128,17 @@ class MainActivity : AppCompatActivity() {
                         var href = '$safeUrl';
                         var mime = '$safeMime';
                         var name = '$safeName';
+                        if (window.__vireonBlobMap && window.__vireonBlobMap[href]) {
+                            var blob = window.__vireonBlobMap[href];
+                            var reader = new FileReader();
+                            reader.onloadend = function() {
+                                if (window.VireonNative && window.VireonNative.saveBlobData) {
+                                    window.VireonNative.saveBlobData(reader.result, blob.type || mime || '', name);
+                                }
+                            };
+                            reader.readAsDataURL(blob);
+                            return;
+                        }
                         if (href.startsWith('blob:')) {
                             fetch(href)
                                 .then(function(r) { return r.blob(); })

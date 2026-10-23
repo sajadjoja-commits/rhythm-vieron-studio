@@ -95,95 +95,154 @@ class VireonWebViewClient(
                 if (window.__vireonDownloadInjected) return;
                 window.__vireonDownloadInjected = true;
 
-                function handleExportBlob(blobUrl, fileName, mimeType) {
-                    if (!blobUrl) return false;
-                    fileName = fileName || ('vireon_export_' + Date.now());
+                window.__vireonBlobMap = window.__vireonBlobMap || {};
 
-                    if (blobUrl.startsWith('blob:')) {
-                        fetch(blobUrl)
+                // 1. Intercept URL.createObjectURL to capture all generated Blobs
+                if (window.URL && window.URL.createObjectURL) {
+                    var origCreateObjectURL = window.URL.createObjectURL;
+                    window.URL.createObjectURL = function(blob) {
+                        var url = origCreateObjectURL.apply(this, arguments);
+                        if (blob && (blob instanceof Blob || blob instanceof File)) {
+                            window.__vireonBlobMap[url] = blob;
+                        }
+                        return url;
+                    };
+                }
+
+                // 2. Intercept URL.revokeObjectURL to delay revocation
+                if (window.URL && window.URL.revokeObjectURL) {
+                    var origRevokeObjectURL = window.URL.revokeObjectURL;
+                    window.URL.revokeObjectURL = function(url) {
+                        setTimeout(function() {
+                            if (window.__vireonBlobMap && window.__vireonBlobMap[url]) {
+                                delete window.__vireonBlobMap[url];
+                            }
+                            try {
+                                origRevokeObjectURL.call(window.URL, url);
+                            } catch(e) {}
+                        }, 30000);
+                    };
+                }
+
+                // Helper to save Blob directly via FileReader
+                function processBlobSave(blob, fileName, mimeType) {
+                    if (!blob) return false;
+                    var finalName = fileName || ('vireon_export_' + Date.now());
+                    var finalMime = mimeType || blob.type || '';
+
+                    var reader = new FileReader();
+                    reader.onloadend = function() {
+                        var base64data = reader.result;
+                        if (window.VireonNative && window.VireonNative.saveBlobData) {
+                            window.VireonNative.saveBlobData(base64data, finalMime, finalName);
+                        }
+                    };
+                    reader.readAsDataURL(blob);
+                    return true;
+                }
+
+                // Helper to save URL or lookup cached Blob
+                function processUrlSave(url, fileName, mimeType) {
+                    if (!url) return false;
+                    var finalName = fileName || ('vireon_export_' + Date.now());
+
+                    if (window.__vireonBlobMap && window.__vireonBlobMap[url]) {
+                        return processBlobSave(window.__vireonBlobMap[url], finalName, mimeType);
+                    }
+
+                    if (url.startsWith('blob:')) {
+                        fetch(url)
                             .then(function(res) { return res.blob(); })
                             .then(function(blob) {
-                                var reader = new FileReader();
-                                reader.onloadend = function() {
-                                    var base64data = reader.result;
-                                    var finalMime = mimeType || blob.type || '';
-                                    if (window.VireonNative && window.VireonNative.saveBlobData) {
-                                        window.VireonNative.saveBlobData(base64data, finalMime, fileName);
-                                    }
-                                };
-                                reader.readAsDataURL(blob);
+                                processBlobSave(blob, finalName, mimeType);
                             })
                             .catch(function(err) {
-                                console.error('Vireon Blob fetch failed:', err);
+                                console.error('Vireon fetch blob failed:', err);
                             });
                         return true;
-                    } else if (blobUrl.startsWith('data:')) {
-                        var parts = blobUrl.split(',');
+                    } else if (url.startsWith('data:')) {
+                        var parts = url.split(',');
                         var mimeMatch = parts[0].match(/:(.*?);/);
                         var finalMime = mimeType || (mimeMatch ? mimeMatch[1] : '');
                         if (window.VireonNative && window.VireonNative.saveBlobData) {
-                            window.VireonNative.saveBlobData(parts[1], finalMime, fileName);
+                            window.VireonNative.saveBlobData(parts[1], finalMime, finalName);
                         }
                         return true;
                     }
                     return false;
                 }
 
-                // Intercept HTMLAnchorElement.prototype.click
-                var origClick = HTMLAnchorElement.prototype.click;
-                HTMLAnchorElement.prototype.click = function() {
-                    var href = this.getAttribute('href') || this.href;
-                    var fileName = this.getAttribute('download') || this.download || 'vireon_export';
-                    var mimeType = this.getAttribute('type') || '';
-                    if (href && (href.startsWith('blob:') || href.startsWith('data:') || this.hasAttribute('download'))) {
-                        if (handleExportBlob(href, fileName, mimeType)) {
-                            return;
-                        }
-                    }
-                    return origClick.apply(this, arguments);
-                };
+                // 3. Intercept HTMLAnchorElement.prototype.click
+                if (window.HTMLAnchorElement && window.HTMLAnchorElement.prototype) {
+                    var origClick = window.HTMLAnchorElement.prototype.click;
+                    window.HTMLAnchorElement.prototype.click = function() {
+                        var href = this.getAttribute('href') || this.href;
+                        var fileName = this.getAttribute('download') || this.download || 'vireon_export';
+                        var mimeType = this.getAttribute('type') || '';
 
-                // Intercept window.open for blob/data URLs
+                        if (href && (href.startsWith('blob:') || href.startsWith('data:') || this.hasAttribute('download'))) {
+                            if (processUrlSave(href, fileName, mimeType)) {
+                                return;
+                            }
+                        }
+                        return origClick.apply(this, arguments);
+                    };
+                }
+
+                // 4. Intercept window.open
                 var origOpen = window.open;
                 window.open = function(url, target, features) {
                     if (url && (url.startsWith('blob:') || url.startsWith('data:'))) {
-                        if (handleExportBlob(url, 'vireon_export', '')) {
+                        if (processUrlSave(url, 'vireon_export', '')) {
                             return null;
                         }
                     }
                     return origOpen.apply(this, arguments);
                 };
 
-                // Fallback Event Listener on DOM
+                // 5. Intercept navigator.share
+                if (navigator.share) {
+                    var origShare = navigator.share;
+                    navigator.share = function(data) {
+                        if (data && data.files && data.files.length > 0) {
+                            for (var i = 0; i < data.files.length; i++) {
+                                var f = data.files[i];
+                                processBlobSave(f, f.name || 'vireon_export', f.type);
+                            }
+                            return Promise.resolve();
+                        }
+                        if (data && data.url && (data.url.startsWith('blob:') || data.url.startsWith('data:'))) {
+                            processUrlSave(data.url, data.title || 'vireon_export', '');
+                            return Promise.resolve();
+                        }
+                        return origShare.apply(this, arguments);
+                    };
+                }
+
+                // 6. DOM Click Listener as fallback
                 document.addEventListener('click', function(e) {
                     var target = e.target;
-                    while (target && target.tagName !== 'A') {
+                    while (target && target.tagName !== 'A' && target.tagName !== 'BUTTON') {
                         target = target.parentElement;
                     }
                     if (target) {
-                        var href = target.getAttribute('href') || target.href;
-                        var fileName = target.getAttribute('download') || target.download || 'vireon_export';
-                        var mimeType = target.getAttribute('type') || '';
-                        if (target.hasAttribute('download') || (href && (href.startsWith('blob:') || href.startsWith('data:')))) {
-                            if (handleExportBlob(href, fileName, mimeType)) {
-                                e.preventDefault();
-                                e.stopPropagation();
+                        if (target.tagName === 'A') {
+                            var href = target.getAttribute('href') || target.href;
+                            var fileName = target.getAttribute('download') || target.download || 'vireon_export';
+                            var mimeType = target.getAttribute('type') || '';
+                            if (target.hasAttribute('download') || (href && (href.startsWith('blob:') || href.startsWith('data:')))) {
+                                if (processUrlSave(href, fileName, mimeType)) {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                }
                             }
                         }
                     }
                 }, true);
 
-                // Global helper function for direct JS calls from Web App
+                // Global helper method
                 window.VireonNativeSaveBlob = function(blob, fileName, mimeType) {
-                    if (!blob) return;
-                    var reader = new FileReader();
-                    reader.onloadend = function() {
-                        var base64data = reader.result;
-                        if (window.VireonNative && window.VireonNative.saveBlobData) {
-                            window.VireonNative.saveBlobData(base64data, mimeType || blob.type || '', fileName || 'vireon_export');
-                        }
-                    };
-                    reader.readAsDataURL(blob);
+                    processBlobSave(blob, fileName, mimeType);
                 };
             })();
         """.trimIndent()
