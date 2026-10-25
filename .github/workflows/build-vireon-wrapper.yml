@@ -1,0 +1,42 @@
+name: Build Vireon Standalone Android Wrapper
+
+on:
+  push:
+    branches: [ fix/android-export-saving ]
+    paths:
+      - 'vireon-android-wrapper/**'
+      - '.github/workflows/build-vireon-wrapper.yml'
+  pull_request:
+    paths:
+      - 'vireon-android-wrapper/**'
+      - '.github/workflows/build-vireon-wrapper.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-wrapper:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Build standalone wrapper debug APK
+        working-directory: vireon-android-wrapper
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+
+      - name: Upload standalone wrapper APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: vireon-android-wrapper-debug-apk
+          path: vireon-android-wrapper/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

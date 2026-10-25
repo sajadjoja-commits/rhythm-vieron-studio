@@ -258,22 +258,18 @@ class VireonDownloadBridge(
         val uri = resolver.insert(collectionUri, contentValues) ?: return Pair(false, "")
 
         return try {
-            resolver.openOutputStream(uri)?.use { outputStream ->
-                outputStream.write(bytes)
-                outputStream.flush()
+            val outputStream = resolver.openOutputStream(uri)
+                ?: throw java.io.IOException("Unable to open MediaStore output stream")
+            outputStream.use {
+                it.write(bytes)
+                it.flush()
             }
             contentValues.clear()
             contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
             resolver.update(uri, contentValues, null, null)
 
-            // Notify media scanner
-            MediaScannerConnection.scanFile(
-                context,
-                arrayOf(uri.toString()),
-                arrayOf(mimeType),
-                null
-            )
-
+            // MediaStore indexes this row when IS_PENDING is cleared.
+            // MediaScannerConnection expects filesystem paths, not content:// URIs.
             Pair(true, uri.toString())
         } catch (e: Exception) {
             e.printStackTrace()
