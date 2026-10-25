@@ -114,19 +114,11 @@ class VireonWebViewClient(
                 window.__vireonDownloadInjected = true;
 
                 window.__vireonBlobMap = window.__vireonBlobMap || {};
-                var lastSavedSize = 0;
-                var lastSavedTime = 0;
-
-                // Core helper to save a Blob directly via FileReader
+                // Save only when the user explicitly requests a download/export.
+                // Do not deduplicate by size/time: two legitimate exports can be identical.
                 function processBlobSave(blob, fileName, mimeType) {
                     if (!blob) return false;
                     var now = Date.now();
-                    if (blob.size === lastSavedSize && (now - lastSavedTime) < 3000) {
-                        return true;
-                    }
-                    lastSavedSize = blob.size;
-                    lastSavedTime = now;
-
                     var finalName = fileName || ('vireon_export_' + now);
                     var finalMime = mimeType || blob.type || '';
 
@@ -147,11 +139,9 @@ class VireonWebViewClient(
                     window.URL.createObjectURL = function(blob) {
                         var url = origCreateObjectURL.apply(this, arguments);
                         if (blob && (blob instanceof Blob || blob instanceof File)) {
+                            // Mapping only. Temporary preview/thumbnail Blobs must never be
+                            // written to storage unless an explicit download action requests it.
                             window.__vireonBlobMap[url] = blob;
-                            var type = blob.type || '';
-                            if (type.startsWith('video/') || type.startsWith('image/') || blob.size > 500000) {
-                                processBlobSave(blob, 'vireon_export_' + Date.now(), type);
-                            }
                         }
                         return url;
                     };
@@ -168,7 +158,7 @@ class VireonWebViewClient(
                             try {
                                 origRevokeObjectURL.call(window.URL, url);
                             } catch(e) {}
-                        }, 30000);
+                        }, 60000);
                     };
                 }
 
