@@ -14,7 +14,6 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.setPadding
 
 /**
  * First native Vireon screen.
@@ -61,7 +60,7 @@ class NativeHomeActivity : AppCompatActivity() {
         val page = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(background)
-            setPadding(dp(20))
+            setPadding(dp(20), dp(20), dp(20), dp(20))
         }
 
         val scroll = ScrollView(this).apply {
@@ -77,7 +76,7 @@ class NativeHomeActivity : AppCompatActivity() {
 
         val hero = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20))
+            setPadding(dp(20), dp(20), dp(20), dp(20))
             setBackgroundColor(panel)
         }
         hero.addView(text("حوّل فكرتك إلى عمل إبداعي", 22f, Color.WHITE, true), marginParams(bottom = 8))
@@ -129,7 +128,7 @@ class NativeHomeActivity : AppCompatActivity() {
     private fun featureCard(title: String, description: String, buttonLabel: String, onClick: () -> Unit): View {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16))
+            setPadding(dp(16), dp(16), dp(16), dp(16))
             setBackgroundColor(panel)
         }
         card.addView(text(title, 18f, Color.WHITE, true), marginParams(bottom = 6))
