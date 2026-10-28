@@ -426,7 +426,7 @@ const TemplatesScreen = ({ onStartEditor, onSelectPublishedTemplate, onSelectSma
             {TEMPLATE_CATEGORIES.map((cat) => (
               <button key={cat.id} onClick={() => setActiveCategory(cat.id)}
                 className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${activeCategory === cat.id ? "gradient-primary text-primary-foreground glow-primary-sm scale-[1.03]" : "bg-card border border-border text-muted-foreground"}`}>
-                {cat.id === "all" ? t(cat.labelKey) : (cat.label || cat.labelEn)}
+                {cat.id === "all" ? t(cat.labelKey || "music.all") : (cat.label || cat.labelEn)}
               </button>
             ))}
           </div>

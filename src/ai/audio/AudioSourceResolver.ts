@@ -18,14 +18,14 @@ export interface ResolvedAudioSource {
   sourceId: string;
   name: string;
   url: string;
-  file?: File;
+  file?: File | undefined;
   start: number;
   duration: number;
   offset: number;
-  associatedClipId?: string;
-  associatedOverlayId?: string;
-  clipIn?: number;
-  clipOut?: number;
+  associatedClipId?: string | undefined;
+  associatedOverlayId?: string | undefined;
+  clipIn?: number | undefined;
+  clipOut?: number | undefined;
 }
 
 export interface AudioResolveOptions {

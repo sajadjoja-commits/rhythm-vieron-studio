@@ -39,18 +39,18 @@ export interface ExecutionStep {
   taskType: AITaskType;
   pluginId: string;
   actionName: string;
-  dependsOn?: string[]; // IDs of predecessor steps that must finish first
+  dependsOn?: string[] | undefined; // IDs of predecessor steps that must finish first
   payloadTemplate?: Record<string, any>;
   executionMode?: "local" | "remote" | "auto";
   outputField?: string; // Property name in result containing the media output
-  inputPipeFromStepId?: string; // Step ID from which to pipe media output
+  inputPipeFromStepId?: string | undefined; // Step ID from which to pipe media output
 }
 
 export interface ExecutionPlan {
   planId: string;
   intentName: string;
   description: string;
-  userPrompt?: string;
+  userPrompt?: string | undefined;
   steps: ExecutionStep[];
   estimatedDurationMs: number;
   createdAt: number;
@@ -64,8 +64,8 @@ export interface AgentStepResult {
   success: boolean;
   cached?: boolean;
   resultData?: any;
-  outputMediaUrlOrBase64?: string;
-  error?: string;
+  outputMediaUrlOrBase64?: string | undefined;
+  error?: string | undefined;
   executionTimeMs: number;
 }
 
@@ -77,7 +77,7 @@ export interface AgentWorkflowResult {
   finalMediaUrlOrBase64?: string;
   stepResults: Record<string, AgentStepResult>;
   totalExecutionTimeMs: number;
-  error?: string;
+  error?: string | undefined;
 }
 
 export interface PrebuiltWorkflowTemplate {

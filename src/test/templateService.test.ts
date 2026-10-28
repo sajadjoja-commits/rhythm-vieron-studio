@@ -17,7 +17,7 @@ const mockInsert = vi.fn(() => ({ select: mockInsertSelect }));
 const mockSelectSingle = vi.fn();
 const mockSelectEq = vi.fn(() => ({ single: mockSelectSingle }));
 const mockSelect = vi.fn(() => ({ eq: mockSelectEq }));
-const mockFrom = vi.fn(() => ({
+const mockFrom = vi.fn((..._args: any[]) => ({
   insert: mockInsert,
   select: mockSelect,
 }));

@@ -1,10 +1,11 @@
 import { useRef, useId, ReactNode } from "react";
-import { registerPlugin, Capacitor } from "@capacitor/core";
+import { Capacitor } from "@capacitor/core";
+import { getNativeMediaPlugin } from "@/services/nativeMediaPlugin";
 import { useMedia } from "@/context/MediaContext";
 import { toast } from "sonner";
 import { getLang } from "@/lib/i18n";
 
-const VireonMedia = registerPlugin<any>('VireonMedia');
+const VireonMedia = getNativeMediaPlugin();
 
 export interface MediaPickerProps {
   accept?: "video" | "image" | "both";

@@ -139,11 +139,9 @@ export const clearUnusedCaches = async () => {
       const cacheWhitelist = ['transformers-cache', 'app-cache-v1', 'vireon-pwa-cache-v3'];
       
       await Promise.all(
-        cacheNames.map((cacheName) => {
-          if (!cacheWhitelist.includes(cacheName)) {
-            return caches.delete(cacheName);
-          }
-        })
+        cacheNames.map((cacheName) =>
+          cacheWhitelist.includes(cacheName) ? Promise.resolve(false) : caches.delete(cacheName)
+        )
       );
       
       console.log('✓ Unused caches cleared');

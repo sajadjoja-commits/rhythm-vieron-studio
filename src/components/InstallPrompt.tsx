@@ -33,19 +33,9 @@ export const InstallPrompt = () => {
       return () => window.removeEventListener("vireon_open_install_prompt", handleOpen);
     }
 
-    const dismissed = localStorage.getItem(DISMISS_KEY);
-    if (dismissed && !manualOpen) {
-      const days = (Date.now() - Number(dismissed)) / (1000 * 60 * 60 * 24);
-      if (days < DISMISS_DAYS) {
-        return () => window.removeEventListener("vireon_open_install_prompt", handleOpen);
-      }
-    }
-
-    const tmr = setTimeout(() => setOpen(true), 2500);
-    return () => {
-      clearTimeout(tmr);
-      window.removeEventListener("vireon_open_install_prompt", handleOpen);
-    };
+    // Never auto-open: the prompt only appears when the user explicitly
+    // requests it (via the "vireon_open_install_prompt" event, e.g. from Settings).
+    return () => window.removeEventListener("vireon_open_install_prompt", handleOpen);
   }, [installed, isNative, manualOpen]);
 
   const close = () => {

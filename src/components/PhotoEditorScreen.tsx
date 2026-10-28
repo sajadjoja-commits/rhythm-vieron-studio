@@ -32,6 +32,7 @@ import {
   Redo2
 } from "lucide-react";
 import { toast } from "sonner";
+import { playSfx } from "@/lib/soundFx";
 import { t, getLang } from "@/lib/i18n";
 import PhotoExportDialog from "@/components/photo/PhotoExportDialog";
 import { ImageAITaskType } from "@/ai/image/types";
@@ -371,6 +372,7 @@ const PhotoEditorScreen = ({ onClose }: PhotoEditorScreenProps) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const url = URL.createObjectURL(file);
+    createdBlobUrlsRef.current.add(url);
     const newLayer: EditorLayer = {
       id: `image-${Date.now()}`,
       type: "image",
@@ -549,10 +551,6 @@ const PhotoEditorScreen = ({ onClose }: PhotoEditorScreenProps) => {
             onBackToHub={() => {
               setSelectedAITool(null);
             }}
-            onUndo={() => {
-              handleUndoImage();
-            }}
-            canUndo={historyIndex > 0}
           />
         </Suspense>
       </div>

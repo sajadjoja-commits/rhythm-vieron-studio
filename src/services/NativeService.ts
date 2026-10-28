@@ -1,7 +1,8 @@
 import { Filesystem, Directory } from '@capacitor/filesystem';
-import { registerPlugin, Capacitor } from '@capacitor/core';
+import { Capacitor } from '@capacitor/core';
+import { getNativeMediaPlugin } from './nativeMediaPlugin';
 
-const VireonMedia = registerPlugin<any>('VireonMedia');
+const VireonMedia = getNativeMediaPlugin();
 
 /**
  * Converts a Blob to a Base64 string in small chunks using ArrayBuffer.

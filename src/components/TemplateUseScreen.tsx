@@ -46,7 +46,7 @@ export default function TemplateUseScreen({ templateId, templateObj, onBack }: P
   const videoRef = useRef<HTMLVideoElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const rafRef = useRef<number>();
+  const rafRef = useRef<number | undefined>(undefined);
 
   const handleDeleteTemplate = async () => {
     if (!template) return;

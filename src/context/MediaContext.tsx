@@ -648,7 +648,7 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
   const futureRef = useRef<Snapshot[]>([]);
   const presentRef = useRef<Snapshot | null>(null);
   const pendingPrevRef = useRef<Snapshot | null>(null);
-  const commitTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const commitTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const applyingRef = useRef(false);
   const [histVersion, setHistVersion] = useState(0);
 
@@ -818,6 +818,7 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
         lastCloudSyncSigRef.current = candidate.sig;
         const { error } = await supabase.from("projects").upsert({
           ...candidate.record,
+          name: candidate.record.name,
           updated_at: new Date().toISOString(),
         });
         if (error) console.warn("cloud sync failed", error.message);

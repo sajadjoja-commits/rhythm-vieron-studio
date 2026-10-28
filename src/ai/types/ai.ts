@@ -57,7 +57,7 @@ export interface CaptionSegment {
 export interface SpeechToTextPayload {
   audioBase64: string;
   mimeType?: string;
-  language?: string;
+  language?: string | undefined;
   prompt?: string;
 }
 
@@ -131,7 +131,7 @@ export interface ImageGenerationPayload {
   width?: number;
   height?: number;
   imageSize?: { width: number; height: number } | string;
-  aspectRatio?: string; // e.g. "1:1", "16:9", "9:16", "4:3", "3:4", "21:9", "9:21"
+  aspectRatio?: string | undefined; // e.g. "1:1", "16:9", "9:16", "4:3", "3:4", "21:9", "9:21"
   seed?: number;
   guidance?: number; // guidance_scale (e.g. 1.5 - 10)
   steps?: number; // num_inference_steps (e.g. 1 - 50)
@@ -178,7 +178,7 @@ export interface FluxImageResult extends ImageGenerationResult {
 // 6. Translation
 export interface TranslationPayload {
   text: string;
-  sourceLang?: string;
+  sourceLang?: string | undefined;
   targetLang: string;
 }
 

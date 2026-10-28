@@ -1,4 +1,5 @@
-import { Capacitor, registerPlugin } from "@capacitor/core";
+import { Capacitor } from "@capacitor/core";
+import { getNativeMediaPlugin } from "../nativeMediaPlugin";
 import {
   MediaProvider,
   MediaMetadata,
@@ -135,7 +136,7 @@ export interface NativeMediaPlugin {
 
 export function getVireonMediaPlugin(): NativeMediaPlugin {
   try {
-    return registerPlugin<NativeMediaPlugin>("VireonMedia");
+    return getNativeMediaPlugin<NativeMediaPlugin>();
   } catch {
     return {
       getMediaMetadata: async () => {

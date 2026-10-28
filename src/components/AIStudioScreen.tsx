@@ -31,7 +31,8 @@ import {
   Brush
 } from "lucide-react";
 import { toast } from "sonner";
-import { Capacitor, registerPlugin } from "@capacitor/core";
+import { Capacitor } from "@capacitor/core";
+import { getNativeMediaPlugin } from "@/services/nativeMediaPlugin";
 import { aiRuntime } from "@/ai/runtime/AIRuntime";
 import { aiPlugins } from "@/ai/plugins";
 import { AIJobProgress, DeviceResourceProfile } from "@/ai/runtime/types";
@@ -500,8 +501,7 @@ const AIStudioScreen: React.FC<AIStudioScreenProps> = ({ onBack, onOpenPhotoEdit
 
   const handleNativeUpload = async () => {
     if (Capacitor.isNativePlatform()) {
-      const { registerPlugin } = await import("@capacitor/core");
-      const VireonMedia = registerPlugin<any>('VireonMedia');
+      const VireonMedia = getNativeMediaPlugin();
 
       try {
         let method = "pickImage";

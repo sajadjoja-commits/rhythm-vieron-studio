@@ -7,7 +7,7 @@ import { hasMask, maskDataUrl, getEffectiveMask } from "@/lib/maskEngine";
 interface Props {
   overlay: OverlayItem;
   selected: boolean;
-  containerRef: React.RefObject<HTMLDivElement>;
+  containerRef: React.RefObject<HTMLDivElement | null>;
   currentTime?: number;
   isPlaying?: boolean;
   onSelect: (id: string) => void;

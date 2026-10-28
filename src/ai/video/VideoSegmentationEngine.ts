@@ -543,7 +543,7 @@ export class VideoSegmentationEngine {
               if (!hasReadbackData) {
                 console.warn("[VideoSegmentationEngine] GPU delegate returned zero masks in self-test. Forcing CPU delegate.");
                 try { segmenter.close(); } catch {}
-                segmenter = await ImageSegmenter.createFromOptions(vision, {
+                segmenter = await MediaPipeImageSegmenter.createFromOptions(vision, {
                   baseOptions: {
                     modelAssetPath: activeModelPath,
                     delegate: "CPU",

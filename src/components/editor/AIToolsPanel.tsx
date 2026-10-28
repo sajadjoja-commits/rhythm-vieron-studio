@@ -588,7 +588,7 @@ export const AIToolsPanel = ({
         abortSignal: abortController.signal,
         onProgress: (prog) => {
           if (abortController.signal.aborted) return;
-          const pct = Math.min(100, Math.max(0, Math.round(prog.progress * 100)));
+          const pct = Math.min(100, Math.max(0, Math.round((prog.progress ?? 0) * 100)));
           setExecutingProgress(pct);
           if (prog.message) {
             setStatusText(prog.message);

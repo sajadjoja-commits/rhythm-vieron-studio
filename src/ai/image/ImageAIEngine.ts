@@ -103,6 +103,9 @@ export class ImageAIEngine {
         executionProvider: (segRes.accelerator as any) || capability.preferredProvider,
         executionTimeMs: totalMs,
         timings: {
+          modelLoadMs: 0,
+          preprocessMs: 0,
+          postprocessMs: 0,
           inferenceMs,
           totalMs,
         },

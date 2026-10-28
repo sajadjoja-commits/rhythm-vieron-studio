@@ -32,12 +32,13 @@ export class DefaultAgentPlanner implements ILLMPlanner {
       matchedTemplateKey = "auto-captioning";
     }
 
-    if (matchedTemplateKey && PREBUILT_WORKFLOWS[matchedTemplateKey]) {
-      const template = PREBUILT_WORKFLOWS[matchedTemplateKey];
-      
+    const matchedTemplate = matchedTemplateKey ? PREBUILT_WORKFLOWS[matchedTemplateKey] : undefined;
+    if (matchedTemplate) {
+      const template = matchedTemplate;
+
       // Verify all required steps against CapabilityRegistry
       const validatedSteps: ExecutionStep[] = template.steps.map((step) => {
-        const capability = capabilityRegistry.findByTask(step.taskType)[0] || 
+        const capability = (capabilityRegistry.findByTask(step.taskType) || [])[0] ||
                            capabilityRegistry.findBestForTask(step.taskType);
 
         return {

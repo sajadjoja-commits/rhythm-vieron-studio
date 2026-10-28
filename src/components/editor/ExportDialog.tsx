@@ -5,7 +5,8 @@ import { toast } from "sonner";
 import { hasMask, applyMaskToContext, getEffectiveMask } from "@/lib/maskEngine";
 import { t, isRTL, getLang } from "@/lib/i18n";
 import { applyOfflineFxChain } from "@/lib/audioFx";
-import { registerPlugin, Capacitor } from '@capacitor/core';
+import { Capacitor } from '@capacitor/core';
+import { getNativeMediaPlugin } from '@/services/nativeMediaPlugin';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { saveVideoToGallery } from "@/services/NativeService";
@@ -30,7 +31,7 @@ import {
   getFilterCSSString as computeFilterCSSString,
 } from "@/lib/export";
 
-const VireonMedia = registerPlugin<any>('VireonMedia');
+const VireonMedia = getNativeMediaPlugin();
 
 
 // 3. Fallback engine using browser MediaRecorder API for 100% offline & WASM-restricted environments
@@ -278,12 +279,12 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
   const [exportBgMode, setExportBgMode] = useState<"green" | "black" | "white">("green");
 
   // Auto-capture or pick cover image from video / media if user didn't set one explicitly
-  useEffect(() => {
-    if (!open) return;
+  useEffect((): (() => void) | undefined => {
+    if (!open) return undefined;
 
     if (coverImage) {
       setAutoCoverUrl(coverImage);
-      return;
+      return undefined;
     }
 
     let captured = false;
@@ -307,7 +308,7 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
       }
     }
 
-    if (captured) return;
+    if (captured) return undefined;
 
     const firstMedia = media.length > 0 ? media[0] : null;
     if (firstMedia) {
@@ -353,6 +354,7 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
         };
       }
     }
+    return undefined;
   }, [open, coverImage, videoRef, media, clips]);
 
   const displayCover = coverImage || autoCoverUrl;

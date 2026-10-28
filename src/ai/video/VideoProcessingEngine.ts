@@ -223,6 +223,27 @@ export class VideoProcessingEngine {
 
       logStage("DECODER_READY", { width, height, durationSeconds, fps, totalFrames, hasAudio: meta.hasAudio, useWebCodecs: !!webCodecsDecoder });
 
+      const originalWidth = width;
+      const originalHeight = height;
+      const unchangedResult = (): VideoAIResult => ({
+        outputUrl: typeof videoInput === "string" ? videoInput : this.memoryManager.createTrackedObjectUrl(videoInput),
+        blob: typeof videoInput === "string" ? undefined : videoInput,
+        mimeType: typeof videoInput === "string" ? "" : videoInput.type,
+        width: originalWidth,
+        height: originalHeight,
+        outputWidth: originalWidth,
+        outputHeight: originalHeight,
+        downscaled: false,
+        durationSeconds,
+        fps,
+        frameCount: totalFrames,
+        sizeMB: typeof videoInput === "string" ? 0 : videoInput.size / (1024 * 1024),
+        executionTimeMs: Date.now() - startTime,
+        taskType,
+        appliedEngine: "bypass-unchanged",
+        verified: true,
+        unchanged: true,
+      });
       const dims = processingDimensions(width, height, profile, options);
       width = dims.width;
       height = dims.height;
@@ -334,7 +355,7 @@ export class VideoProcessingEngine {
 
       // 5. High-Performance Frame Processing Loop
       let pendingAddFrame: Promise<void> | null = null;
-      let nextFramePromise: Promise<{ frame: VideoFrame; timestampMicros: number; index: number } | null> | null =
+      let nextFramePromise: ReturnType<WebCodecsVideoDecoder["getNextFrame"]> | null =
         webCodecsDecoder ? webCodecsDecoder.getNextFrame() : null;
       let cachedMaskInfo: Awaited<ReturnType<typeof this.segmentationEngine.segmentImageSource>> | null = null;
       const earlyEnhanceCheckFrame = Math.max(40, Math.ceil(totalFrames * 0.1));
@@ -467,24 +488,7 @@ export class VideoProcessingEngine {
               cleanupSourceVideo();
               this.memoryManager.disposeCanvas(processCanvas);
 
-              return {
-                outputUrl: videoUrl,
-                mimeType: "video/mp4",
-                width: originalWidth,
-                height: originalHeight,
-                outputWidth: originalWidth,
-                outputHeight: originalHeight,
-                downscaled: false,
-                durationSeconds,
-                fps,
-                frameCount: totalFrames,
-                sizeMB: 0,
-                executionTimeMs: Date.now() - processingStartedAt,
-                taskType: taskType as VideoAITaskType,
-                appliedEngine: "bypass-unchanged",
-                verified: true,
-                unchanged: true,
-              };
+              return unchangedResult();
             }
 
             const outImageData =
@@ -514,6 +518,7 @@ export class VideoProcessingEngine {
                 cachedMaskInfo = maskInfo;
               }
 
+              if (!maskInfo) throw new Error("Video segmentation did not produce a mask");
               totalForegroundPixelsAllFrames += maskInfo.stats.foregroundPixelCount;
               if (maskInfo.stats.foregroundPercentage > maxForegroundPct) {
                 maxForegroundPct = maskInfo.stats.foregroundPercentage;
@@ -691,24 +696,7 @@ export class VideoProcessingEngine {
             cleanupSourceVideo();
             this.memoryManager.disposeCanvas(processCanvas);
 
-            return {
-              outputUrl: videoUrl,
-              mimeType: "video/mp4",
-              width: originalWidth,
-              height: originalHeight,
-              outputWidth: originalWidth,
-              outputHeight: originalHeight,
-              downscaled: false,
-              durationSeconds,
-              fps,
-              frameCount: totalFrames,
-              sizeMB: 0,
-              executionTimeMs: Date.now() - processingStartedAt,
-              taskType: taskType as VideoAITaskType,
-              appliedEngine: "bypass-unchanged",
-              verified: true,
-              unchanged: true,
-            };
+            return unchangedResult();
           }
         }
 

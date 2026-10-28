@@ -323,7 +323,7 @@ describe("Export Performance & Memory Helpers", () => {
             }),
             getFile: async () => {
               const bytes = opfsFiles.get(name) || new Uint8Array(128);
-              const f = new Blob([bytes], { type: "video/mp4" }) as File;
+              const f = new Blob([new Uint8Array(bytes)], { type: "video/mp4" }) as File;
               return f;
             },
           };

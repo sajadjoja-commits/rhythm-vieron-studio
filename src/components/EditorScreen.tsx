@@ -43,6 +43,7 @@ import { t, getLang, isRTL } from "@/lib/i18n";
 import { VireonLogo } from "@/components/VireonLogo";
 import { ASPECT_RATIOS, findClosestRatioIndex } from "@/lib/aspectRatios";
 import { VideoJobManager, VideoMemoryManager, PreviewIntegrationError } from "@/ai/video";
+import { verifyProcessedVideoSource } from "@/lib/processedVideoPreview";
 
 interface EditorScreenProps {
   onBack: () => void;
@@ -126,7 +127,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     videoRef.current = activeSlot === 0 ? videoRefA.current : videoRefB.current;
   }, [activeSlot]);
   const previewRef = useRef<HTMLDivElement>(null);
-  const rafRef = useRef<number>();
+  const rafRef = useRef<number | undefined>(undefined);
   const lastTickRef = useRef<number>(0);
   const tracksContainerRef = useRef<HTMLDivElement>(null);
   const pinchRef = useRef<{ 
@@ -426,10 +427,10 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
   const transitionInDur = resolved?.clip.transitionIn?.duration;
   const clipStart = resolved?.clipStart;
 
-  useEffect(() => {
+  useEffect((): (() => void) | undefined => {
     if (!resolved?.clip.id) {
       setActiveTransition((prev) => (prev !== null ? null : prev));
-      return;
+      return undefined;
     }
     const trans = resolved.clip.transitionIn;
     if (trans && trans.type !== "none") {
@@ -458,6 +459,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
       }
     }
     setActiveTransition((prev) => (prev !== null ? null : prev));
+    return undefined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolved?.clip.id, currentTime, transitionInType, transitionInDur, clipStart]);
 
@@ -783,11 +785,9 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
       throw err;
     }
 
-    // Ensure active ObjectURL is not collected by background video cleaner while editing
-    VideoMemoryManager.getInstance().untrackObjectUrl(newBlobUrl);
-
     // 4. Verify active slot element availability
     if (!activeEl) {
+      if (resultVideoBlobOrUrl instanceof Blob) URL.revokeObjectURL(newBlobUrl);
       const err = new PreviewIntegrationError(
         "PREVIEW_ACTIVE_SLOT_FAILED",
         getLang() === "ar" ? "تعذر العثور على عنصر مشغل المعاينة النشط." : "Active video preview slot element not available",
@@ -802,6 +802,15 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     const oldProcessedUrl = clip.processedUrl || mediaItem?.processedUrl;
     const isAlpha = options?.hasAlpha ?? (clip.hasAlpha || false);
     const newRevision = (clip.mediaRevision || mediaItem?.mediaRevision || 0) + 1;
+
+    // Validate before touching the existing project or visible playback source.
+    try {
+      await verifyProcessedVideoSource(newBlobUrl);
+    } catch (error) {
+      if (resultVideoBlobOrUrl instanceof Blob) URL.revokeObjectURL(newBlobUrl);
+      throw error;
+    }
+    VideoMemoryManager.getInstance().untrackObjectUrl(newBlobUrl);
 
     // 5. Update media item state with revision and preserve original source
     if (mediaItem) {
@@ -932,6 +941,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
 
       activeEl.addEventListener("loadedmetadata", onMeta, { once: true });
       activeEl.addEventListener("error", onErr, { once: true });
+      if (activeEl.readyState >= HTMLMediaElement.HAVE_METADATA && activeEl.videoWidth > 0) onMeta();
     });
 
     // 8. Verify active video element properties (Requirement 6)
@@ -1065,7 +1075,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
         if (targetClip) {
           console.log(`[EditorScreen] Video job ${job.id} completed. Applying output to clip ${targetClip.id}`);
           const applied = await applyProcessedVideoToEditor(
-            job.result.blob || job.result.outputUrl!,
+            job.result.blob || job.result.outputUrl || "",
             targetClip.id,
             {
               jobId: job.id,
@@ -1271,6 +1281,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
     if (!activeEl || activeMedia?.type !== "video") return;
     try {
       const ctx = getAudioContext();
+      if (!ctx) return;
       if (ctx.state === "suspended") ctx.resume().catch(() => {});
       if (videoFxChainRef.current) {
         videoFxChainRef.current.cleanup();
@@ -1321,7 +1332,11 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
       // Soft lock: active video element is kept in close alignment with timeline time
       const curActive = activeSlotRef.current === 0 ? videoRefA.current : videoRefB.current;
       const r = resolveTimelineTime(nextTime);
-      if (r && curActive && !curActive.paused && !curActive.seeking) {
+      const timelineMedia = r ? getMediaById(r.clip.mediaId) : null;
+      if (timelineMedia?.type !== "video") {
+        videoRefA.current?.pause();
+        videoRefB.current?.pause();
+      } else if (r && curActive && !curActive.paused && !curActive.seeking) {
         const expected = r.mediaTime;
         const drift = Math.abs(curActive.currentTime - expected);
         // If drift is moderate, gently soft-adjust without triggering hard decoder stall
@@ -2280,7 +2295,7 @@ const EditorScreen = ({ onBack }: EditorScreenProps) => {
                     containerRef={previewRef}
                     currentTime={currentTime}
                     isPlaying={isPlaying || isFullscreen}
-                    onSelect={isFullscreen ? undefined : setSelectedOverlayId}
+                    onSelect={isFullscreen ? () => {} : setSelectedOverlayId}
                     onUpdate={isFullscreen ? () => {} : handleUpdateOverlay}
                   />
                 );

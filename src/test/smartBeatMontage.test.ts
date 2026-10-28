@@ -14,12 +14,12 @@ import {
   snapSliceToShot,
   alignToMotionPeak,
   type Segment,
-} from "../lib/autoMontage";
-import { scanVideoInterest, type InterestScanDecoderLike } from "../lib/videoInterestScan";
-import { SMART_TEMPLATES, buildSmartTemplateStyle } from "../lib/smartTemplates";
-import { pickNearestFrameIndex } from "../lib/frameMatching";
-import { analyzeFramesInWorker, type FrameBufferData } from "../lib/workers/videoAnalysis.worker";
-import { analyzeAudioBuffer, mapBeatsToTimeline, type BeatAnalysisResult } from "../lib/beatDetector";
+} from "@/lib/autoMontage";
+import { scanVideoInterest, type InterestScanDecoderLike } from "@/lib/videoInterestScan";
+import { SMART_TEMPLATES, buildSmartTemplateStyle } from "@/lib/smartTemplates";
+import { pickNearestFrameIndex } from "@/lib/frameMatching";
+import { analyzeFramesInWorker, type FrameBufferData } from "@/lib/workers/videoAnalysis.worker";
+import { analyzeAudioBuffer, mapBeatsToTimeline, type BeatAnalysisResult } from "@/lib/beatDetector";
 import type { MediaItem } from "@/context/MediaContext";
 
 beforeAll(() => {
@@ -58,7 +58,7 @@ beforeAll(() => {
 
 const mockWorkerAnalyzeFrames = vi.fn();
 
-vi.mock("../lib/videoAnalysisWorkerManager", () => ({
+vi.mock("@/lib/videoAnalysisWorkerManager", () => ({
   VideoAnalysisWorkerManager: {
     getInstance: () => ({
       analyzeFrames: (...args: any[]) => mockWorkerAnalyzeFrames(...args),
@@ -66,8 +66,8 @@ vi.mock("../lib/videoAnalysisWorkerManager", () => ({
   },
 }));
 
-vi.mock("../lib/beatDetector", async () => {
-  const actual = await vi.importActual<any>("../lib/beatDetector");
+vi.mock("@/lib/beatDetector", async () => {
+  const actual = await vi.importActual<any>("@/lib/beatDetector");
   return {
     ...actual,
     calculateSegmentAudioEnergiesBatch: async (_url: string, segments: Array<{ in: number; out: number }>) => {
@@ -104,7 +104,7 @@ vi.mock("../lib/beatDetector", async () => {
   };
 });
 
-vi.mock("../lib/visionAnalyzer", () => ({
+vi.mock("@/lib/visionAnalyzer", () => ({
   disposeVisionModels: () => {},
   resetVisionDetector: () => {},
   getVisionAnalysisStatus: () => ({

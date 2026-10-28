@@ -77,7 +77,7 @@ export async function analyzeBufferWithWebAudioBeatDetector(
   });
   return {
     bpm: result.bpm,
-    beats: params?.mode === "raw" && result.peaks.length > 0 ? result.peaks : result.beats,
+    beats: params?.mode === "raw" && result.peaks.length > 0 ? result.peaks : result.beats.map((beat) => beat.time),
     duration: result.duration,
   };
 }
@@ -164,7 +164,7 @@ export async function analyzeBufferAsync(
   });
   return {
     bpm: res.bpm,
-    beats: params?.mode === "raw" && res.peaks.length > 0 ? res.peaks : res.beats,
+    beats: params?.mode === "raw" && res.peaks.length > 0 ? res.peaks : res.beats.map((beat) => beat.time),
     duration: res.duration,
   };
 }

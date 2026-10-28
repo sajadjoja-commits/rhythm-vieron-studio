@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect } from "react";
 import { Capacitor } from "@capacitor/core";
+import { getNativeMediaPlugin } from "@/services/nativeMediaPlugin";
 import { Search, Play, Pause, Upload, Music2, Headphones, Guitar, Film, Volume2, Image as ImageIcon, Link, Trash2, Sparkles, Mic, Zap } from "lucide-react";
 import { BUILTIN_TRACKS, BuiltinTrack, getSavedLibraryTracks, saveLibraryTrack, removeLibraryTrack, getGenreCoverImage, fetchSupabaseMusicTracks, generateSvgCoverFallback } from "@/lib/builtinMusic";
 import { getLang, t } from "@/lib/i18n";
@@ -122,8 +123,7 @@ const MusicScreen = () => {
 
   const handleNativeUpload = async () => {
     if (Capacitor.isNativePlatform()) {
-      const { registerPlugin } = await import("@capacitor/core");
-      const VireonMedia = registerPlugin<any>('VireonMedia');
+      const VireonMedia = getNativeMediaPlugin();
 
       try {
         const result = await VireonMedia.pickAudio({ multiple: true });

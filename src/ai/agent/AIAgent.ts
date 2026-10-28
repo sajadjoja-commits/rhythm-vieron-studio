@@ -101,8 +101,8 @@ export class AIAgent {
 
         // Process batch step results
         for (let i = 0; i < executableSteps.length; i++) {
-          const step = executableSteps[i];
-          const result = batchResults[i];
+          const step = executableSteps[i]!;
+          const result = batchResults[i]!;
 
           stepResults[step.id] = result;
           completedSteps.add(step.id);
@@ -146,7 +146,7 @@ export class AIAgent {
           "Workflow Failed",
           "failed",
           0,
-          { code: "WORKFLOW_FAILED", message: errorMessage }
+          { code: "WORKFLOW_FAILED", message: errorMessage || "Workflow failed" }
         );
       }
 
@@ -199,8 +199,9 @@ export class AIAgent {
 
     // Determine input media for this step (piped from predecessor or default)
     let stepInputMedia = defaultMedia;
-    if (step.inputPipeFromStepId && stepOutputs[step.inputPipeFromStepId]) {
-      stepInputMedia = stepOutputs[step.inputPipeFromStepId];
+    if (step.inputPipeFromStepId) {
+      const piped = stepOutputs[step.inputPipeFromStepId];
+      if (piped) stepInputMedia = piped;
     }
 
     // Build payload
@@ -211,16 +212,16 @@ export class AIAgent {
 
     if (step.taskType === "background-removal" || step.taskType === "enhance-media" || step.taskType === "noise-reduction") {
       if (step.pluginId === "plugin-video-enhancement") {
-        payload.videoBase64OrUrl = stepInputMedia;
+        payload["videoBase64OrUrl"] = stepInputMedia;
       } else if (step.pluginId === "plugin-audio-enhancement") {
-        payload.audioBase64OrUrl = stepInputMedia;
+        payload["audioBase64OrUrl"] = stepInputMedia;
       } else {
-        payload.imageBase64OrUrl = stepInputMedia;
+        payload["imageBase64OrUrl"] = stepInputMedia;
       }
     } else if (step.taskType === "vocal-isolation" || step.taskType === "speech-to-text") {
-      payload.audioBase64OrUrl = stepInputMedia;
+      payload["audioBase64OrUrl"] = stepInputMedia;
     } else {
-      payload.mediaUrlOrBase64 = stepInputMedia;
+      payload["mediaUrlOrBase64"] = stepInputMedia;
     }
 
     // 1. Check AICache & HistoryManager for step result reuse

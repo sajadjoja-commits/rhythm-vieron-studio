@@ -12,7 +12,7 @@ import { pipeline, env } from "@xenova/transformers";
 
 // 1. Strict offline environment configuration
 env.allowLocalModels = true;
-env.allowRemoteModels = false;
+env.allowRemoteModels = true;
 env.useBrowserCache = true;
 
 // Direct WASM binaries strictly to local app assets
@@ -21,7 +21,7 @@ const origin =
     ? self.location.origin
     : "";
 
-env.backends.onnx.wasm.wasmPaths = origin ? `${origin}/wasm/ort/` : "/wasm/ort/";
+env.backends.onnx.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/";
 
 // Configure threads based on device concurrency (safe limit 1-2 for mobile/browser stability)
 const hardwareThreads = typeof navigator !== "undefined" && navigator.hardwareConcurrency ? navigator.hardwareConcurrency : 2;
@@ -149,7 +149,7 @@ async function getLocalTranscriber(
 
     try {
       env.allowLocalModels = true;
-      env.allowRemoteModels = false;
+      env.allowRemoteModels = true;
       env.localModelPath = check.basePath;
 
       postProgress(25, "جارٍ تحميل النموذج من الذاكرة المحلية...");

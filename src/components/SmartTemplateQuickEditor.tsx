@@ -80,7 +80,7 @@ export default function SmartTemplateQuickEditor({ initialTemplate, onBack, onOp
   const mediaInputRef = useRef<HTMLInputElement>(null);
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const musicInputRef = useRef<HTMLInputElement>(null);
-  const rafRef = useRef<number>();
+  const rafRef = useRef<number | undefined>(undefined);
 
   // Ensure newly added media items are selected
   useEffect(() => {

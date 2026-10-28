@@ -220,7 +220,7 @@ const OverlayTimeline = memo(({ currentTime, pxPerSec, containerW, isPlaying, fo
             const left = o.start * pxPerSec;
             const w = Math.max(20, (o.end - o.start) * pxPerSec);
             const isVideo = o.type === "video";
-            const isMaxReached = isVideo && o.duration && o.duration > 0 && (o.end - o.start) >= o.duration - 0.05;
+            const isMaxReached = Boolean(isVideo && o.duration && o.duration > 0 && (o.end - o.start) >= o.duration - 0.05);
             const isSelected = selectedId === o.id;
             return (
               <div 

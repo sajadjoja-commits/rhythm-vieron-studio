@@ -49,7 +49,7 @@ export async function incrementTemplateViews(templateId: string): Promise<boolea
       sessionStorage.setItem(sessionKey, "1");
     }
 
-    const { error } = await supabase.rpc("increment_template_views" as any, {
+    const { error } = await (supabase as any).rpc("increment_template_views", {
       p_template_id: templateId,
     } as any);
 
@@ -73,7 +73,7 @@ export async function incrementTemplateUses(templateId: string): Promise<boolean
       return false;
     }
 
-    const { error } = await supabase.rpc("increment_template_uses" as any, {
+    const { error } = await (supabase as any).rpc("increment_template_uses", {
       p_template_id: templateId,
     } as any);
 

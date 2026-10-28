@@ -26,6 +26,7 @@ export async function getWaveformPeaks(url: string, buckets = 240): Promise<numb
     const res = await fetch(url);
     const arr = await res.arrayBuffer();
     const ctx = getAudioContext();
+    if (!ctx) throw new Error("AudioContext is unavailable");
     const audioBuf = await ctx.decodeAudioData(arr.slice(0));
     const ch = audioBuf.getChannelData(0);
     const block = Math.floor(ch.length / buckets) || 1;

@@ -23,7 +23,9 @@ import { ImagePostprocessor } from "./ImagePostprocessor";
 import { ImageMemoryManager } from "./ImageMemoryManager";
 import { ImageOutputVerifier } from "./ImageOutputVerifier";
 
-const MEDIAPIPE_WASM_PATH = "/wasm/mediapipe";
+// The repository cannot hold the large WASM binaries; use the same pinned
+// runtime as video segmentation instead of an incomplete local directory.
+const MEDIAPIPE_WASM_PATH = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm";
 
 export class ImageInferenceEngine {
   private static instance: ImageInferenceEngine;
@@ -618,7 +620,14 @@ export class ImageInferenceEngine {
     const vision = await FilesetResolver.forVisionTasks(MEDIAPIPE_WASM_PATH);
     const modelBuffer = await this.modelManager.getModelBinary(
       OFFICIAL_MODEL_MANIFESTS["mediapipe-selfie-segmenter"],
-      options?.onProgress,
+      (event) => options?.onProgress?.({
+        taskId: "mediapipe-selfie-segmenter",
+        taskType: "remove-background",
+        stage: "downloading_model",
+        progress: 0,
+        message: "Loading segmentation model",
+        ...event,
+      }),
       options?.signal
     );
 

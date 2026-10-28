@@ -103,6 +103,7 @@ export interface AIBenchmarkResult {
 }
 
 export interface ImageSegmentationOptions {
+  operationId?: string;
   refineEdges?: boolean;
   edgeFeather?: number;
   threshold?: number;
