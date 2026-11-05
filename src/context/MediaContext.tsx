@@ -360,9 +360,11 @@ export interface VfxItem { id: string; type: VfxType; start: number; end: number
 export interface OverlayItem {
   id: string;
   url: string;
-  type: "image" | "video";
+  type: "image" | "video" | "motion";
   name: string;
   file?: File;
+  /** Procedural motion graphic (type === "motion") */
+  motion?: import("@/lib/motionGraphics").MotionSpec;
   start: number;
   end: number;
   x: number; // 0..100%
@@ -1491,6 +1493,9 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
       setClips((prev) => prev.map((c, i) => (i === 0 ? c : { ...c, transitionIn: { type: tpl.transition, duration: transitionDuration } })));
     }
     setCaptionStyle((s) => ({ ...s, ...style.captionStyle }));
+    if (style.overlays.length) {
+      setOverlays((prev) => [...prev.filter((o) => !o.id.startsWith("tplmg-")), ...style.overlays]);
+    }
     if (tpl.segmentSec > 0) {
       const beats: number[] = [];
       for (let t = tpl.segmentSec; t < dur - 0.2; t += tpl.segmentSec) beats.push(t);
