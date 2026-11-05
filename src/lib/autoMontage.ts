@@ -2168,7 +2168,6 @@ export async function runAutoMontage(
       ...result,
       filters: style.filters,
       vfx: style.vfx,
-      overlays: style.overlays,
       captions: [],
       captionStyle: style.captionStyle,
     };
