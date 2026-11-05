@@ -61,7 +61,7 @@ const ClipThumbnails = memo(({ clip, media, pxPerSec, isDragging, isInteracting,
         }
       },
       {
-        root: rootNode,
+        root: rootNode as Element | null,
         rootMargin: "0px 100% 0px 100%",
       }
     );
