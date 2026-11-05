@@ -285,7 +285,9 @@ const OverlayTimeline = memo(({ currentTime, pxPerSec, containerW, isPlaying, fo
 
                 {/* Thumbnail */}
                 <div className="flex items-center gap-1.5 pl-1.5 flex-1 min-w-0 z-10">
-                  {o.type === "image" ? (
+                  {o.type === "motion" ? (
+                    <span className="w-5 h-5 rounded flex-shrink-0 bg-primary/60 text-[9px] flex items-center justify-center">✦</span>
+                  ) : o.type === "image" ? (
                     <img src={o.url} alt="" className="w-5 h-5 object-cover rounded flex-shrink-0" />
                   ) : (
                     <video src={o.url} className="w-5 h-5 object-cover rounded flex-shrink-0" muted />

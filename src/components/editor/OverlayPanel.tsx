@@ -332,7 +332,9 @@ const OverlayPanel = ({ open, onClose, currentTime }: Props) => {
                       >
                         {/* Thumbnail / Indicator */}
                         <div className="relative w-12 h-12 rounded-xl overflow-hidden bg-black/40 border border-border/40 flex-shrink-0 flex items-center justify-center">
-                          {o.type === "image" ? (
+                          {o.type === "motion" ? (
+                            <span className="text-primary text-lg font-black">✦</span>
+                          ) : o.type === "image" ? (
                             <>
                               <img src={o.url} alt="" className="w-full h-full object-cover" />
                               <div className="absolute bottom-0.5 right-0.5 bg-black/60 rounded p-0.5">
