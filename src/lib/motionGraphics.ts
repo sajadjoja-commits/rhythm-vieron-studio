@@ -4,7 +4,7 @@
  * Everything is procedural (no network, no assets) so it works offline.
  */
 
-export type MotionCategory = "text" | "shape" | "intro";
+export type MotionCategory = "text" | "shape" | "intro" | "3d" | "sticker";
 
 export interface MotionSpec {
   preset: string;
@@ -284,6 +284,95 @@ export const MOTION_PRESETS: MotionPreset[] = [
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
       ctx.fillStyle = s.color; ctx.font = font(s, h * 0.17, 800); ctx.fillText(s.text, w / 2, h * 0.46);
       ctx.fillStyle = s.accent; ctx.font = font(s, h * 0.08, 600); ctx.fillText(s.subText, w / 2, h * 0.62);
+    },
+  },
+
+  // ───────── 3D (procedural pseudo-3D, perspective projected) ─────────
+  {
+    id: "cube-3d", category: "3d", name: "مكعب ثلاثي", nameEn: "3D Cube", baseW: 160, baseH: 160, defaultDuration: 4,
+    defaults: D("", "", "#ffffff", "#7c5cff"),
+    draw(ctx, s, t, d, w, h) {
+      ctx.globalAlpha = envelope(t, d, 0.5);
+      const a = t * 1.2, b = t * 0.8, size = w * 0.26 * easeBack(clamp(t / 0.6));
+      const V = [[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]].map(([x,y,z]) => {
+        let X = x * Math.cos(a) - z * Math.sin(a); let Z = x * Math.sin(a) + z * Math.cos(a);
+        const Y = y * Math.cos(b) - Z * Math.sin(b); Z = y * Math.sin(b) + Z * Math.cos(b);
+        const p = 3 / (3 + Z); return [w / 2 + X * size * p, h / 2 + Y * size * p, Z];
+      });
+      const F = [[0,1,2,3],[4,5,6,7],[0,1,5,4],[2,3,7,6],[1,2,6,5],[0,3,7,4]];
+      const faces = F.map((f) => ({ f, z: f.reduce((acc, i) => acc + V[i][2], 0) / 4 })).sort((x, y) => y.z - x.z);
+      faces.forEach(({ f, z }, i) => {
+        ctx.beginPath(); f.forEach((vi, k) => (k ? ctx.lineTo(V[vi][0], V[vi][1]) : ctx.moveTo(V[vi][0], V[vi][1]))); ctx.closePath();
+        ctx.fillStyle = s.accent; ctx.globalAlpha = envelope(t, d, 0.5) * (0.35 + 0.5 * clamp(1 - (z + 1) / 2)); ctx.fill();
+        ctx.strokeStyle = s.color; ctx.lineWidth = 2; ctx.stroke(); void i;
+      });
+    },
+  },
+  {
+    id: "extrude-text-3d", category: "3d", name: "نص بارز 3D", nameEn: "3D Extruded Text", baseW: 220, baseH: 90, defaultDuration: 3.5,
+    defaults: D("WOW", "", "#ffffff", "#ff3d71"),
+    draw(ctx, s, t, d, w, h) {
+      const e = envelope(t, d, 0.6); ctx.globalAlpha = clamp(e * 1.4);
+      const rot = Math.sin(t * 1.6) * 0.35; ctx.translate(w / 2, h / 2);
+      ctx.transform(Math.cos(rot), Math.sin(rot) * 0.15, 0, 1, 0, 0); const sc = t < 0.6 ? easeBack(t / 0.6) : 1; ctx.scale(sc, sc);
+      ctx.font = font(s, h * 0.55, 900); ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      const depth = 10; for (let i = depth; i > 0; i--) { ctx.fillStyle = s.accent; ctx.globalAlpha = clamp(e * 1.4) * (0.4 + 0.6 * (1 - i / depth)); ctx.fillText(s.text, i * 0.9 * Math.cos(rot + 0.8), i * 0.9); }
+      ctx.globalAlpha = clamp(e * 1.4); ctx.fillStyle = s.color; ctx.fillText(s.text, 0, 0);
+    },
+  },
+  {
+    id: "orbit-sphere", category: "3d", name: "كوكب مداري", nameEn: "Orbit Sphere", baseW: 180, baseH: 180, defaultDuration: 4,
+    defaults: D("", "", "#ffd400", "#00c2ff"),
+    draw(ctx, s, t, d, w, h) {
+      ctx.globalAlpha = envelope(t, d, 0.6); const cx = w / 2, cy = h / 2, r = w * 0.22;
+      const g = ctx.createRadialGradient(cx - r * 0.4, cy - r * 0.4, r * 0.1, cx, cy, r); g.addColorStop(0, "#fff"); g.addColorStop(1, s.accent);
+      const back: [number, number, number][] = [], front: [number, number, number][] = [];
+      for (let i = 0; i < 14; i++) { const a = t * 1.5 + (i / 14) * Math.PI * 2; const z = Math.sin(a); const p: [number, number, number] = [cx + Math.cos(a) * w * 0.4, cy + z * h * 0.12, z]; (z < 0 ? back : front).push(p); }
+      const dot = ([x, y, z]: [number, number, number]) => { ctx.fillStyle = s.color; ctx.beginPath(); ctx.arc(x, y, 3 + z * 1.5 + 1.5, 0, Math.PI * 2); ctx.fill(); };
+      back.forEach(dot); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill(); front.forEach(dot);
+    },
+  },
+  {
+    id: "flip-card-3d", category: "3d", name: "بطاقة مقلوبة", nameEn: "3D Flip Card", baseW: 200, baseH: 90, defaultDuration: 4,
+    defaults: D("قبل", "بعد", "#ffffff", "#7c5cff"),
+    draw(ctx, s, t, d, w, h) {
+      ctx.globalAlpha = envelope(t, d, 0.4); const fp = easeOut(clamp((t - d * 0.4) / 0.6)); const ang = fp * Math.PI;
+      const sx = Math.cos(ang); ctx.translate(w / 2, h / 2); ctx.scale(Math.abs(sx) || 0.01, 1 + Math.sin(ang) * 0.08);
+      ctx.fillStyle = sx >= 0 ? s.accent : "#111"; ctx.beginPath(); ctx.roundRect(-w * 0.42, -h * 0.38, w * 0.84, h * 0.76, 10); ctx.fill();
+      ctx.fillStyle = s.color; ctx.font = font(s, h * 0.34); ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(sx >= 0 ? s.text : s.subText, 0, 0);
+    },
+  },
+  {
+    id: "tunnel-3d", category: "3d", name: "نفق ثلاثي", nameEn: "3D Tunnel", baseW: 200, baseH: 200, defaultDuration: 3,
+    defaults: D("", "", "#ffffff", "#00e5ff"),
+    draw(ctx, s, t, d, w, h) {
+      ctx.globalAlpha = envelope(t, d, 0.4); ctx.translate(w / 2, h / 2);
+      for (let i = 0; i < 10; i++) { const z = ((i / 10) + t * 0.6) % 1; const r = Math.pow(z, 2) * w * 0.7; ctx.globalAlpha = envelope(t, d, 0.4) * z; ctx.strokeStyle = i % 2 ? s.accent : s.color; ctx.lineWidth = 1 + z * 4; ctx.rotate(0.15); ctx.strokeRect(-r / 2, -r / 2, r, r); }
+    },
+  },
+  // ───────── STICKERS (animated, vector) ─────────
+  ...([
+    ["st-fire", "نار", "Fire", "🔥"], ["st-heart", "قلب", "Heart", "❤️"], ["st-star", "نجمة", "Star", "⭐"], ["st-laugh", "ضحك", "Laugh", "😂"],
+    ["st-wow", "مذهل", "Wow", "😱"], ["st-100", "مئة", "100", "💯"], ["st-like", "إعجاب", "Like", "👍"], ["st-rocket", "صاروخ", "Rocket", "🚀"],
+    ["st-sparkle", "لمعان", "Sparkle", "✨"], ["st-money", "مال", "Money", "💰"], ["st-crown", "تاج", "Crown", "👑"], ["st-boom", "انفجار", "Boom", "💥"],
+  ] as const).map(([id, name, nameEn, emoji], idx): MotionPreset => ({
+    id, category: "sticker", name, nameEn, baseW: 120, baseH: 120, defaultDuration: 2.5,
+    defaults: D(emoji, "", "#ffffff", "#ffd400"),
+    draw(ctx, s, t, d, w, h) {
+      const e = envelope(t, d, 0.4, 0.3); const pop = t < 0.4 ? easeBack(t / 0.4) : 1 + Math.sin(t * 6 + idx) * 0.06;
+      ctx.globalAlpha = clamp(e * 1.5); ctx.translate(w / 2, h / 2); ctx.rotate(Math.sin(t * 3 + idx) * 0.12); ctx.scale(pop, pop);
+      ctx.fillStyle = s.accent; for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2 + t * 2; const rr = w * (0.38 + 0.05 * Math.sin(t * 8 + i)); ctx.globalAlpha = clamp(e * 1.5) * 0.7; ctx.beginPath(); ctx.arc(Math.cos(a) * rr, Math.sin(a) * rr, 3, 0, Math.PI * 2); ctx.fill(); }
+      ctx.globalAlpha = clamp(e * 1.5); ctx.font = `${h * 0.55}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(s.text, 0, 0);
+    },
+  })),
+  {
+    id: "speech-bubble", category: "sticker", name: "فقاعة كلام", nameEn: "Speech Bubble", baseW: 200, baseH: 100, defaultDuration: 3,
+    defaults: D("شوف هذا!", "", "#111111", "#ffffff"),
+    draw(ctx, s, t, d, w, h) {
+      const e = envelope(t, d, 0.4); const sc = t < 0.4 ? easeBack(t / 0.4) : 1; ctx.globalAlpha = clamp(e * 1.4);
+      ctx.translate(w / 2, h / 2); ctx.scale(sc, sc); ctx.fillStyle = s.accent; ctx.strokeStyle = "#000"; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.roundRect(-w * 0.44, -h * 0.4, w * 0.88, h * 0.6, 18); ctx.moveTo(-w * 0.15, h * 0.2); ctx.lineTo(-w * 0.25, h * 0.45); ctx.lineTo(-w * 0.02, h * 0.2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = s.color; ctx.font = font(s, h * 0.24); ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(s.text, 0, -h * 0.1);
     },
   },
 ];
