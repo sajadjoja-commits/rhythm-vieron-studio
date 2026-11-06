@@ -1,0 +1,1 @@
+COMMENT ON TABLE public.projects IS 'DEPRECATED: projects are now stored locally on the device only';

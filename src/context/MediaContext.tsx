@@ -814,20 +814,8 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
     pendingCloudPayloadRef.current = null;
     if (candidate.sig === lastCloudSyncSigRef.current) return;
 
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        lastCloudSyncSigRef.current = candidate.sig;
-        const { error } = await supabase.from("projects").upsert({
-          ...candidate.record,
-          name: candidate.record.name,
-          updated_at: new Date().toISOString(),
-        });
-        if (error) console.warn("cloud sync failed", error.message);
-      }
-    } catch (e) {
-      console.warn("cloud sync failed", e);
-    }
+    // Projects are stored locally only (IndexedDB); no online sync.
+    lastCloudSyncSigRef.current = candidate.sig;
   }, []);
 
   useEffect(() => {
@@ -1420,20 +1408,7 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
         coverImage: cover,
       };
     });
-    const { data: { session } } = await supabase.auth.getSession();
-    let cloudProjects: ProjectMeta[] = [];
-    if (session?.user) {
-      const { data, error } = await supabase.from("projects").select("id, name, duration, export_preset, updated_at, cover_image").order("updated_at", { ascending: false });
-      if (!error && data) {
-        cloudProjects = data.map((p: any) => ({
-          id: p.id, name: p.name, updatedAt: new Date(p.updated_at).getTime(), duration: p.duration || 0, preset: p.export_preset || "full", coverImage: sanitizeCoverUrl(p.cover_image)
-        }));
-      }
-    }
-    const merged = new Map<string, ProjectMeta>();
-    for (const p of localProjects) merged.set(p.id, p);
-    for (const p of cloudProjects) merged.set(p.id, p);
-    return Array.from(merged.values()).sort((a, b) => b.updatedAt - a.updatedAt);
+    return localProjects.sort((a, b) => b.updatedAt - a.updatedAt);
   }, []);
 
   const deleteProject = useCallback(async (id: string) => {
@@ -1455,8 +1430,6 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
       }
     }
     await idbDel(STORE_PROJECTS, id);
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.user) { await supabase.from("projects").delete().eq("id", id); }
     toast.success(t("toast.projectDeleted"));
   }, []);
 
