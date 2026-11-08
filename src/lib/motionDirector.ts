@@ -7,8 +7,11 @@
  */
 import type { OverlayItem } from "@/context/MediaContext";
 import { getMotionPreset } from "./motionGraphics";
+import { VideoAnalysisWorkerManager } from "./videoAnalysisWorkerManager";
+import { robustSeekVideo } from "./videoSeeking";
+import type { FrameBufferData } from "./workers/videoAnalysis.worker";
 
-export interface DirectorClip { url: string; type: "video" | "image"; in: number; out: number; }
+export interface DirectorClip { url: string; type: "video" | "image"; in: number; out: number; speed?: number; }
 export interface EnergyPoint { time: number; motion: number; brightness: number; }
 export type DirectorStyle = "auto" | "energetic" | "cinematic" | "minimal";
 
@@ -60,7 +63,7 @@ const shorten = (s: string, n = 26) => (s.length > n ? s.slice(0, n - 1) + "…"
 export function directMotion(opts: DirectorOptions): OverlayItem[] {
   const { duration, energy = [], accent = "#ff3d71", idPrefix = "dir" } = opts;
   const sentences = splitScript(opts.script);
-  if (duration <= 0) return [];
+  if (!Number.isFinite(duration) || duration <= 0) return [];
   const avgMotion = energy.length ? energy.reduce((a, e) => a + e.motion, 0) / energy.length : 0.3;
   const style: DirectorStyle = opts.style && opts.style !== "auto" ? opts.style : avgMotion > 0.45 ? "energetic" : avgMotion < 0.15 ? "cinematic" : "auto";
   const out: OverlayItem[] = [];
@@ -72,7 +75,7 @@ export function directMotion(opts: DirectorOptions): OverlayItem[] {
     const e = Math.min(duration, s + Math.max(0.6, len));
     const { text, subText, ...rest } = extra;
     return {
-      id: `${idPrefix}-${Date.now().toString(36)}-${uid++}`, url: "", type: "motion", name: p.nameEn,
+      id: `${idPrefix}-${uid++}`, url: "", type: "motion", name: p.nameEn,
       motion: { preset, text, subText, accent },
       start: s, end: e, x: 50, y: 50, scale: 1.2, opacity: 1, rotation: 0, blend: "normal", brightness: 1, ...rest,
     };
@@ -90,8 +93,8 @@ export function directMotion(opts: DirectorOptions): OverlayItem[] {
     const isSub = main === "lower-third" || main === "split-reveal" || main === "cinematic-bars";
     const words = s.split(/\s+/);
     const o = mk(main, cursor, Math.min(len, 5), {
-      text: shorten(isSub ? words.slice(0, Math.ceil(words.length / 2)).join(" ") : s),
-      subText: isSub ? shorten(words.slice(Math.ceil(words.length / 2)).join(" "), 30) : undefined,
+      text: isSub ? words.slice(0, Math.ceil(words.length / 2)).join(" ") : s,
+      subText: isSub ? words.slice(Math.ceil(words.length / 2)).join(" ") : undefined,
       x: main === "lower-third" ? 35 : 50, y, scale: main === "cinematic-bars" ? 2.2 : 1.2,
     });
     if (o) out.push(o);
@@ -124,37 +127,48 @@ function nearest(energy: EnergyPoint[], t: number) {
 }
 
 /** Sample the timeline's video at ~1fps on a tiny canvas to estimate motion & brightness. */
-export async function analyzeTimelineEnergy(clips: DirectorClip[], signal?: { aborted: boolean }, onProgress?: (p: number) => void): Promise<EnergyPoint[]> {
+export async function analyzeTimelineEnergy(clips: DirectorClip[], signal?: AbortSignal, onProgress?: (p: number) => void): Promise<EnergyPoint[]> {
   const pts: EnergyPoint[] = [];
   const cv = document.createElement("canvas"); cv.width = 32; cv.height = 18;
   const ctx = cv.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return pts;
-  const total = clips.reduce((a, c) => a + Math.max(0, c.out - c.in), 0) || 1;
+  if (!ctx) throw new Error("Video canvas unavailable");
+  const total = clips.reduce((a, c) => a + Math.max(0, c.out - c.in) / (c.speed || 1), 0) || 1;
   let base = 0;
   for (const c of clips) {
-    const len = Math.max(0, c.out - c.in);
+    if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
+    const speed = c.speed || 1;
+    const len = Math.max(0, c.out - c.in) / speed;
     if (c.type !== "video") { for (let t = 0; t < len; t += 1) pts.push({ time: base + t, motion: 0.05, brightness: 0.5 }); base += len; continue; }
-    const v = document.createElement("video"); v.muted = true; v.preload = "auto"; v.crossOrigin = "anonymous"; v.src = c.url;
+    const v = document.createElement("video"); v.muted = true; v.preload = "auto"; v.crossOrigin = "anonymous";
     try {
-      await new Promise<void>((res, rej) => { v.onloadeddata = () => res(); v.onerror = () => rej(new Error("load")); setTimeout(() => rej(new Error("timeout")), 8000); });
-      let prev: Uint8ClampedArray | null = null;
-      const step = Math.max(0.5, Math.min(1, len / 40));
+      await new Promise<void>((res, rej) => {
+        const cleanup = () => { clearTimeout(timer); v.onloadeddata = null; v.onerror = null; signal?.removeEventListener("abort", abort); };
+        const finish = (error?: Error) => { cleanup(); if (error) rej(error); else res(); };
+        const abort = () => finish(new DOMException("Cancelled", "AbortError"));
+        const timer = setTimeout(() => finish(new Error("Video load timed out")), 8000);
+        v.onloadeddata = () => finish(); v.onerror = () => finish(new Error("Cannot decode video"));
+        signal?.addEventListener("abort", abort, { once: true });
+        v.src = c.url; v.load();
+      });
+      const frames: FrameBufferData[] = [];
+      const step = Math.max(0.5, len / 40);
       for (let t = 0; t < len; t += step) {
-        if (signal?.aborted) return pts;
-        await new Promise<void>((res) => { const done = () => { v.removeEventListener("seeked", done); res(); }; v.addEventListener("seeked", done); v.currentTime = c.in + t; setTimeout(done, 1500); });
+        if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
+        const ready = await robustSeekVideo(v, c.in + t * speed, { signal, timeoutMs: 1500 });
+        if (!ready) throw new Error("Video frame could not be decoded");
         ctx.drawImage(v, 0, 0, 32, 18);
         const d = ctx.getImageData(0, 0, 32, 18).data;
-        let lum = 0, diff = 0;
-        for (let i = 0; i < d.length; i += 4) { const l = (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114) / 255; lum += l; if (prev) diff += Math.abs(d[i] - prev[i]) + Math.abs(d[i + 1] - prev[i + 1]) + Math.abs(d[i + 2] - prev[i + 2]); }
-        const n = d.length / 4;
-        pts.push({ time: base + t, brightness: lum / n, motion: prev ? Math.min(1, diff / (n * 3 * 255) * 4) : 0 });
-        prev = new Uint8ClampedArray(d);
+        frames.push({ time: base + t, width: 32, height: 18, buffer: d.slice().buffer as ArrayBuffer });
         onProgress?.(Math.min(1, (base + t) / total));
       }
-    } catch {
-      for (let t = 0; t < len; t += 1) pts.push({ time: base + t, motion: 0.2, brightness: 0.5 });
+      if (frames.length) {
+        const results = await VideoAnalysisWorkerManager.getInstance().analyzeFrames(frames, frames.map((f, i) => ({ in: f.time, out: frames[i + 1]?.time ?? base + len })));
+        if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
+        pts.push(...results.map(r => ({ time: r.in, motion: r.motion, brightness: r.brightness })));
+      }
     } finally { v.removeAttribute("src"); v.load(); }
     base += len;
   }
+  onProgress?.(1);
   return pts;
 }

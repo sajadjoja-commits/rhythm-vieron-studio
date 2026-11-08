@@ -1456,7 +1456,7 @@ export const MediaProvider = ({ children }: { children: ReactNode }) => {
 
   const applySmartTemplate = useCallback((tpl: import("@/lib/smartTemplates").SmartTemplate) => {
     const currentClips = clipsRef.current;
-    const dur = currentClips.reduce((acc, c) => acc + Math.max(0, c.out - c.in), 0);
+    const dur = currentClips.reduce((acc, c) => acc + Math.max(0, c.out - c.in) / (c.speed || 1), 0);
     if (currentClips.length === 0 || dur <= 0) { toast.error(t("toast.addMediaFirst")); return false; }
     const style = buildSmartTemplateStyle(tpl, dur);
     setFilters(style.filters);

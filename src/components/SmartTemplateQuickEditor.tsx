@@ -37,7 +37,7 @@ export default function SmartTemplateQuickEditor({ initialTemplate, onBack, onOp
   const {
     media, clips, addFiles, setClips, setFilters, setVfx, setCaptions, setCaptionStyle,
     addAudioTrack, setAudioTracks, audioTracks, totalDuration, resolveTimelineTime,
-    getMediaById, setProjectName
+    getMediaById, setProjectName, setOverlays
   } = useMedia();
 
   // Wizard Flow Step: "setup" (Steps 1-4) | "analyzing" | "result"
@@ -180,6 +180,7 @@ export default function SmartTemplateQuickEditor({ initialTemplate, onBack, onOp
       setClips(res.clips);
       setFilters(res.filters);
       setVfx(res.vfx);
+      setOverlays(prev => [...prev.filter(o => !o.id.startsWith("tplmg-")), ...(res.overlays ?? [])]);
       setCaptions(res.captions);
       if (res.captionStyle) setCaptionStyle((prev) => ({ ...prev, ...res.captionStyle }));
 

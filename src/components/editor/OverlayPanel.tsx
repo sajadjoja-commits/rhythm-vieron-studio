@@ -11,6 +11,9 @@ import { getLang } from "@/lib/i18n";
 import { playSfx } from "@/lib/soundFx";
 import { toast } from "sonner";
 import DraggableLibrarySheet from "./DraggableLibrarySheet";
+import MotionLibrary from "./MotionLibrary";
+import { Button } from "@/components/ui/button";
+import { Sparkles } from "lucide-react";
 
 interface Props {
   open: boolean;
@@ -18,7 +21,7 @@ interface Props {
   currentTime: number;
 }
 
-type TabType = "layers" | "adjust" | "trim" | "mask";
+type TabType = "layers" | "adjust" | "trim" | "mask" | "motion";
 
 const OverlayPanel = ({ open, onClose, currentTime }: Props) => {
   const { 
@@ -203,7 +206,8 @@ const OverlayPanel = ({ open, onClose, currentTime }: Props) => {
         </button>
       }
       subHeader={
-        <div className="grid grid-cols-4 gap-1 bg-secondary/40 p-1 rounded-xl border border-border/30">
+        <div className="grid grid-cols-5 gap-1 bg-secondary/40 p-1 rounded-xl border border-border/30">
+          <Button variant={activeTab === "motion" ? "default" : "ghost"} className="h-auto px-1 py-1.5 gap-1 text-[10px]" onClick={() => setActiveTab("motion")}><Sparkles className="w-3 h-3" />{en ? "Motion" : "موشن"}</Button>
           <button
             onClick={() => { playSfx("click"); setActiveTab("layers"); }}
             className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-bold transition-all ${
@@ -285,6 +289,7 @@ const OverlayPanel = ({ open, onClose, currentTime }: Props) => {
     >
       {/* Hidden File Input */}
       <input ref={inputRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={handleFile} />
+      {activeTab === "motion" && <MotionLibrary currentTime={currentTime} selectedId={selectedId} onSelect={setSelectedId} />}
 
           {/* TAB 1: LAYERS & OVERLAYS LIST */}
           {activeTab === "layers" && (

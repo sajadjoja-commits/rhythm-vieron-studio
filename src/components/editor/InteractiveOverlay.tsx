@@ -3,6 +3,7 @@ import { OverlayItem } from "@/context/MediaContext";
 import { RotateCw, Maximize2, Move } from "lucide-react";
 import { snapPreviewTransform } from "@/lib/timelineSnap";
 import { hasMask, maskDataUrl, getEffectiveMask } from "@/lib/maskEngine";
+import MotionGraphicCanvas from "./MotionGraphicCanvas";
 
 interface Props {
   overlay: OverlayItem;
@@ -271,7 +272,9 @@ const InteractiveOverlay = memo(({ overlay, selected, containerRef, currentTime 
       data-interactive-overlay={overlay.id}
     >
       {/* Content */}
-      {overlay.type === "image" ? (
+      {overlay.type === "motion" ? (
+        <MotionGraphicCanvas overlay={overlay} currentTime={currentTime} />
+      ) : overlay.type === "image" ? (
         <img
           ref={(el) => { contentRef.current = el; }}
           onLoad={(e) => setBox({ w: e.currentTarget.offsetWidth, h: e.currentTarget.offsetHeight })}

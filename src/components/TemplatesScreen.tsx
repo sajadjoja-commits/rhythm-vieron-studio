@@ -81,7 +81,7 @@ const AnalysisOverlay = ({ open, template, progress, en }: { open: boolean; temp
 
 const TemplatesScreen = ({ onStartEditor, onSelectPublishedTemplate, onSelectSmartTemplateQuick }: TemplatesScreenProps) => {
   const en = getLang() === "en";
-  const { clips, media, addFiles, applySmartTemplate, newProject, setClips, setFilters, setVfx, setCaptionStyle, setCaptions, addAudioTrack } = useMedia();
+  const { clips, media, addFiles, applySmartTemplate, newProject, setClips, setFilters, setVfx, setCaptionStyle, setCaptions, addAudioTrack, setOverlays } = useMedia();
   const { requestAccess } = useAdGate();
   
   const [templateTabMode, setTemplateTabMode] = useState<"smart" | "published">("smart");
@@ -215,6 +215,7 @@ const TemplatesScreen = ({ onStartEditor, onSelectPublishedTemplate, onSelectSma
         setClips(result.clips);
         setFilters(result.filters);
         setVfx(result.vfx);
+        setOverlays(prev => [...prev.filter(o => !o.id.startsWith("tplmg-")), ...(result.overlays ?? [])]);
         if (result.captionStyle) setCaptionStyle(result.captionStyle as any);
         if (result.captions) setCaptions(result.captions);
       } else {

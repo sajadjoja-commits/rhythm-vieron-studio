@@ -521,6 +521,7 @@ describe("Comprehensive Smart Cut & Rhythm Engine Test Suite", () => {
       expect(result.captions).toEqual([]);
       expect(result.filters.length).toBe(tpl.filters.length);
       expect(result.vfx.length).toBe(tpl.vfx.length);
+      expect(result.overlays?.map(o => o.motion?.preset)).toEqual(tpl.motion?.map(m => m.preset) ?? []);
 
       for (let i = 0; i < tpl.filters.length; i++) {
         expect(result.filters[i].type).toBe(tpl.filters[i].type);

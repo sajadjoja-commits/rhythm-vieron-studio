@@ -1,6 +1,6 @@
 // AI Auto-Montage & Smart Beat Engine with Non-blocking Worker Analysis, Blur/Exposure Penalties & Diversity
 import { buildSmartTemplateStyle, type SmartTemplate } from "./smartTemplates";
-import type { Clip, MediaItem, FilterItem, VfxItem, Caption, CaptionStyle, TransitionType, Transition } from "@/context/MediaContext";
+import type { Clip, MediaItem, FilterItem, VfxItem, Caption, CaptionStyle, TransitionType, Transition, OverlayItem } from "@/context/MediaContext";
 import { 
   calculateSegmentAudioEnergiesBatch, 
   analyzeAudioTrack, 
@@ -37,6 +37,7 @@ export interface MontageProgressInfo {
 export type MontageProgressCallback = (info: MontageProgressInfo) => void;
 
 export interface MontageResult {
+  overlays?: OverlayItem[];
   clips: Clip[];
   filters: FilterItem[];
   vfx: VfxItem[];
@@ -2168,6 +2169,7 @@ export async function runAutoMontage(
       ...result,
       filters: style.filters,
       vfx: style.vfx,
+      overlays: style.overlays,
       captions: [],
       captionStyle: style.captionStyle,
     };

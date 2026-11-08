@@ -3,6 +3,8 @@ import { X, Download, Share2, Check, Sparkles, Film, Music, Languages, Sliders, 
 import { useMedia, interpolateKeyframes } from "@/context/MediaContext";
 import { toast } from "sonner";
 import { hasMask, applyMaskToContext, getEffectiveMask } from "@/lib/maskEngine";
+import { drawMotionLayer } from "@/lib/motionLayer";
+import { motionBaseSize } from "@/lib/motionGraphics";
 import { t, isRTL, getLang } from "@/lib/i18n";
 import { applyOfflineFxChain } from "@/lib/audioFx";
 import { Capacitor } from '@capacitor/core';
@@ -1503,6 +1505,22 @@ const ExportDialog = ({ open, onClose, projectName, totalDuration, previewRef, v
       for (let oi = 0; oi < overlays.length; oi++) {
         const o = overlays[oi];
         if (elapsed < o.start || elapsed > o.end) continue;
+        if (o.type === "motion" && o.motion) {
+          const base = motionBaseSize(o.motion);
+          const drawW = base.w / previewW * exportWidth * (o.scale ?? 1);
+          const drawH = base.h / previewH * exportHeight * (o.scale ?? 1);
+          ctx.save();
+          ctx.translate(o.x / 100 * exportWidth, o.y / 100 * exportHeight);
+          ctx.rotate((o.rotation ?? 0) * Math.PI / 180);
+          ctx.scale(o.flipH ? -1 : 1, o.flipV ? -1 : 1);
+          ctx.globalAlpha = o.opacity ?? 1;
+          ctx.filter = `brightness(${o.brightness ?? 1})`;
+          if (o.blend && o.blend !== "normal") ctx.globalCompositeOperation = o.blend as GlobalCompositeOperation;
+          ctx.translate(-drawW / 2, -drawH / 2);
+          drawMotionLayer(ctx, o, elapsed, drawW, drawH);
+          ctx.restore();
+          continue;
+        }
         let el = preloadedMap[o.url] || preloadedMap[o.id];
         if (!el) {
           const m = mediaById.get(o.url);
